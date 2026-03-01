@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS bill_items (
     quantity INT,
     total DECIMAL(12,2),
     FOREIGN KEY (billId) REFERENCES bills(id) ON DELETE CASCADE,
-    FOREIGN KEY (productId) REFERENCES products(id)
+    FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

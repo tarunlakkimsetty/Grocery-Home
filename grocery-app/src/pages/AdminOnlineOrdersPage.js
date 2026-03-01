@@ -191,6 +191,9 @@ class AdminOnlineOrdersPage extends React.Component {
             // Add Product section state (Pending only)
             addProductId: '',
             addProductQty: 1,
+
+            // Search
+            searchQuery: '',
         };
     }
 
@@ -202,9 +205,10 @@ class AdminOnlineOrdersPage extends React.Component {
     // ─── Data Fetching ─────────────────────────────────────────────────────────
 
     fetchOrders = async () => {
+        const { searchQuery } = this.state;
         this.setState({ loading: true, isLoading: true });
         try {
-            const response = await orderService.getAllOrders();
+            const response = await orderService.getAllOrders(searchQuery);
             console.log('Admin Online Orders:', response);
             const orders = Array.isArray(response) ? response : (response?.orders || response?.data || []);
             this.setState({ orders, onlineOrders: orders, loading: false, isLoading: false });
@@ -212,6 +216,10 @@ class AdminOnlineOrdersPage extends React.Component {
             this.setState({ error: 'Failed to load orders', loading: false, isLoading: false });
             toast.error('Failed to load orders');
         }
+    };
+
+    handleSearchChange = (e) => {
+        this.setState({ searchQuery: e.target.value }, () => this.fetchOrders());
     };
 
     fetchProducts = async () => {
@@ -456,7 +464,7 @@ class AdminOnlineOrdersPage extends React.Component {
 
             const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
                 o.id === orderId
-                    ? { ...o, status: 'Verified', items: finalItems, grandTotal: finalTotal }
+                    ? { ...o, status: 'Verified', isVerified: true, items: finalItems, grandTotal: finalTotal }
                     : o
             );
 
@@ -464,6 +472,7 @@ class AdminOnlineOrdersPage extends React.Component {
                 ? {
                       ...this.state.selectedOrder,
                       status: 'Verified',
+                                            isVerified: true,
                       items: finalItems,
                       grandTotal: finalTotal,
                   }
@@ -492,14 +501,44 @@ class AdminOnlineOrdersPage extends React.Component {
     handleApprovePayment = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
-            await orderService.approvePayment(orderId);
-            const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
-                o.id === orderId ? { ...o, paymentStatus: 'Paid' } : o
-            );
-            const selectedOrder = this.state.selectedOrder
-                ? { ...this.state.selectedOrder, paymentStatus: 'Paid' }
-                : null;
-            this.setState({ orders, onlineOrders: orders, selectedOrder });
+            const resp = await orderService.approvePayment(orderId);
+            const nextOrder = resp?.order || resp?.data?.order || null;
+
+            if (nextOrder) {
+                const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
+                    o.id === orderId ? { ...o, ...nextOrder } : o
+                );
+                const selectedOrder = this.state.selectedOrder
+                    ? { ...this.state.selectedOrder, ...nextOrder }
+                    : null;
+                this.setState({ orders, onlineOrders: orders, selectedOrder });
+
+                // If it becomes Completed, it moves to Bills view.
+                if (nextOrder.status === 'Completed') {
+                    await this.fetchOrders();
+                }
+            } else {
+                // Fallback (mock mode)
+                const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
+                    o.id === orderId
+                        ? {
+                              ...o,
+                              isPaid: true,
+                              paymentStatus: 'Paid',
+                              status: o.isDelivered ? 'Completed' : 'Paid',
+                          }
+                        : o
+                );
+                const selectedOrder = this.state.selectedOrder
+                    ? {
+                          ...this.state.selectedOrder,
+                          isPaid: true,
+                          paymentStatus: 'Paid',
+                          status: this.state.selectedOrder.isDelivered ? 'Completed' : 'Paid',
+                      }
+                    : null;
+                this.setState({ orders, onlineOrders: orders, selectedOrder });
+            }
             toast.success('Payment approved for Order #' + orderId + ' 💳');
         } catch (err) {
             toast.error('Failed to approve payment');
@@ -508,23 +547,25 @@ class AdminOnlineOrdersPage extends React.Component {
         }
     };
 
-    // Delivery (PART 6: only after Payment Approved)
+    // Delivery (allowed after Verification)
     handleDeliver = async (orderId) => {
-        const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.paymentStatus !== 'Paid') {
-            toast.warning('Please approve payment before marking as delivered');
-            return;
-        }
         this.setState({ actionLoading: true });
         try {
-            await orderService.deliverOrder(orderId);
-            const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
-                o.id === orderId ? { ...o, status: 'Delivered' } : o
-            );
-            const updated = this.state.selectedOrder
-                ? { ...this.state.selectedOrder, status: 'Delivered' }
-                : null;
-            this.setState({ orders, onlineOrders: orders, selectedOrder: updated });
+            const resp = await orderService.deliverOrder(orderId);
+            const nextOrder = resp?.order || resp?.data?.order || null;
+
+            if (nextOrder) {
+                const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
+                    o.id === orderId ? { ...o, ...nextOrder } : o
+                );
+                const selectedOrder = this.state.selectedOrder
+                    ? { ...this.state.selectedOrder, ...nextOrder }
+                    : null;
+                this.setState({ orders, onlineOrders: orders, selectedOrder });
+            }
+
+            // Re-fetch so Completed moves out of Active.
+            await this.fetchOrders();
             toast.success('Order #' + orderId + ' marked as Delivered 📦');
         } catch (err) {
             toast.error('Failed to update order status');
@@ -545,13 +586,8 @@ class AdminOnlineOrdersPage extends React.Component {
         this.setState({ actionLoading: true });
         try {
             await orderService.rejectOrder(orderId);
-            const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
-                o.id === orderId ? { ...o, status: 'Rejected' } : o
-            );
-            const updated = this.state.selectedOrder
-                ? { ...this.state.selectedOrder, status: 'Rejected' }
-                : null;
-            this.setState({ orders, onlineOrders: orders, selectedOrder: updated });
+            // Rejected orders no longer match the active filter; refetch to remove from list
+            await this.fetchOrders();
             toast.success('Order #' + orderId + ' rejected');
         } catch (err) {
             toast.error('Failed to reject order');
@@ -568,6 +604,7 @@ class AdminOnlineOrdersPage extends React.Component {
             Verified: 'badge-info',
             Paid: 'badge-primary',
             Delivered: 'badge-success',
+            Completed: 'badge-success',
             Rejected: 'badge-danger',
         };
         return map[status] || 'badge-warning';
@@ -578,6 +615,7 @@ class AdminOnlineOrdersPage extends React.Component {
         if (status === 'Verified') return '✅';
         if (status === 'Paid') return '💰';
         if (status === 'Delivered') return '📦';
+        if (status === 'Completed') return '🏁';
         if (status === 'Rejected') return '❌';
         return '';
     };
@@ -637,12 +675,26 @@ class AdminOnlineOrdersPage extends React.Component {
 
                     // Derived flags for selected order
                     const isVerified =
-                        selectedOrder &&
-                        ['Verified', 'Delivered'].includes(selectedOrder.status);
+                        !!(
+                            selectedOrder &&
+                            (selectedOrder.isVerified ||
+                                ['Verified', 'Paid', 'Delivered', 'Completed'].includes(
+                                    selectedOrder.status
+                                ))
+                        );
                     const isPaymentPaid =
-                        selectedOrder && selectedOrder.paymentStatus === 'Paid';
+                        !!(
+                            selectedOrder &&
+                            (selectedOrder.isPaid ||
+                                selectedOrder.paymentStatus === 'Paid' ||
+                                ['Paid', 'Completed'].includes(selectedOrder.status))
+                        );
                     const isDelivered =
-                        selectedOrder && selectedOrder.status === 'Delivered';
+                        !!(
+                            selectedOrder &&
+                            (selectedOrder.isDelivered ||
+                                ['Delivered', 'Completed'].includes(selectedOrder.status))
+                        );
                     const isRejected =
                         selectedOrder && selectedOrder.status === 'Rejected';
                     // Lock editing once order moves past Pending
@@ -661,6 +713,16 @@ class AdminOnlineOrdersPage extends React.Component {
                                 <h1>🛵 {langCtx.getText('onlineOrders')}</h1>
                                 <p>{safeOrders.length} Cash on Delivery order(s)</p>
                             </PageHeader>
+
+                            <div className="mb-3" style={{ maxWidth: '420px' }}>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="Search by Customer Name"
+                                    value={this.state.searchQuery}
+                                    onChange={this.handleSearchChange}
+                                />
+                            </div>
 
                             {effectiveLoading && <Spinner fullPage text="Loading orders..." />}
                             {error && <div className="alert alert-danger">{error}</div>}
@@ -1123,7 +1185,8 @@ class AdminOnlineOrdersPage extends React.Component {
                                                             onClick={() =>
                                                                 this.handleApprovePayment(selectedOrder.id)
                                                             }
-                                                            disabled={actionLoading || isRejected}
+                                                            disabled={actionLoading || isRejected || !isVerified}
+                                                            title={!isVerified ? 'Verify the order first' : 'Mark as Paid'}
                                                         >
                                                             {actionLoading ? (
                                                                 <>
@@ -1162,7 +1225,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     id="verifyOrderCheck"
                                                     checked={isVerified || false}
                                                     disabled={
-                                                        isVerified || isDelivered || isRejected || actionLoading
+                                                        isVerified || isPaymentPaid || isDelivered || isRejected || actionLoading
                                                     }
                                                     onChange={(e) =>
                                                         this.handleVerifyCheckbox(e.target.checked)
@@ -1187,19 +1250,19 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     </button>
                                                 )}
 
-                                                {/* PART 6: Delivered Button — only after payment */}
+                                                {/* PART 6: Delivered Button — only after verification */}
                                                 <ActionButton
                                                     className="btn-deliver"
                                                     onClick={() => this.handleDeliver(selectedOrder.id)}
                                                     disabled={
                                                         actionLoading ||
                                                         isDelivered ||
-                                                        !isPaymentPaid ||
+                                                        !isVerified ||
                                                         isRejected
                                                     }
                                                     title={
-                                                        !isPaymentPaid
-                                                            ? 'Approve payment first before marking as delivered'
+                                                        !isVerified
+                                                            ? 'Verify the order first'
                                                             : isDelivered
                                                             ? 'Already Delivered'
                                                             : 'Mark as Delivered'

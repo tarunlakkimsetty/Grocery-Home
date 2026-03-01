@@ -1,4 +1,5 @@
 const Product = require('../models/productModel');
+const { pool: db } = require('../config/db');
 
 /**
  * @desc    Create new product
@@ -244,25 +245,36 @@ const updateStock = async (req, res, next) => {
  * @route   DELETE /api/products/:id
  * @access  Admin only
  */
-const deleteProduct = async (req, res, next) => {
-    try {
-        const { id } = req.params;
+const deleteProduct = (req, res) => {
+    const productId = req.params.id;
 
-        // Check if product exists
-        const existingProduct = await Product.findById(id);
-        if (!existingProduct) {
-            return res.status(404).json({
+    if (!productId) {
+        return res.status(400).json({ message: 'Product ID required' });
+    }
+
+    const query = 'DELETE FROM products WHERE id = ?';
+
+    db.query(query, [productId], (err, result) => {
+        if (err) {
+            // Common case: product is referenced by order_items / bill_items
+            if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Cannot delete product: it is referenced by existing orders/bills'
+                });
+            }
+
+            console.error('Delete Error:', err);
+            return res.status(500).json({
                 success: false,
-                message: 'Product not found'
+                message: 'Database delete failed'
             });
         }
 
-        const deleted = await Product.delete(id);
-
-        if (!deleted) {
-            return res.status(500).json({
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
                 success: false,
-                message: 'Failed to delete product'
+                message: 'Product not found'
             });
         }
 
@@ -270,9 +282,7 @@ const deleteProduct = async (req, res, next) => {
             success: true,
             message: 'Product deleted successfully'
         });
-    } catch (error) {
-        next(error);
-    }
+    });
 };
 
 /**

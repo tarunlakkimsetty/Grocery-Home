@@ -1,8 +1,84 @@
 const { promisePool } = require('./config/db');
 
+const ensureCascadeFk = async ({ tableName, columnName, referencedTable, referencedColumn }) => {
+    // Best-effort: if FK exists but isn't CASCADE, replace it.
+    try {
+        const [tables] = await promisePool.query(
+            `SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
+            [tableName]
+        );
+        if (tables.length === 0) {
+            return;
+        }
+
+        const [rows] = await promisePool.query(
+            `
+            SELECT rc.CONSTRAINT_NAME AS constraintName, rc.DELETE_RULE AS deleteRule
+            FROM information_schema.REFERENTIAL_CONSTRAINTS rc
+            JOIN information_schema.KEY_COLUMN_USAGE kcu
+              ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+             AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+            WHERE kcu.TABLE_SCHEMA = DATABASE()
+              AND kcu.TABLE_NAME = ?
+              AND kcu.COLUMN_NAME = ?
+              AND kcu.REFERENCED_TABLE_NAME = ?
+            LIMIT 1
+            `,
+            [tableName, columnName, referencedTable]
+        );
+
+        if (rows.length === 0) {
+            return;
+        }
+
+        const { constraintName, deleteRule } = rows[0];
+        if (String(deleteRule).toUpperCase() === 'CASCADE') {
+            return;
+        }
+
+        await promisePool.query(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
+
+        const newConstraintName = `fk_${tableName}_${columnName}_cascade`;
+        try {
+            await promisePool.query(
+                `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`${newConstraintName}\` FOREIGN KEY (\`${columnName}\`) REFERENCES \`${referencedTable}\`(\`${referencedColumn}\`) ON DELETE CASCADE`
+            );
+        } catch (e) {
+            // If constraint name collides, retry with a different name.
+            const fallbackName = `fk_${tableName}_${columnName}_cascade_2`;
+            await promisePool.query(
+                `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`${fallbackName}\` FOREIGN KEY (\`${columnName}\`) REFERENCES \`${referencedTable}\`(\`${referencedColumn}\`) ON DELETE CASCADE`
+            );
+        }
+
+        console.log(`✓ ${tableName}.${columnName} foreign key updated to ON DELETE CASCADE`);
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        console.log(`! Could not ensure CASCADE FK for ${tableName}.${columnName}:`, msg);
+    }
+};
+
 const runMigration = async () => {
     try {
         console.log('Running database migrations...');
+
+        const addColumnBestEffort = async (tableName, columnSql, columnNameForLogs) => {
+            try {
+                await promisePool.query(`ALTER TABLE \`${tableName}\` ADD COLUMN ${columnSql}`);
+                console.log(`✓ ${tableName}.${columnNameForLogs} column added`);
+            } catch (err) {
+                const msg = String(err && err.message ? err.message : err);
+                if (msg.includes('Duplicate column')) {
+                    console.log(`✓ ${tableName}.${columnNameForLogs} already exists`);
+                    return;
+                }
+                if (msg.includes("doesn't exist")) {
+                    console.log(`✓ ${tableName} table missing (skipping ${columnNameForLogs})`);
+                    return;
+                }
+                console.log(`! Could not add ${tableName}.${columnNameForLogs} column:`, msg);
+            }
+        };
 
         // Add unit and emoji columns to products table if they don't exist
         try {
@@ -59,32 +135,85 @@ const runMigration = async () => {
                 quantity INT,
                 total DECIMAL(12,2),
                 FOREIGN KEY (billId) REFERENCES bills(id) ON DELETE CASCADE,
-                FOREIGN KEY (productId) REFERENCES products(id)
+                FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('✓ bill_items table created');
 
-        // Extend orders.status enum to include 'Rejected'
-        // (safe to run multiple times; will fail if already extended depending on MySQL version)
+        // Ensure product foreign keys cascade deletes (prevents 500 on DELETE /api/products/:id)
+        await ensureCascadeFk({
+            tableName: 'order_items',
+            columnName: 'productId',
+            referencedTable: 'products',
+            referencedColumn: 'id'
+        });
+        await ensureCascadeFk({
+            tableName: 'bill_items',
+            columnName: 'productId',
+            referencedTable: 'products',
+            referencedColumn: 'id'
+        });
+
+        // Ensure orders.status is VARCHAR(50) (allows dynamic workflow values like 'Completed')
         try {
             await promisePool.query(`
                 ALTER TABLE orders
-                MODIFY COLUMN status ENUM('Pending','Verified','Paid','Delivered','Rejected')
-                DEFAULT 'Pending'
+                MODIFY COLUMN status VARCHAR(50) DEFAULT 'Pending'
             `);
-            console.log("✓ orders.status updated to include 'Rejected'");
+            console.log("✓ orders.status set to VARCHAR(50)");
         } catch (err) {
-            // If enum already includes Rejected or table doesn't exist yet, ignore safely
             const msg = String(err && err.message ? err.message : err);
-            if (
-                msg.includes('Duplicate') ||
-                msg.includes('doesn\'t exist') ||
-                msg.includes('Unknown column')
-            ) {
-                console.log("✓ orders.status already compatible (or orders table missing)");
+            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+                console.log('✓ orders table missing (skipping status type update)');
             } else {
-                // Older MySQL versions provide generic errors; try best-effort detection
-                console.log("! Could not update orders.status enum automatically:", msg);
+                console.log('! Could not update orders.status type:', msg);
+            }
+        }
+
+        // Add verification workflow columns
+        // Note: MySQL versions vary on ADD COLUMN IF NOT EXISTS, so do per-column best-effort.
+        await addColumnBestEffort('orders', 'isVerified BOOLEAN DEFAULT FALSE', 'isVerified');
+        await addColumnBestEffort('orders', 'isPaid BOOLEAN DEFAULT FALSE', 'isPaid');
+        await addColumnBestEffort('orders', 'isDelivered BOOLEAN DEFAULT FALSE', 'isDelivered');
+        await addColumnBestEffort('orders', 'isArchived BOOLEAN DEFAULT FALSE', 'isArchived');
+
+        // Backfill boolean flags for existing data (best-effort)
+        try {
+            await promisePool.query(`
+                UPDATE orders
+                SET
+                    isVerified = CASE WHEN status IN ('Verified','Paid','Delivered','Completed') THEN TRUE ELSE FALSE END,
+                    isPaid = CASE WHEN paymentStatus = 'Paid' OR status IN ('Paid','Completed') THEN TRUE ELSE FALSE END,
+                    isDelivered = CASE WHEN status IN ('Delivered','Completed') THEN TRUE ELSE FALSE END
+            `);
+            // If both done, normalize status to Completed
+            await promisePool.query(`
+                UPDATE orders
+                SET status = 'Completed'
+                WHERE isPaid = TRUE AND isDelivered = TRUE AND status <> 'Rejected'
+            `);
+            console.log('✓ orders workflow flags backfilled');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+                console.log('✓ orders table/columns missing (skipping backfill)');
+            } else {
+                console.log('! Could not backfill orders workflow flags:', msg);
+            }
+        }
+
+        // Ensure orders.updatedAt exists (used for bills ordering)
+        try {
+            await promisePool.query(
+                `ALTER TABLE orders ADD COLUMN updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`
+            );
+            console.log('✓ orders.updatedAt column added');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (msg.includes('Duplicate column')) {
+                console.log('✓ orders.updatedAt already exists');
+            } else {
+                console.log('! Could not add orders.updatedAt column:', msg);
             }
         }
 

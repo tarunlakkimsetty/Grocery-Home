@@ -108,7 +108,17 @@ const Order = {
      * Get all orders (admin view) with pagination
      */
     findAll: async (options = {}) => {
-        const { page = 1, limit = 50, status = null, orderType = null } = options;
+        const {
+            page = 1,
+            limit = 50,
+            status = null,
+            orderType = null,
+            statusIn = null,
+            statusNotIn = null,
+            sortBy = null,
+            view = null,
+            search = null
+        } = options;
         const offset = (page - 1) * limit;
 
         let query = 'SELECT * FROM orders';
@@ -123,10 +133,36 @@ const Order = {
             countParams.push(status);
         }
 
+        if (Array.isArray(statusIn) && statusIn.length > 0) {
+            const placeholders = statusIn.map(() => '?').join(',');
+            conditions.push(`status IN (${placeholders})`);
+            params.push(...statusIn);
+            countParams.push(...statusIn);
+        }
+
+        if (Array.isArray(statusNotIn) && statusNotIn.length > 0) {
+            const placeholders = statusNotIn.map(() => '?').join(',');
+            conditions.push(`status NOT IN (${placeholders})`);
+            params.push(...statusNotIn);
+            countParams.push(...statusNotIn);
+        }
+
         if (orderType) {
             conditions.push('orderType = ?');
             params.push(orderType);
             countParams.push(orderType);
+        }
+
+        if (view === 'active') {
+            conditions.push('isArchived = FALSE');
+        } else if (view === 'bills') {
+            conditions.push('isArchived = TRUE');
+        }
+
+        if (search) {
+            conditions.push('customerName LIKE ?');
+            params.push(`%${search}%`);
+            countParams.push(`%${search}%`);
         }
 
         if (conditions.length > 0) {
@@ -134,7 +170,11 @@ const Order = {
             countQuery += ' WHERE ' + conditions.join(' AND ');
         }
 
-        query += ' ORDER BY orderDate DESC LIMIT ? OFFSET ?';
+        if (sortBy === 'updatedAt') {
+            query += ' ORDER BY updatedAt DESC LIMIT ? OFFSET ?';
+        } else {
+            query += ' ORDER BY orderDate DESC LIMIT ? OFFSET ?';
+        }
         params.push(parseInt(limit), parseInt(offset));
 
         const [orders] = await promisePool.query(query, params);
@@ -255,7 +295,7 @@ const Order = {
 
             // Update order status
             await connection.query(
-                'UPDATE orders SET status = ?, verifiedAt = NOW() WHERE id = ?',
+                'UPDATE orders SET isVerified = TRUE, status = ?, verifiedAt = NOW() WHERE id = ?',
                 ['Verified', orderId]
             );
 
@@ -273,58 +313,75 @@ const Order = {
      * Mark order as paid
      */
     markPaid: async (orderId) => {
-        const [orderCheck] = await promisePool.query(
-            'SELECT status FROM orders WHERE id = ?',
+        const [orderRows] = await promisePool.query(
+            'SELECT id, status, isVerified, isPaid, isDelivered FROM orders WHERE id = ?',
             [orderId]
         );
 
-        if (orderCheck.length === 0) {
-            throw new Error('Order not found');
-        }
+        if (orderRows.length === 0) throw new Error('Order not found');
 
-        if (orderCheck[0].status === 'Pending') {
+        const order = orderRows[0];
+        if (order.status === 'Rejected') throw new Error('Rejected order cannot be marked as paid');
+        if (!order.isVerified) throw new Error('Order must be verified before marking as paid');
+        if (order.isPaid) return true; // idempotent
+
+        const [result] = await promisePool.query(
+            `
+            UPDATE orders
+            SET isPaid = TRUE,
+                paymentStatus = 'Paid',
+                status = CASE
+                           WHEN isDelivered = TRUE THEN 'Completed'
+                           ELSE 'Paid'
+                         END
+            WHERE id = ? AND isVerified = TRUE
+            `,
+            [orderId]
+        );
+
+        // If affectedRows is 0, it's most likely not verified (or id mismatch)
+        if (result.affectedRows === 0) {
             throw new Error('Order must be verified before marking as paid');
         }
 
-        if (orderCheck[0].status === 'Rejected') {
-            throw new Error('Rejected order cannot be marked as paid');
-        }
-
-        const [result] = await promisePool.query(
-            'UPDATE orders SET paymentStatus = ?, status = ? WHERE id = ?',
-            ['Paid', 'Paid', orderId]
-        );
-
-        return result.affectedRows > 0;
+        return true;
     },
 
     /**
      * Mark order as delivered
      */
     markDelivered: async (orderId) => {
-        const [orderCheck] = await promisePool.query(
-            'SELECT status, paymentStatus FROM orders WHERE id = ?',
+        const [orderRows] = await promisePool.query(
+            'SELECT id, status, isVerified, isPaid, isDelivered FROM orders WHERE id = ?',
             [orderId]
         );
 
-        if (orderCheck.length === 0) {
-            throw new Error('Order not found');
-        }
+        if (orderRows.length === 0) throw new Error('Order not found');
 
-        if (orderCheck[0].status === 'Pending') {
+        const order = orderRows[0];
+        if (order.status === 'Rejected') throw new Error('Rejected order cannot be delivered');
+        if (!order.isVerified) throw new Error('Order must be verified before delivery');
+        if (order.isDelivered) return true; // idempotent
+
+        const [result] = await promisePool.query(
+            `
+            UPDATE orders
+            SET isDelivered = TRUE,
+                deliveredAt = NOW(),
+                status = CASE
+                           WHEN isPaid = TRUE THEN 'Completed'
+                           ELSE 'Delivered'
+                         END
+            WHERE id = ? AND isVerified = TRUE
+            `,
+            [orderId]
+        );
+
+        if (result.affectedRows === 0) {
             throw new Error('Order must be verified before delivery');
         }
 
-        if (orderCheck[0].status === 'Rejected') {
-            throw new Error('Rejected order cannot be delivered');
-        }
-
-        const [result] = await promisePool.query(
-            'UPDATE orders SET status = ?, deliveredAt = NOW() WHERE id = ?',
-            ['Delivered', orderId]
-        );
-
-        return result.affectedRows > 0;
+        return true;
     },
 
     /**
@@ -471,13 +528,28 @@ const Order = {
      * Get all offline orders with pagination
      */
     getOfflineOrders: async (options = {}) => {
-        const { page = 1, limit = 50, status = null } = options;
+        const { page = 1, limit = 50, status = null, view = 'active', search = null } = options;
         const offset = (page - 1) * limit;
 
         let query = "SELECT * FROM orders WHERE orderType = 'Offline'";
         let countQuery = "SELECT COUNT(*) as total FROM orders WHERE orderType = 'Offline'";
         const params = [];
         const countParams = [];
+
+        if (view === 'active') {
+            query += ' AND isArchived = FALSE';
+            countQuery += ' AND isArchived = FALSE';
+        } else if (view === 'bills') {
+            query += ' AND isArchived = TRUE';
+            countQuery += ' AND isArchived = TRUE';
+        }
+
+        if (search) {
+            query += ' AND customerName LIKE ?';
+            countQuery += ' AND customerName LIKE ?';
+            params.push(`%${search}%`);
+            countParams.push(`%${search}%`);
+        }
 
         if (status) {
             query += ' AND status = ?';
@@ -486,7 +558,11 @@ const Order = {
             countParams.push(status);
         }
 
-        query += ' ORDER BY orderDate DESC LIMIT ? OFFSET ?';
+        if (view === 'bills') {
+            query += ' ORDER BY updatedAt DESC LIMIT ? OFFSET ?';
+        } else {
+            query += ' ORDER BY orderDate DESC LIMIT ? OFFSET ?';
+        }
         params.push(parseInt(limit), parseInt(offset));
 
         const [orders] = await promisePool.query(query, params);
@@ -531,7 +607,7 @@ const Order = {
             await connection.beginTransaction();
 
             const [orderRows] = await connection.query(
-                'SELECT status, paymentStatus FROM orders WHERE id = ? FOR UPDATE',
+                'SELECT status, paymentStatus, isVerified, isPaid, isDelivered FROM orders WHERE id = ? FOR UPDATE',
                 [orderId]
             );
 
@@ -541,6 +617,7 @@ const Order = {
 
             const currentStatus = orderRows[0].status;
             const currentPayment = orderRows[0].paymentStatus;
+            const isVerified = !!orderRows[0].isVerified;
 
             if (currentStatus === 'Rejected' && nextStatus !== 'Rejected') {
                 throw new Error('Rejected order cannot be updated');
@@ -554,19 +631,37 @@ const Order = {
                 throw new Error('Order must be verified before marking as paid');
             }
 
-            if (nextStatus === 'Delivered' && currentPayment !== 'Paid') {
-                throw new Error('Approve payment first before marking as delivered');
+            if (nextStatus === 'Delivered' && !isVerified) {
+                throw new Error('Order must be verified before delivery');
             }
 
             if (nextStatus === 'Paid') {
                 await connection.query(
-                    'UPDATE orders SET status = ?, paymentStatus = ? WHERE id = ?',
-                    ['Paid', 'Paid', orderId]
+                    `
+                    UPDATE orders
+                    SET isPaid = TRUE,
+                        paymentStatus = 'Paid',
+                        status = CASE
+                                   WHEN isDelivered = TRUE THEN 'Completed'
+                                   ELSE 'Paid'
+                                 END
+                    WHERE id = ? AND isVerified = TRUE
+                    `,
+                    [orderId]
                 );
             } else if (nextStatus === 'Delivered') {
                 await connection.query(
-                    'UPDATE orders SET status = ?, deliveredAt = NOW() WHERE id = ?',
-                    ['Delivered', orderId]
+                    `
+                    UPDATE orders
+                    SET isDelivered = TRUE,
+                        deliveredAt = NOW(),
+                        status = CASE
+                                   WHEN isPaid = TRUE THEN 'Completed'
+                                   ELSE 'Delivered'
+                                 END
+                    WHERE id = ? AND isVerified = TRUE
+                    `,
+                    [orderId]
                 );
             } else {
                 await connection.query(

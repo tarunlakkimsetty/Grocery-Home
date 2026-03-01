@@ -153,13 +153,29 @@ const getCustomerOrders = async (req, res, next) => {
  */
 const getAdminOrders = async (req, res, next) => {
     try {
-        const { page = 1, limit = 50, status, orderType } = req.query;
+        const { page = 1, limit = 50, status, orderType, view, search } = req.query;
+
+        // Normalize orderType so frontend can send: online/offline or Online/Offline
+        let normalizedOrderType = orderType || null;
+        if (typeof normalizedOrderType === 'string') {
+            const lower = normalizedOrderType.toLowerCase();
+            if (lower === 'online') normalizedOrderType = 'Online';
+            if (lower === 'offline') normalizedOrderType = 'Offline';
+        }
+
+        let sortBy = null;
+        if (view === 'bills') {
+            sortBy = 'updatedAt';
+        }
 
         const result = await Order.findAll({
             page: parseInt(page),
             limit: parseInt(limit),
             status: status || null,
-            orderType: orderType || null
+            orderType: normalizedOrderType,
+            sortBy,
+            view: view || null,
+            search: typeof search === 'string' && search.trim() ? search.trim() : null
         });
 
         const normalizedOrders = (result?.orders || []).map((order) => {
@@ -561,12 +577,17 @@ const createOfflineOrder = async (req, res, next) => {
  */
 const getOfflineOrders = async (req, res, next) => {
     try {
-        const { page = 1, limit = 50, status } = req.query;
+        const { page = 1, limit = 50, status, view, search } = req.query;
+
+        // Default behavior for offline admin page: show active (not Delivered/Rejected)
+        const effectiveView = view || 'active';
 
         const result = await Order.getOfflineOrders({
             page: parseInt(page),
             limit: parseInt(limit),
-            status: status || null
+            status: status || null,
+            view: effectiveView,
+            search: typeof search === 'string' && search.trim() ? search.trim() : null
         });
 
         // Frontend expects a raw array

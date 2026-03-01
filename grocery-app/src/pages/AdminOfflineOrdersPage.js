@@ -191,6 +191,9 @@ class AdminOfflineOrdersPage extends React.Component {
             checkedItems: {},
             addProductId: '',
             addProductQty: 1,
+
+            // Search
+            searchQuery: '',
         };
     }
 
@@ -199,12 +202,18 @@ class AdminOfflineOrdersPage extends React.Component {
         this.fetchProducts();
     }
 
+    // Keep parity with AdminOnlineOrdersPage naming used in spec
+    fetchOrders = async () => {
+        return this.fetchOfflineOrders();
+    };
+
     // ─── Data Fetching ───────────────────────────────────────────────────────
 
     fetchOfflineOrders = async () => {
+        const { searchQuery } = this.state;
         this.setState({ loading: true, isLoading: true });
         try {
-            const response = await orderService.getOfflineOrders();
+            const response = await orderService.getOfflineOrders(searchQuery);
             const offlineOrders = Array.isArray(response)
                 ? response
                 : (response?.orders || response?.data?.orders || response?.data || []);
@@ -218,6 +227,10 @@ class AdminOfflineOrdersPage extends React.Component {
             this.setState({ error: 'Failed to load offline orders', loading: false, isLoading: false });
             toast.error('Failed to load offline orders');
         }
+    };
+
+    handleSearchChange = (e) => {
+        this.setState({ searchQuery: e.target.value }, () => this.fetchOfflineOrders());
     };
 
     fetchProducts = async () => {
@@ -266,6 +279,7 @@ class AdminOfflineOrdersPage extends React.Component {
             Verified: 'badge-info',
             Paid: 'badge-primary',
             Delivered: 'badge-success',
+            Completed: 'badge-success',
             Rejected: 'badge-danger',
         };
         return map[status] || 'badge-warning';
@@ -276,6 +290,7 @@ class AdminOfflineOrdersPage extends React.Component {
         if (status === 'Verified') return '✅';
         if (status === 'Paid') return '💳';
         if (status === 'Delivered') return '📦';
+        if (status === 'Completed') return '🏁';
         if (status === 'Rejected') return '❌';
         return '';
     };
@@ -697,13 +712,13 @@ class AdminOfflineOrdersPage extends React.Component {
 
             const offlineOrders = this.state.offlineOrders.map((o) =>
                 o.id === orderId
-                    ? { ...o, status: 'Verified', items: finalItems, grandTotal: finalTotal }
+                    ? { ...o, status: 'Verified', isVerified: true, items: finalItems, grandTotal: finalTotal }
                     : o
             );
 
             this.setState({
                 offlineOrders,
-                selectedOrder: { ...this.state.selectedOrder, status: 'Verified', items: finalItems, grandTotal: finalTotal },
+                selectedOrder: { ...this.state.selectedOrder, status: 'Verified', isVerified: true, items: finalItems, grandTotal: finalTotal },
                 modalItems: finalItems,
                 checkedItems: {
                     ...checkedItems,
@@ -722,17 +737,46 @@ class AdminOfflineOrdersPage extends React.Component {
     handleMarkPaid = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
-            await orderService.approvePayment(orderId);
+            const resp = await orderService.approvePayment(orderId);
+            const nextOrder = resp?.order || resp?.data?.order || null;
 
-            const offlineOrders = this.state.offlineOrders.map((o) =>
-                o.id === orderId ? { ...o, status: 'Paid', paymentType: 'Cash', paymentStatus: 'Paid' } : o
-            );
+            if (nextOrder) {
+                const offlineOrders = this.state.offlineOrders.map((o) =>
+                    o.id === orderId ? { ...o, ...nextOrder } : o
+                );
+                const selectedOrder = this.state.selectedOrder
+                    ? { ...this.state.selectedOrder, ...nextOrder }
+                    : null;
+                this.setState({ offlineOrders, selectedOrder });
 
-            const selectedOrder = this.state.selectedOrder
-                ? { ...this.state.selectedOrder, status: 'Paid', paymentType: 'Cash', paymentStatus: 'Paid' }
-                : null;
+                if (nextOrder.status === 'Completed') {
+                    await this.fetchOfflineOrders();
+                }
+            } else {
+                const offlineOrders = this.state.offlineOrders.map((o) =>
+                    o.id === orderId
+                        ? {
+                              ...o,
+                              isPaid: true,
+                              paymentType: 'Cash',
+                              paymentStatus: 'Paid',
+                              status: o.isDelivered ? 'Completed' : 'Paid',
+                          }
+                        : o
+                );
 
-            this.setState({ offlineOrders, selectedOrder });
+                const selectedOrder = this.state.selectedOrder
+                    ? {
+                          ...this.state.selectedOrder,
+                          isPaid: true,
+                          paymentType: 'Cash',
+                          paymentStatus: 'Paid',
+                          status: this.state.selectedOrder.isDelivered ? 'Completed' : 'Paid',
+                      }
+                    : null;
+
+                this.setState({ offlineOrders, selectedOrder });
+            }
             toast.success('Payment marked as Paid 💳');
         } catch (err) {
             toast.error('Failed to update payment status');
@@ -744,17 +788,21 @@ class AdminOfflineOrdersPage extends React.Component {
     handleDeliver = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
-            await orderService.deliverOrder(orderId);
+            const resp = await orderService.deliverOrder(orderId);
+            const nextOrder = resp?.order || resp?.data?.order || null;
 
-            const offlineOrders = this.state.offlineOrders.map((o) =>
-                o.id === orderId ? { ...o, status: 'Delivered' } : o
-            );
+            if (nextOrder) {
+                const offlineOrders = this.state.offlineOrders.map((o) =>
+                    o.id === orderId ? { ...o, ...nextOrder } : o
+                );
+                const selectedOrder = this.state.selectedOrder
+                    ? { ...this.state.selectedOrder, ...nextOrder }
+                    : null;
+                this.setState({ offlineOrders, selectedOrder });
+            }
 
-            const selectedOrder = this.state.selectedOrder
-                ? { ...this.state.selectedOrder, status: 'Delivered' }
-                : null;
-
-            this.setState({ offlineOrders, selectedOrder });
+            // Re-fetch so Completed moves out of Active.
+            await this.fetchOfflineOrders();
             toast.success('Order marked as Delivered 📦');
         } catch (err) {
             toast.error('Failed to update order status');
@@ -824,9 +872,27 @@ class AdminOfflineOrdersPage extends React.Component {
                     const checkedTotal = this.getCheckedTotal();
                     const isLocked = selectedOrder && selectedOrder.status !== 'Pending';
                     const isPending = selectedOrder && selectedOrder.status === 'Pending';
-                    const isVerified = selectedOrder && selectedOrder.status === 'Verified';
-                    const isPaid = selectedOrder && selectedOrder.status === 'Paid';
-                    const isDelivered = selectedOrder && selectedOrder.status === 'Delivered';
+                    const isVerified =
+                        !!(
+                            selectedOrder &&
+                            (selectedOrder.isVerified ||
+                                ['Verified', 'Paid', 'Delivered', 'Completed'].includes(
+                                    selectedOrder.status
+                                ))
+                        );
+                    const isPaid =
+                        !!(
+                            selectedOrder &&
+                            (selectedOrder.isPaid ||
+                                selectedOrder.paymentStatus === 'Paid' ||
+                                ['Paid', 'Completed'].includes(selectedOrder.status))
+                        );
+                    const isDelivered =
+                        !!(
+                            selectedOrder &&
+                            (selectedOrder.isDelivered ||
+                                ['Delivered', 'Completed'].includes(selectedOrder.status))
+                        );
                     const isRejected = selectedOrder && selectedOrder.status === 'Rejected';
 
                     const effectiveLoading = typeof isLoading === 'boolean' ? isLoading : loading;
@@ -837,6 +903,16 @@ class AdminOfflineOrdersPage extends React.Component {
                                 <h1>🧾 Offline Orders</h1>
                                 <p>{offlineOrders.length} offline order(s)</p>
                             </PageHeader>
+
+                            <div className="mb-3" style={{ maxWidth: '420px' }}>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="Search by Customer Name"
+                                    value={this.state.searchQuery}
+                                    onChange={this.handleSearchChange}
+                                />
+                            </div>
 
                             <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                                 <div className="text-muted" style={{ fontSize: '0.9rem' }}>
@@ -1439,7 +1515,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 <input
                                                     type="checkbox"
                                                     id="verifyOfflineOrder"
-                                                    checked={!!(isVerified || isPaid || isDelivered)}
+                                                    checked={!!isVerified}
                                                     disabled={!isPending || isRejected || actionLoading}
                                                     onChange={(e) => this.handleVerifyCheckbox(e.target.checked)}
                                                 />
@@ -1451,7 +1527,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     type="button"
                                                     className="btn btn-primary btn-sm"
                                                     onClick={() => this.handleMarkPaid(selectedOrder.id)}
-                                                    disabled={actionLoading || isRejected || !isVerified || isPaid || isDelivered}
+                                                    disabled={actionLoading || isRejected || !isVerified || isPaid}
                                                     title={!isVerified ? 'Verify the order first' : 'Mark as Paid'}
                                                     style={{ fontWeight: '700' }}
                                                 >
@@ -1462,8 +1538,8 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     type="button"
                                                     className="btn btn-success btn-sm"
                                                     onClick={() => this.handleDeliver(selectedOrder.id)}
-                                                    disabled={actionLoading || isRejected || !isPaid || isDelivered}
-                                                    title={!isPaid ? 'Mark as Paid first' : 'Mark as Delivered'}
+                                                    disabled={actionLoading || isRejected || !isVerified || isDelivered}
+                                                    title={!isVerified ? 'Verify the order first' : 'Mark as Delivered'}
                                                     style={{ fontWeight: '700' }}
                                                 >
                                                     📦 Mark Delivered

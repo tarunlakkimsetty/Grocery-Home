@@ -109,6 +109,7 @@ class BillHistoryPage extends React.Component {
             Verified: 'badge-info',
             Paid: 'badge-primary',
             Delivered: 'badge-success',
+            Completed: 'badge-success',
             Rejected: 'badge-danger',
         };
         return map[status] || 'badge-warning';

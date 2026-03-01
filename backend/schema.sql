@@ -47,10 +47,15 @@ CREATE TABLE orders (
     place VARCHAR(100),
     address TEXT,
     orderType ENUM('Online', 'Offline') NOT NULL,
-    status ENUM('Pending', 'Verified', 'Paid', 'Delivered', 'Rejected') DEFAULT 'Pending',
+    isVerified BOOLEAN DEFAULT FALSE,
+    isPaid BOOLEAN DEFAULT FALSE,
+    isDelivered BOOLEAN DEFAULT FALSE,
+    isArchived BOOLEAN DEFAULT FALSE,
+    status VARCHAR(50) DEFAULT 'Pending',
     paymentStatus ENUM('Unpaid', 'Paid') DEFAULT 'Unpaid',
     totalAmount DECIMAL(12,2),
     orderDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     verifiedAt TIMESTAMP NULL,
     deliveredAt TIMESTAMP NULL,
     FOREIGN KEY (customerId) REFERENCES users(id) ON DELETE SET NULL
@@ -69,7 +74,7 @@ CREATE TABLE order_items (
     isSelected BOOLEAN DEFAULT TRUE,
     total DECIMAL(12,2),
     FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (productId) REFERENCES products(id)
+    FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

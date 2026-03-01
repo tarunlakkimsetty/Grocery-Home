@@ -86,10 +86,14 @@ const orderService = {
 
     // Admin: get all COD orders
     // API: GET /api/orders/admin
-    getAllOrders: async () => {
+    getAllOrders: async (search) => {
         try {
             const response = await axiosInstance.get('/orders/admin', {
-                params: { orderType: 'Online' },
+                params: {
+                    orderType: 'Online',
+                    view: 'active',
+                    search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+                },
             });
 
             const data = response.data;
@@ -98,6 +102,28 @@ const orderService = {
             return data?.orders || data?.data?.orders || data?.data || [];
         } catch {
             return [...mockOrders].sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+    },
+
+    // Admin: get Delivered/Rejected orders for Bills page
+    // API: GET /api/orders/admin?orderType=Online|Offline&view=bills
+    getBillsOrders: async (orderType, search) => {
+        try {
+            const response = await axiosInstance.get('/orders/admin', {
+                params: {
+                    orderType,
+                    view: 'bills',
+                    search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+                },
+            });
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            return data?.orders || data?.data?.orders || data?.data || [];
+        } catch {
+            const source = String(orderType || '').toLowerCase() === 'offline' ? mockOfflineOrders : mockOrders;
+            return [...source]
+                .filter((o) => o.status === 'Completed' || o.status === 'Rejected')
+                .sort((a, b) => new Date(b.orderDate || b.date) - new Date(a.orderDate || a.date));
         }
     },
 
@@ -151,6 +177,7 @@ const orderService = {
             const order = findMockOrderById(orderId);
             if (order) {
                 order.status = 'Verified';
+                order.isVerified = true;
                 if (payload && payload.items) {
                     order.items = payload.items;
                 }
@@ -223,7 +250,11 @@ const orderService = {
             return response.data;
         } catch {
             const order = findMockOrderById(orderId);
-            if (order) order.paymentStatus = 'Paid';
+            if (order) {
+                order.isPaid = true;
+                order.paymentStatus = 'Paid';
+                order.status = order.isDelivered ? 'Completed' : 'Paid';
+            }
             return order;
         }
     },
@@ -248,7 +279,10 @@ const orderService = {
             return response.data;
         } catch {
             const order = findMockOrderById(orderId);
-            if (order) order.status = 'Delivered';
+            if (order) {
+                order.isDelivered = true;
+                order.status = order.isPaid ? 'Completed' : 'Delivered';
+            }
             return order;
         }
     },
@@ -302,9 +336,14 @@ const orderService = {
 
     // Fetch Offline Orders
     // API: GET /api/orders/offline
-    getOfflineOrders: async () => {
+    getOfflineOrders: async (search) => {
         try {
-            const response = await axiosInstance.get('/orders/offline');
+            const response = await axiosInstance.get('/orders/offline', {
+                params: {
+                    view: 'active',
+                    search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+                },
+            });
             const data = response.data;
             if (Array.isArray(data)) return data;
             return data?.orders || data?.data?.orders || data?.data || [];
