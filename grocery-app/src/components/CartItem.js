@@ -10,6 +10,14 @@ class CartItem extends React.Component {
         const { item, onUpdateQuantity, onRemove } = this.props;
         const langCtx = this.context;
 
+        // Safety: item.price / item.total might be strings (or missing)
+        const rawPrice = Number(item?.price ?? 0);
+        const price = Number.isFinite(rawPrice) ? rawPrice : 0;
+        const rawQuantity = Number(item?.quantity ?? 0);
+        const quantity = Number.isFinite(rawQuantity) ? rawQuantity : 0;
+        const rawTotal = Number(item?.total);
+        const total = Number.isFinite(rawTotal) ? rawTotal : price * quantity;
+
         const handleIncrease = () => {
             if (item.quantity >= item.stock) {
                 toast.warning(langCtx.getText('stockLimitReached'));
@@ -36,7 +44,7 @@ class CartItem extends React.Component {
                         <span className="fw-semibold" style={{ whiteSpace: 'normal', wordWrap: 'break-word', overflowWrap: 'break-word', minWidth: '0', flex: 1 }}>{item.name}</span>
                     </div>
                 </td>
-                <td className="text-center" style={{ width: '120px', verticalAlign: 'middle' }}>₹{item.price.toFixed(2)}</td>
+                <td className="text-center" style={{ width: '120px', verticalAlign: 'middle' }}>₹{price.toFixed(2)}</td>
                 <td className="text-center" style={{ width: '170px', verticalAlign: 'middle' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}>
                         <GhostButton
@@ -77,7 +85,7 @@ class CartItem extends React.Component {
                         </div>
                     )}
                 </td>
-                <td className="fw-bold text-center text-success" style={{ width: '130px', verticalAlign: 'middle' }}>₹{item.total.toFixed(2)}</td>
+                <td className="fw-bold text-center text-success" style={{ width: '130px', verticalAlign: 'middle' }}>₹{total.toFixed(2)}</td>
                 <td className="text-center" style={{ width: '90px', verticalAlign: 'middle' }}>
                     <DangerButton
                         onClick={() => onRemove(item.productId)}

@@ -104,8 +104,24 @@ class BillHistoryPage extends React.Component {
     };
 
     getStatusBadge = (status) => {
-        const map = { Pending: 'badge-warning', Verified: 'badge-info', Delivered: 'badge-success' };
+        const map = {
+            Pending: 'badge-warning',
+            Verified: 'badge-info',
+            Paid: 'badge-primary',
+            Delivered: 'badge-success',
+            Rejected: 'badge-danger',
+        };
         return map[status] || 'badge-warning';
+    };
+
+    getOrderTotal = (order) => {
+        const direct = Number(order?.totalAmount ?? order?.grandTotal ?? 0);
+        if (Number.isFinite(direct)) return direct;
+        const items = Array.isArray(order?.items) ? order.items : [];
+        return items.reduce((sum, item) => {
+            const itemTotal = Number(item?.total ?? (Number(item?.price ?? 0) * Number(item?.quantity ?? 0)) ?? 0);
+            return sum + (Number.isFinite(itemTotal) ? itemTotal : 0);
+        }, 0);
     };
 
     render() {
@@ -204,7 +220,7 @@ class BillHistoryPage extends React.Component {
                                                             </Badge>
                                                         </td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{bill.grandTotal.toFixed(2)}
+                                                            ₹{Number(bill.grandTotal || 0).toFixed(2)}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -255,12 +271,14 @@ class BillHistoryPage extends React.Component {
                                                             <Badge className={this.getStatusBadge(order.status)}>
                                                                 {order.status === 'Pending' && '⏳ '}
                                                                 {order.status === 'Verified' && '✅ '}
+                                                                {order.status === 'Paid' && '💰 '}
                                                                 {order.status === 'Delivered' && '📦 '}
+                                                                {order.status === 'Rejected' && '❌ '}
                                                                 {order.status}
                                                             </Badge>
                                                         </td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{order.grandTotal.toFixed(2)}
+                                                            ₹{this.getOrderTotal(order).toFixed(2)}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -283,7 +301,9 @@ class BillHistoryPage extends React.Component {
                                                     <Badge className={this.getStatusBadge(selectedOrder.status)}>
                                                         {selectedOrder.status === 'Pending' && '⏳ '}
                                                         {selectedOrder.status === 'Verified' && '✅ '}
+                                                        {selectedOrder.status === 'Paid' && '💰 '}
                                                         {selectedOrder.status === 'Delivered' && '📦 '}
+                                                        {selectedOrder.status === 'Rejected' && '❌ '}
                                                         {selectedOrder.status}
                                                     </Badge>
                                                     {selectedOrder.status !== 'Pending' && (
@@ -346,12 +366,12 @@ class BillHistoryPage extends React.Component {
                                                                     {selectedOrder.items.map((item) => (
                                                                         <tr key={item.productId}>
                                                                             <td style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                                                                                {item.name}
+                                                                                {item.name || item.productName}
                                                                             </td>
                                                                             <td className="text-center">{item.quantity}</td>
-                                                                            <td className="text-center">₹{item.price}</td>
+                                                                            <td className="text-center">₹{Number(item.price || 0).toFixed(2)}</td>
                                                                             <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                                                ₹{(item.total || item.price * item.quantity).toFixed(2)}
+                                                                                ₹{Number(item.total || (Number(item.price || 0) * Number(item.quantity || 0)) || 0).toFixed(2)}
                                                                             </td>
                                                                         </tr>
                                                                     ))}
@@ -372,7 +392,7 @@ class BillHistoryPage extends React.Component {
                                                                 {langCtx.getText('total')}:
                                                             </span>
                                                             <span className="fw-bold" style={{ color: '#2E7D32', fontSize: '1.05rem' }}>
-                                                                ₹{selectedOrder.grandTotal.toFixed(2)}
+                                                                ₹{this.getOrderTotal(selectedOrder).toFixed(2)}
                                                             </span>
                                                         </div>
                                                     </>

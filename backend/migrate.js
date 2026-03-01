@@ -64,6 +64,30 @@ const runMigration = async () => {
         `);
         console.log('✓ bill_items table created');
 
+        // Extend orders.status enum to include 'Rejected'
+        // (safe to run multiple times; will fail if already extended depending on MySQL version)
+        try {
+            await promisePool.query(`
+                ALTER TABLE orders
+                MODIFY COLUMN status ENUM('Pending','Verified','Paid','Delivered','Rejected')
+                DEFAULT 'Pending'
+            `);
+            console.log("✓ orders.status updated to include 'Rejected'");
+        } catch (err) {
+            // If enum already includes Rejected or table doesn't exist yet, ignore safely
+            const msg = String(err && err.message ? err.message : err);
+            if (
+                msg.includes('Duplicate') ||
+                msg.includes('doesn\'t exist') ||
+                msg.includes('Unknown column')
+            ) {
+                console.log("✓ orders.status already compatible (or orders table missing)");
+            } else {
+                // Older MySQL versions provide generic errors; try best-effort detection
+                console.log("! Could not update orders.status enum automatically:", msg);
+            }
+        }
+
         console.log('Migration completed successfully!');
         process.exit(0);
     } catch (error) {

@@ -9,6 +9,8 @@ const {
     verifyOrder,
     markOrderPaid,
     markOrderDelivered,
+    updateOrderStatus,
+    rejectOrder,
     addItemToOrder,
     createOfflineOrder,
     getOfflineOrders
@@ -34,6 +36,8 @@ router.put('/:id/update-items', authMiddleware, isAdmin, checkOrderNotLocked, or
 router.put('/:id/verify', authMiddleware, isAdmin, orderValidators.getById, verifyOrder);
 router.put('/:id/mark-paid', authMiddleware, isAdmin, orderValidators.getById, markOrderPaid);
 router.put('/:id/deliver', authMiddleware, isAdmin, orderValidators.getById, markOrderDelivered);
+router.put('/:id/status', authMiddleware, isAdmin, orderValidators.getById, updateOrderStatus);
+router.put('/:id/reject', authMiddleware, isAdmin, checkOrderNotLocked, orderValidators.getById, rejectOrder);
 router.post('/:id/add-item', authMiddleware, isAdmin, checkOrderNotLocked, orderValidators.addItem, addItemToOrder);
 
 // Get single order (customer can view own, admin can view all)

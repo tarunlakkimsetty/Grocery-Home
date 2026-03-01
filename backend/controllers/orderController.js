@@ -8,14 +8,45 @@ const Product = require('../models/productModel');
  */
 const createOnlineOrder = async (req, res, next) => {
     try {
-        const { customerName, phone, place, address, items } = req.body;
+        console.log('Incoming Online Order:', req.body);
+
+        const {
+            customerName,
+            phone,
+            place,
+            address,
+            items,
+            totalAmount: providedTotalAmount,
+            paymentMethod
+        } = req.body || {};
+
+        const safeItems = Array.isArray(items) ? items : [];
         const customerId = req.user.id;
 
         // Validate required fields
-        if (!customerName || !phone || !items || items.length === 0) {
+        if (!customerName || !phone || safeItems.length === 0) {
             return res.status(400).json({
                 success: false,
-                message: 'Please provide customerName, phone, and items'
+                message: 'Missing required order fields',
+                received: req.body
+            });
+        }
+
+        // Optional-but-expected fields for COD flow (don’t block if empty strings were sent)
+        const totalAmountNum = Number(providedTotalAmount);
+        if (!Number.isFinite(totalAmountNum)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Total amount required',
+                received: req.body
+            });
+        }
+
+        if (!paymentMethod) {
+            return res.status(400).json({
+                success: false,
+                message: 'Payment method required',
+                received: req.body
             });
         }
 
@@ -23,30 +54,41 @@ const createOnlineOrder = async (req, res, next) => {
         let totalAmount = 0;
         const orderItems = [];
 
-        for (const item of items) {
-            const product = await Product.findById(item.productId);
-            if (!product) {
+        for (const item of safeItems) {
+            const productId = Number(item?.productId ?? item?.id);
+            const quantity = Number(item?.quantity);
+
+            if (!Number.isInteger(productId) || productId <= 0 || !Number.isInteger(quantity) || quantity <= 0) {
                 return res.status(400).json({
                     success: false,
-                    message: `Product with ID ${item.productId} not found`
+                    message: 'Invalid order payload (items must include productId and quantity as positive integers)',
+                    received: req.body
                 });
             }
 
-            if (product.stock < item.quantity) {
+            const product = await Product.findById(productId);
+            if (!product) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Product with ID ${productId} not found`
+                });
+            }
+
+            if (product.stock < quantity) {
                 return res.status(400).json({
                     success: false,
                     message: `Insufficient stock for ${product.name}. Available: ${product.stock}`
                 });
             }
 
-            const itemTotal = product.price * item.quantity;
+            const itemTotal = product.price * quantity;
             totalAmount += itemTotal;
 
             orderItems.push({
                 productId: product.id,
                 productName: product.name,
                 price: product.price,
-                quantity: item.quantity
+                quantity
             });
         }
 
@@ -62,6 +104,8 @@ const createOnlineOrder = async (req, res, next) => {
             },
             orderItems
         );
+
+        console.log('Saved Order:', order);
 
         res.status(201).json({
             success: true,
@@ -118,9 +162,32 @@ const getAdminOrders = async (req, res, next) => {
             orderType: orderType || null
         });
 
+        const normalizedOrders = (result?.orders || []).map((order) => {
+            const items = Array.isArray(order?.items) ? order.items : [];
+            const normalizedItems = items.map((item) => {
+                const price = Number(item?.price || 0) || 0;
+                const quantity = Number(item?.quantity || 0) || 0;
+                const total = Number(item?.total || (price * quantity) || 0) || 0;
+                return {
+                    ...item,
+                    price,
+                    quantity,
+                    total,
+                };
+            });
+
+            const totalAmount = Number(order?.totalAmount || 0) || 0;
+            return {
+                ...order,
+                totalAmount,
+                items: normalizedItems,
+            };
+        });
+
         res.status(200).json({
             success: true,
-            ...result
+            ...result,
+            orders: normalizedOrders
         });
     } catch (error) {
         next(error);
@@ -287,6 +354,86 @@ const markOrderDelivered = async (req, res, next) => {
 };
 
 /**
+ * @desc    Update order status (admin)
+ * @route   PUT /api/orders/:id/status
+ * @access  Admin only
+ */
+const updateOrderStatus = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (status === 'Verified') {
+            await Order.verifyOrder(id);
+            const order = await Order.findById(id);
+            return res.status(200).json({
+                success: true,
+                message: 'Order verified successfully. Stock updated.',
+                order,
+            });
+        }
+
+        await Order.updateStatus(id, status);
+
+        const order = await Order.findById(id);
+        res.status(200).json({
+            success: true,
+            message: 'Status updated',
+            order,
+        });
+    } catch (error) {
+        if (
+            error.message.includes('Invalid status') ||
+            error.message.includes('not found') ||
+            error.message.includes('cannot be updated') ||
+            error.message.includes('Only Pending orders can be rejected') ||
+            error.message.includes('must be verified') ||
+            error.message.includes('Approve payment') ||
+            error.message.includes('Insufficient stock') ||
+            error.message.includes('already verified')
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+            });
+        }
+        next(error);
+    }
+};
+
+/**
+ * @desc    Reject order (locks order)
+ * @route   PUT /api/orders/:id/reject
+ * @access  Admin only
+ */
+const rejectOrder = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        await Order.rejectOrder(id);
+
+        const order = await Order.findById(id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Order rejected',
+            order,
+        });
+    } catch (error) {
+        if (
+            error.message.includes('Only Pending') ||
+            error.message.includes('not found')
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+            });
+        }
+        next(error);
+    }
+};
+
+/**
  * @desc    Add item to order
  * @route   POST /api/orders/:id/add-item
  * @access  Admin only
@@ -422,10 +569,8 @@ const getOfflineOrders = async (req, res, next) => {
             status: status || null
         });
 
-        res.status(200).json({
-            success: true,
-            ...result
-        });
+        // Frontend expects a raw array
+        res.status(200).json(result.orders || []);
     } catch (error) {
         next(error);
     }
@@ -440,6 +585,8 @@ module.exports = {
     verifyOrder,
     markOrderPaid,
     markOrderDelivered,
+    updateOrderStatus,
+    rejectOrder,
     addItemToOrder,
     createOfflineOrder,
     getOfflineOrders

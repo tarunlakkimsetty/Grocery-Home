@@ -76,7 +76,10 @@ const Order = {
 
         return {
             ...order,
-            items: itemRows
+            items: itemRows.map((it) => ({
+                ...it,
+                name: it.productName
+            }))
         };
     },
 
@@ -283,6 +286,10 @@ const Order = {
             throw new Error('Order must be verified before marking as paid');
         }
 
+        if (orderCheck[0].status === 'Rejected') {
+            throw new Error('Rejected order cannot be marked as paid');
+        }
+
         const [result] = await promisePool.query(
             'UPDATE orders SET paymentStatus = ?, status = ? WHERE id = ?',
             ['Paid', 'Paid', orderId]
@@ -308,12 +315,53 @@ const Order = {
             throw new Error('Order must be verified before delivery');
         }
 
+        if (orderCheck[0].status === 'Rejected') {
+            throw new Error('Rejected order cannot be delivered');
+        }
+
         const [result] = await promisePool.query(
             'UPDATE orders SET status = ?, deliveredAt = NOW() WHERE id = ?',
             ['Delivered', orderId]
         );
 
         return result.affectedRows > 0;
+    },
+
+    /**
+     * Reject order (only if Pending)
+     */
+    rejectOrder: async (orderId) => {
+        const connection = await promisePool.getConnection();
+
+        try {
+            await connection.beginTransaction();
+
+            const [orderCheck] = await connection.query(
+                'SELECT status FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+
+            if (orderCheck.length === 0) {
+                throw new Error('Order not found');
+            }
+
+            if (orderCheck[0].status !== 'Pending') {
+                throw new Error('Only Pending orders can be rejected');
+            }
+
+            const [result] = await connection.query(
+                'UPDATE orders SET status = ? WHERE id = ?',
+                ['Rejected', orderId]
+            );
+
+            await connection.commit();
+            return result.affectedRows > 0;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     },
 
     /**
@@ -450,7 +498,10 @@ const Order = {
                 'SELECT * FROM order_items WHERE orderId = ?',
                 [order.id]
             );
-            order.items = items;
+            order.items = items.map((it) => ({
+                ...it,
+                name: it.productName
+            }));
         }
 
         return {
@@ -462,6 +513,76 @@ const Order = {
                 totalPages: Math.ceil(countResult[0].total / limit)
             }
         };
+    }
+    ,
+
+    /**
+     * Update order status (admin)
+     * Note: Do NOT use this to set status=Verified; use verifyOrder() to update stock.
+     */
+    updateStatus: async (orderId, nextStatus) => {
+        const allowed = new Set(['Paid', 'Delivered', 'Rejected']);
+        if (!allowed.has(nextStatus)) {
+            throw new Error('Invalid status');
+        }
+
+        const connection = await promisePool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [orderRows] = await connection.query(
+                'SELECT status, paymentStatus FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+
+            if (orderRows.length === 0) {
+                throw new Error('Order not found');
+            }
+
+            const currentStatus = orderRows[0].status;
+            const currentPayment = orderRows[0].paymentStatus;
+
+            if (currentStatus === 'Rejected' && nextStatus !== 'Rejected') {
+                throw new Error('Rejected order cannot be updated');
+            }
+
+            if (nextStatus === 'Rejected' && currentStatus !== 'Pending') {
+                throw new Error('Only Pending orders can be rejected');
+            }
+
+            if (nextStatus === 'Paid' && currentStatus === 'Pending') {
+                throw new Error('Order must be verified before marking as paid');
+            }
+
+            if (nextStatus === 'Delivered' && currentPayment !== 'Paid') {
+                throw new Error('Approve payment first before marking as delivered');
+            }
+
+            if (nextStatus === 'Paid') {
+                await connection.query(
+                    'UPDATE orders SET status = ?, paymentStatus = ? WHERE id = ?',
+                    ['Paid', 'Paid', orderId]
+                );
+            } else if (nextStatus === 'Delivered') {
+                await connection.query(
+                    'UPDATE orders SET status = ?, deliveredAt = NOW() WHERE id = ?',
+                    ['Delivered', orderId]
+                );
+            } else {
+                await connection.query(
+                    'UPDATE orders SET status = ? WHERE id = ?',
+                    [nextStatus, orderId]
+                );
+            }
+
+            await connection.commit();
+            return true;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     }
 };
 

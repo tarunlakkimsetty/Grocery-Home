@@ -92,23 +92,25 @@ class CartPage extends React.Component {
         try {
             const user = authCtx ? authCtx.user : null;
 
+            const cartItems = Array.isArray(cartCtx.items) ? cartCtx.items : [];
+            const totalAmount = Number(cartCtx.getTotal() || 0);
+
             const orderData = {
-                userId: user ? user.id : 2,
-                customerName: user ? user.name : 'Customer',
-                customerPhone: user ? user.phone : '',
-                place: user ? (user.place || '') : '',
-                address: user ? (user.place || '') : '',
-                items: cartCtx.items.map((item) => ({
-                    productId: item.productId,
+                customerName: user ? (user.name || user.fullName || 'Customer') : 'Customer',
+                phone: (user && user.phone) ? user.phone : '0000000000',
+                place: (user && user.place) ? user.place : 'Default',
+                address: (user && user.address) ? user.address : 'Default Address',
+                paymentMethod: 'COD',
+                totalAmount: Number(totalAmount),
+                items: cartItems.map((item) => ({
+                    productId: item.id ?? item.productId,
                     name: item.name,
-                    price: item.price,
-                    quantity: item.quantity,
-                    total: item.total,
+                    price: Number(item.price),
+                    quantity: Number(item.quantity),
                 })),
-                grandTotal: cartCtx.getTotal(),
-                paymentType: 'Cash on Delivery',
-                status: 'Pending',
             };
+
+            console.log('FINAL ORDER PAYLOAD:', orderData);
 
             await orderService.placeOrder(orderData);
 

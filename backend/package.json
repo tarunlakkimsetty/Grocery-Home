@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "migrate": "node migrate.js",
     "seed": "node seed.js"
   },
   "dependencies": {

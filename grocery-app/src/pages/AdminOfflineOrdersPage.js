@@ -160,12 +160,16 @@ class AdminOfflineOrdersPage extends React.Component {
         const todayStr = today.toISOString().slice(0, 10);
 
         this.state = {
+            // Spec: these keys must exist and match shapes
+            products: [],
             offlineOrders: [],
+            isLoading: true,
+            selectedItems: [],
+
+            // Back-compat for existing render logic
             loading: true,
             error: null,
             actionLoading: false,
-
-            products: [],
             productsLoading: false,
 
             // Create Offline Order Modal
@@ -198,12 +202,20 @@ class AdminOfflineOrdersPage extends React.Component {
     // ─── Data Fetching ───────────────────────────────────────────────────────
 
     fetchOfflineOrders = async () => {
-        this.setState({ loading: true });
+        this.setState({ loading: true, isLoading: true });
         try {
-            const offlineOrders = await orderService.getOfflineOrders();
-            this.setState({ offlineOrders, loading: false });
+            const response = await orderService.getOfflineOrders();
+            const offlineOrders = Array.isArray(response)
+                ? response
+                : (response?.orders || response?.data?.orders || response?.data || []);
+
+            this.setState({
+                offlineOrders: Array.isArray(offlineOrders) ? offlineOrders : [],
+                loading: false,
+                isLoading: false,
+            });
         } catch (err) {
-            this.setState({ error: 'Failed to load offline orders', loading: false });
+            this.setState({ error: 'Failed to load offline orders', loading: false, isLoading: false });
             toast.error('Failed to load offline orders');
         }
     };
@@ -211,8 +223,19 @@ class AdminOfflineOrdersPage extends React.Component {
     fetchProducts = async () => {
         this.setState({ productsLoading: true });
         try {
-            const products = await productService.getProducts();
-            this.setState({ products, productsLoading: false });
+            const response = await productService.getProducts();
+
+            // Backend response (spec): { success: true, products: [...], pagination: {...} }
+            // productService.getProducts() returns response.data (already unwrapped once).
+            const extracted = Array.isArray(response)
+                ? response
+                : (response?.products || response?.data?.products || response?.data || []);
+            const safeProducts = Array.isArray(extracted) ? extracted : [];
+
+            this.setState({ products: safeProducts, productsLoading: false }, () => {
+                // PART 4 — Debug Logging
+                console.log('Offline Products State:', this.state.products);
+            });
         } catch (err) {
             this.setState({ productsLoading: false });
             toast.error('Failed to load products');
@@ -243,6 +266,7 @@ class AdminOfflineOrdersPage extends React.Component {
             Verified: 'badge-info',
             Paid: 'badge-primary',
             Delivered: 'badge-success',
+            Rejected: 'badge-danger',
         };
         return map[status] || 'badge-warning';
     };
@@ -252,6 +276,7 @@ class AdminOfflineOrdersPage extends React.Component {
         if (status === 'Verified') return '✅';
         if (status === 'Paid') return '💳';
         if (status === 'Delivered') return '📦';
+        if (status === 'Rejected') return '❌';
         return '';
     };
 
@@ -348,8 +373,8 @@ class AdminOfflineOrdersPage extends React.Component {
     updateCreateQuantity = (productId, delta) => {
         const nextItems = this.state.createItems.map((i) => {
             if (i.productId !== productId) return i;
-            const nextQty = Math.max(1, (i.quantity || 1) + delta);
-            return { ...i, quantity: nextQty, total: (i.price || 0) * nextQty };
+            const nextQty = Math.max(0, (Number(i.quantity || 0) || 0) + delta);
+            return { ...i, quantity: nextQty, total: (Number(i.price || 0) || 0) * (Number(nextQty || 0) || 0) };
         });
         this.setState({ createItems: nextItems });
     };
@@ -408,10 +433,24 @@ class AdminOfflineOrdersPage extends React.Component {
         const finalItems = createItems
             .filter((i) => createChecked.has(i.productId))
             .map((i) => {
-                const qty = Math.max(1, parseInt(i.quantity, 10) || 1);
+                const qtyRaw = parseInt(i.quantity, 10);
+                const qty = Number.isFinite(qtyRaw) ? Math.max(0, qtyRaw) : 0;
                 const price = parseFloat(i.price) || 0;
-                return { ...i, quantity: qty, price: price, total: price * qty };
-            });
+                return {
+                    ...i,
+                    productName: i.productName || i.name || '',
+                    name: i.name || i.productName || '',
+                    quantity: qty,
+                    price: price,
+                    total: (Number(price || 0) || 0) * (Number(qty || 0) || 0),
+                };
+            })
+            .filter((i) => (Number(i.quantity || 0) || 0) > 0);
+
+        if (finalItems.length === 0) {
+            toast.warning('Selected items must have quantity greater than 0');
+            return;
+        }
 
         const totalAmount = finalItems.reduce((sum, i) => sum + (i.total || 0), 0);
         const orderDateIso = orderDate ? new Date(orderDate).toISOString() : new Date().toISOString();
@@ -449,13 +488,15 @@ class AdminOfflineOrdersPage extends React.Component {
             : new Set((order.items || []).map((item) => item.productId));
 
         const normalizedItems = (order.items || []).map((i) => {
-            const qty = Math.max(1, parseInt(i.quantity, 10) || 1);
+            const qty = Math.max(0, parseInt(i.quantity, 10) || 0);
             const price = parseFloat(i.price) || 0;
             return {
                 ...i,
+                name: i.name || i.productName || '',
+                productName: i.productName || i.name || '',
                 quantity: qty,
                 price: price,
-                total: typeof i.total === 'number' ? i.total : price * qty,
+                total: typeof i.total === 'number' ? i.total : (Number(price || 0) || 0) * (Number(qty || 0) || 0),
             };
         });
 
@@ -499,8 +540,12 @@ class AdminOfflineOrdersPage extends React.Component {
 
         const updated = this.state.modalItems.map((i) => {
             if (i.productId !== productId) return i;
-            const nextQty = Math.max(1, (i.quantity || 1) + delta);
-            return { ...i, quantity: nextQty, total: (i.price || 0) * nextQty };
+            const nextQty = Math.max(0, (Number(i.quantity || 0) || 0) + delta);
+            return {
+                ...i,
+                quantity: nextQty,
+                total: (Number(i.price || 0) || 0) * (Number(nextQty || 0) || 0),
+            };
         });
 
         this.setState({ modalItems: updated });
@@ -530,7 +575,7 @@ class AdminOfflineOrdersPage extends React.Component {
         if (checked.size === 0) return 0;
         return modalItems
             .filter((i) => checked.has(i.productId))
-            .reduce((sum, i) => sum + (i.total || 0), 0);
+            .reduce((sum, i) => sum + ((Number(i.total || 0) || 0)), 0);
     };
 
     onChangeAddProductId = (e) => {
@@ -626,10 +671,24 @@ class AdminOfflineOrdersPage extends React.Component {
             const finalItems = modalItems
                 .filter((i) => checkedSet.has(i.productId))
                 .map((i) => {
-                    const qty = Math.max(1, parseInt(i.quantity, 10) || 1);
+                    const qtyRaw = parseInt(i.quantity, 10);
+                    const qty = Number.isFinite(qtyRaw) ? Math.max(0, qtyRaw) : 0;
                     const price = parseFloat(i.price) || 0;
-                    return { ...i, quantity: qty, price: price, total: price * qty };
-                });
+                    return {
+                        ...i,
+                        productName: i.productName || i.name || '',
+                        name: i.name || i.productName || '',
+                        quantity: qty,
+                        price: price,
+                        total: (Number(price || 0) || 0) * (Number(qty || 0) || 0),
+                    };
+                })
+                .filter((i) => (Number(i.quantity || 0) || 0) > 0);
+
+            if (finalItems.length === 0) {
+                toast.warning('Selected items must have quantity greater than 0');
+                return;
+            }
 
             const finalTotal = finalItems.reduce((sum, i) => sum + (i.total || 0), 0);
 
@@ -663,11 +722,7 @@ class AdminOfflineOrdersPage extends React.Component {
     handleMarkPaid = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
-            await orderService.updateOrder(orderId, {
-                status: 'Paid',
-                paymentType: 'Cash',
-                paymentStatus: 'Paid',
-            });
+            await orderService.approvePayment(orderId);
 
             const offlineOrders = this.state.offlineOrders.map((o) =>
                 o.id === orderId ? { ...o, status: 'Paid', paymentType: 'Cash', paymentStatus: 'Paid' } : o
@@ -689,7 +744,7 @@ class AdminOfflineOrdersPage extends React.Component {
     handleDeliver = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
-            await orderService.updateOrder(orderId, { status: 'Delivered' });
+            await orderService.deliverOrder(orderId);
 
             const offlineOrders = this.state.offlineOrders.map((o) =>
                 o.id === orderId ? { ...o, status: 'Delivered' } : o
@@ -708,6 +763,30 @@ class AdminOfflineOrdersPage extends React.Component {
         }
     };
 
+    handleReject = async (orderId) => {
+        const { selectedOrder } = this.state;
+        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+
+        const ok = window.confirm('Reject this offline order?');
+        if (!ok) return;
+
+        this.setState({ actionLoading: true });
+        try {
+            await orderService.rejectOrder(orderId);
+            toast.success('Order rejected');
+            await this.fetchOfflineOrders();
+            // If modal is open for the same order, reflect status immediately
+            const updatedSelected = this.state.selectedOrder && this.state.selectedOrder.id === orderId
+                ? { ...this.state.selectedOrder, status: 'Rejected' }
+                : this.state.selectedOrder;
+            this.setState({ selectedOrder: updatedSelected });
+        } catch (err) {
+            toast.error('Reject failed');
+        } finally {
+            this.setState({ actionLoading: false });
+        }
+    };
+
     // ─── Render ──────────────────────────────────────────────────────────────
 
     render() {
@@ -716,6 +795,7 @@ class AdminOfflineOrdersPage extends React.Component {
                 {(langCtx) => {
                     const {
                         offlineOrders,
+                        isLoading,
                         loading,
                         error,
                         createModalOpen,
@@ -747,6 +827,9 @@ class AdminOfflineOrdersPage extends React.Component {
                     const isVerified = selectedOrder && selectedOrder.status === 'Verified';
                     const isPaid = selectedOrder && selectedOrder.status === 'Paid';
                     const isDelivered = selectedOrder && selectedOrder.status === 'Delivered';
+                    const isRejected = selectedOrder && selectedOrder.status === 'Rejected';
+
+                    const effectiveLoading = typeof isLoading === 'boolean' ? isLoading : loading;
 
                     return (
                         <div>
@@ -768,10 +851,10 @@ class AdminOfflineOrdersPage extends React.Component {
                                 </ActionButton>
                             </div>
 
-                            {loading && <Spinner fullPage text="Loading offline orders..." />}
+                            {effectiveLoading && <Spinner fullPage text="Loading offline orders..." />}
                             {error && <div className="alert alert-danger">{error}</div>}
 
-                            {!loading && !error && offlineOrders.length === 0 && (
+                            {!effectiveLoading && !error && offlineOrders.length === 0 && (
                                 <EmptyState>
                                     <div className="empty-icon">🧾</div>
                                     <h3>No Offline Orders</h3>
@@ -779,7 +862,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                 </EmptyState>
                             )}
 
-                            {!loading && !error && offlineOrders.length > 0 && (
+                            {!effectiveLoading && !error && offlineOrders.length > 0 && (
                                 <TableWrapper>
                                     <table className="table table-hover align-middle">
                                         <thead>
@@ -796,7 +879,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {offlineOrders.map((order) => {
+                                            {Array.isArray(offlineOrders) && offlineOrders.map((order) => {
                                                 const total = typeof order.grandTotal === 'number'
                                                     ? order.grandTotal
                                                     : (typeof order.totalAmount === 'number' ? order.totalAmount : 0);
@@ -943,11 +1026,12 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             disabled={productsLoading}
                                                         >
                                                             <option value="">Select product...</option>
-                                                            {products.map((p) => (
-                                                                <option key={p.id} value={p.id}>
+                                                            {Array.isArray(products) &&
+                                                                products.map((p) => (
+                                                                <option key={p.id ?? p._id} value={p.id ?? p._id}>
                                                                     {p.name} — ₹{p.price}
                                                                 </option>
-                                                            ))}
+                                                                ))}
                                                         </select>
                                                     </div>
                                                     <div className="col-6 col-md-3">
@@ -1009,14 +1093,14 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                 style={{ accentColor: '#2E7D32' }}
                                                                             />
                                                                         </td>
-                                                                        <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name}</td>
+                                                                        <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || 'Product Name Missing'}</td>
                                                                         <td className="text-center">₹{item.price}</td>
                                                                         <td className="text-center">
                                                                             <QtyControl>
                                                                                 <button
                                                                                     className="qty-btn"
                                                                                     onClick={() => this.updateCreateQuantity(item.productId, -1)}
-                                                                                    disabled={item.quantity <= 1}
+                                                                                    disabled={(Number(item.quantity || 0) || 0) <= 0}
                                                                                 >
                                                                                     −
                                                                                 </button>
@@ -1207,11 +1291,12 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 disabled={actionLoading || productsLoading}
                                                             >
                                                                 <option value="">Select product...</option>
-                                                                {products.map((p) => (
-                                                                    <option key={p.id} value={p.id}>
+                                                                {Array.isArray(products) &&
+                                                                    products.map((p) => (
+                                                                    <option key={p.id ?? p._id} value={p.id ?? p._id}>
                                                                         {p.name} — ₹{p.price}
                                                                     </option>
-                                                                ))}
+                                                                    ))}
                                                             </select>
                                                         </div>
                                                         <div className="col-6 col-md-3">
@@ -1301,13 +1386,13 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             }}
                                                                         />
                                                                     </td>
-                                                                    <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name}</td>
+                                                                    <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || 'Product Name Missing'}</td>
                                                                     <td className="text-center">
                                                                         <QtyControl>
                                                                             <button
                                                                                 className="qty-btn"
                                                                                 onClick={() => this.updateItemQuantity(item.productId, -1)}
-                                                                                disabled={isLocked || item.quantity <= 1}
+                                                                                disabled={isLocked || (Number(item.quantity || 0) || 0) <= 0}
                                                                             >
                                                                                 −
                                                                             </button>
@@ -1354,8 +1439,8 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 <input
                                                     type="checkbox"
                                                     id="verifyOfflineOrder"
-                                                    checked={selectedOrder.status !== 'Pending'}
-                                                    disabled={selectedOrder.status !== 'Pending' || actionLoading}
+                                                    checked={!!(isVerified || isPaid || isDelivered)}
+                                                    disabled={!isPending || isRejected || actionLoading}
                                                     onChange={(e) => this.handleVerifyCheckbox(e.target.checked)}
                                                 />
                                                 <label htmlFor="verifyOfflineOrder">Mark Order Verified</label>
@@ -1366,7 +1451,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     type="button"
                                                     className="btn btn-primary btn-sm"
                                                     onClick={() => this.handleMarkPaid(selectedOrder.id)}
-                                                    disabled={actionLoading || !isVerified}
+                                                    disabled={actionLoading || isRejected || !isVerified || isPaid || isDelivered}
                                                     title={!isVerified ? 'Verify the order first' : 'Mark as Paid'}
                                                     style={{ fontWeight: '700' }}
                                                 >
@@ -1377,12 +1462,24 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     type="button"
                                                     className="btn btn-success btn-sm"
                                                     onClick={() => this.handleDeliver(selectedOrder.id)}
-                                                    disabled={actionLoading || !isPaid || isDelivered}
+                                                    disabled={actionLoading || isRejected || !isPaid || isDelivered}
                                                     title={!isPaid ? 'Mark as Paid first' : 'Mark as Delivered'}
                                                     style={{ fontWeight: '700' }}
                                                 >
                                                     📦 Mark Delivered
                                                 </button>
+
+                                                {isPending && !isRejected && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-danger btn-sm"
+                                                        onClick={() => this.handleReject(selectedOrder.id)}
+                                                        disabled={actionLoading}
+                                                        style={{ fontWeight: '700' }}
+                                                    >
+                                                        ❌ Reject Order
+                                                    </button>
+                                                )}
 
                                                 <button
                                                     className="btn btn-outline-secondary btn-sm"

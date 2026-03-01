@@ -61,27 +61,20 @@ const orderService = {
     // API: POST /api/orders/online
     placeOrder: async (orderData) => {
         try {
-            // Transform field names to match backend
-            const payload = {
-                customerName: orderData.customerName,
-                phone: orderData.customerPhone || orderData.phone,
-                place: orderData.place,
-                address: orderData.address,
-                items: orderData.items
-            };
-            const response = await axiosInstance.post('/orders/online', payload);
+            // Do NOT transform the payload; send exactly what the frontend built.
+            const response = await axiosInstance.post('/orders/online', orderData);
             return response.data;
         } catch {
             const newOrder = {
                 id: orderNextId++,
                 userId: orderData.userId,
                 customerName: orderData.customerName,
-                customerPhone: orderData.customerPhone,
+                customerPhone: orderData.phone,
                 place: orderData.place || '',
                 address: orderData.address || '',
                 items: orderData.items,
-                grandTotal: orderData.grandTotal,
-                paymentType: 'Cash on Delivery',
+                grandTotal: orderData.totalAmount,
+                paymentType: orderData.paymentMethod || 'Cash on Delivery',
                 paymentStatus: 'Pending Payment',
                 status: 'Pending',
                 date: new Date().toISOString(),
@@ -95,8 +88,14 @@ const orderService = {
     // API: GET /api/orders/admin
     getAllOrders: async () => {
         try {
-            const response = await axiosInstance.get('/orders/admin');
-            return response.data;
+            const response = await axiosInstance.get('/orders/admin', {
+                params: { orderType: 'Online' },
+            });
+
+            const data = response.data;
+            // Backend returns: { success: true, orders: [...], pagination: {...} }
+            if (Array.isArray(data)) return data;
+            return data?.orders || data?.data?.orders || data?.data || [];
         } catch {
             return [...mockOrders].sort((a, b) => new Date(b.date) - new Date(a.date));
         }
@@ -229,6 +228,19 @@ const orderService = {
         }
     },
 
+    // Admin: update status (Paid/Delivered/etc)
+    // API: PUT /api/orders/:id/status
+    updateOrderStatus: async (orderId, status) => {
+        try {
+            const response = await axiosInstance.put('/orders/' + orderId + '/status', { status });
+            return response.data;
+        } catch {
+            const order = findMockOrderById(orderId);
+            if (order) order.status = status;
+            return order;
+        }
+    },
+
     // Admin: mark order as Delivered (requires paymentStatus === 'Paid')
     deliverOrder: async (orderId) => {
         try {
@@ -237,6 +249,19 @@ const orderService = {
         } catch {
             const order = findMockOrderById(orderId);
             if (order) order.status = 'Delivered';
+            return order;
+        }
+    },
+
+    // Admin: reject order (Pending only)
+    // API: PUT /api/orders/:id/reject
+    rejectOrder: async (orderId) => {
+        try {
+            const response = await axiosInstance.put('/orders/' + orderId + '/reject');
+            return response.data;
+        } catch {
+            const order = findMockOrderById(orderId);
+            if (order) order.status = 'Rejected';
             return order;
         }
     },
@@ -280,7 +305,9 @@ const orderService = {
     getOfflineOrders: async () => {
         try {
             const response = await axiosInstance.get('/orders/offline');
-            return response.data;
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            return data?.orders || data?.data?.orders || data?.data || [];
         } catch {
             return [...mockOfflineOrders].sort(
                 (a, b) =>

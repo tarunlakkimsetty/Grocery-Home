@@ -47,7 +47,7 @@ CREATE TABLE orders (
     place VARCHAR(100),
     address TEXT,
     orderType ENUM('Online', 'Offline') NOT NULL,
-    status ENUM('Pending', 'Verified', 'Paid', 'Delivered') DEFAULT 'Pending',
+    status ENUM('Pending', 'Verified', 'Paid', 'Delivered', 'Rejected') DEFAULT 'Pending',
     paymentStatus ENUM('Unpaid', 'Paid') DEFAULT 'Unpaid',
     totalAmount DECIMAL(12,2),
     orderDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
