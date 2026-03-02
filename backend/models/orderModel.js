@@ -1,5 +1,19 @@
 const { promisePool } = require('../config/db');
 
+const calculateTotalFromItems = (items) => {
+    const safe = Array.isArray(items) ? items : [];
+    return safe.reduce((sum, it) => {
+        // Prefer item.total if present, else quantity * price.
+        const quantity = Number(it?.quantity || 0) || 0;
+        const price = Number(it?.price || 0) || 0;
+        const rowTotal = Number(it?.total);
+        const computed = Number.isFinite(rowTotal) ? rowTotal : (quantity * price);
+        const isSelected = it?.isSelected;
+        const include = (isSelected === undefined || isSelected === null) ? true : Boolean(isSelected);
+        return include ? (sum + (Number(computed) || 0)) : sum;
+    }, 0);
+};
+
 const Order = {
     /**
      * Create online order with items (using transaction)
@@ -30,14 +44,24 @@ const Order = {
             const orderId = orderResult.insertId;
 
             // Insert order items
+            let computedTotalAmount = 0;
             for (const item of items) {
+                const quantity = Number(item?.quantity || 0) || 0;
+                const price = Number(item?.price || 0) || 0;
+                computedTotalAmount += (quantity * price);
                 await connection.query(
                     `INSERT INTO order_items 
                     (orderId, productId, productName, price, quantity, isSelected, total) 
                     VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
-                    [orderId, item.productId, item.productName, item.price, item.quantity, item.price * item.quantity]
+                    [orderId, item.productId, item.productName, price, quantity, price * quantity]
                 );
             }
+
+            // Persist server-computed total (prevents drift / stale 0 totals)
+            await connection.query(
+                'UPDATE orders SET totalAmount = ? WHERE id = ?',
+                [computedTotalAmount, orderId]
+            );
 
             await connection.commit();
 
@@ -74,8 +98,16 @@ const Order = {
             [id]
         );
 
+        const existingTotal = Number(order?.totalAmount || 0) || 0;
+        let totalAmountSafe = existingTotal;
+        if (existingTotal <= 0 && Array.isArray(itemRows) && itemRows.length > 0) {
+            const computedTotal = calculateTotalFromItems(itemRows);
+            if (computedTotal > 0) totalAmountSafe = computedTotal;
+        }
+
         return {
             ...order,
+            totalAmount: totalAmountSafe,
             items: itemRows.map((it) => ({
                 ...it,
                 name: it.productName
@@ -99,6 +131,14 @@ const Order = {
                 [order.id]
             );
             order.items = items;
+
+            const existingTotal = Number(order?.totalAmount || 0) || 0;
+            if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
+                const computedTotal = calculateTotalFromItems(items);
+                if (computedTotal > 0) {
+                    order.totalAmount = computedTotal;
+                }
+            }
         }
 
         return orders;
@@ -187,6 +227,14 @@ const Order = {
                 [order.id]
             );
             order.items = items;
+
+            const existingTotal = Number(order?.totalAmount || 0) || 0;
+            if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
+                const computedTotal = calculateTotalFromItems(items);
+                if (computedTotal > 0) {
+                    order.totalAmount = computedTotal;
+                }
+            }
         }
 
         return {
@@ -237,9 +285,10 @@ const Order = {
             }
 
             // Update total amount
+            const computedTotalAmount = calculateTotalFromItems(items);
             await connection.query(
                 'UPDATE orders SET totalAmount = ? WHERE id = ?',
-                [totalAmount, orderId]
+                [(computedTotalAmount > 0 ? computedTotalAmount : (Number(totalAmount || 0) || 0)), orderId]
             );
 
             await connection.commit();
@@ -498,14 +547,24 @@ const Order = {
             const orderId = orderResult.insertId;
 
             // Insert order items
+            let computedTotalAmount = 0;
             for (const item of items) {
+                const quantity = Number(item?.quantity || 0) || 0;
+                const price = Number(item?.price || 0) || 0;
+                computedTotalAmount += (quantity * price);
                 await connection.query(
                     `INSERT INTO order_items 
                     (orderId, productId, productName, price, quantity, isSelected, total) 
                     VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
-                    [orderId, item.productId, item.productName, item.price, item.quantity, item.price * item.quantity]
+                    [orderId, item.productId, item.productName, price, quantity, price * quantity]
                 );
             }
+
+            // Persist server-computed total (prevents drift / stale 0 totals)
+            await connection.query(
+                'UPDATE orders SET totalAmount = ? WHERE id = ?',
+                [computedTotalAmount, orderId]
+            );
 
             await connection.commit();
 
@@ -578,6 +637,14 @@ const Order = {
                 ...it,
                 name: it.productName
             }));
+
+            const existingTotal = Number(order?.totalAmount || 0) || 0;
+            if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
+                const computedTotal = calculateTotalFromItems(items);
+                if (computedTotal > 0) {
+                    order.totalAmount = computedTotal;
+                }
+            }
         }
 
         return {

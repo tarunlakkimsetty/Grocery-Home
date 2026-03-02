@@ -217,9 +217,74 @@ class AdminBillsPage extends React.Component {
                                     <p><strong>Phone:</strong> {this.state.selectedOrder.phone || '-'}</p>
                                     <p><strong>Order Type:</strong> {this.state.selectedOrder.orderType || '-'}</p>
                                     <p><strong>Status:</strong> {this.state.selectedOrder.status || '-'}</p>
-                                    <p><strong>Total:</strong> ₹{Number(this.state.selectedOrder.totalAmount ?? this.state.selectedOrder.grandTotal ?? 0).toFixed(2)}</p>
                                     <p><strong>Date:</strong> {this.formatDate(this.getBillDate(this.state.selectedOrder) || this.state.selectedOrder.orderDate || this.state.selectedOrder.date)}</p>
-                                    <p><strong>Payment Status:</strong> {this.state.selectedOrder.paymentStatus || '-'}</p>
+
+                                    <p>
+                                        <strong>Payment Mode:</strong>{' '}
+                                        {this.state.selectedOrder.paymentMethod || this.state.selectedOrder.paymentMode || (this.state.selectedOrder.orderType === 'Offline' ? 'Cash' : '-')}
+                                    </p>
+
+                                    <hr />
+
+                                    <h4 style={{ marginBottom: '0.6rem' }}>Items</h4>
+
+                                    <div
+                                        style={{
+                                            border: '1px solid #e9ecef',
+                                            borderRadius: '8px',
+                                            overflow: 'hidden',
+                                            marginBottom: '0.85rem',
+                                        }}
+                                    >
+                                        <table className="table table-sm mb-0">
+                                            <thead style={{ background: '#f8f9fa' }}>
+                                                <tr>
+                                                    <th style={{ padding: '0.55rem 0.75rem' }}>Product</th>
+                                                    <th className="text-center" style={{ width: '70px', padding: '0.55rem 0.5rem' }}>Qty</th>
+                                                    <th className="text-end" style={{ width: '110px', padding: '0.55rem 0.75rem' }}>Price</th>
+                                                    <th className="text-end" style={{ width: '120px', padding: '0.55rem 0.75rem' }}>Subtotal</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(Array.isArray(this.state.selectedOrder.items) ? this.state.selectedOrder.items : []).map((item) => (
+                                                    <tr key={item.id || item.productId}>
+                                                        <td style={{ padding: '0.55rem 0.75rem', fontSize: '0.88rem', fontWeight: 600 }}>
+                                                            {item.productName || item.name || '—'}
+                                                        </td>
+                                                        <td className="text-center" style={{ padding: '0.55rem 0.5rem', fontSize: '0.88rem' }}>
+                                                            {item.quantity}
+                                                        </td>
+                                                        <td className="text-end" style={{ padding: '0.55rem 0.75rem', fontSize: '0.88rem' }}>
+                                                            ₹{Number(item.price || 0).toFixed(2)}
+                                                        </td>
+                                                        <td className="text-end fw-bold" style={{ padding: '0.55rem 0.75rem', fontSize: '0.88rem' }}>
+                                                            ₹{Number(
+                                                                item.subtotal !== null && item.subtotal !== undefined
+                                                                    ? item.subtotal
+                                                                    : item.total !== null && item.total !== undefined
+                                                                        ? item.total
+                                                                        : (Number(item.price || 0) * Number(item.quantity || 0))
+                                                            ).toFixed(2)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {(!this.state.selectedOrder.items || this.state.selectedOrder.items.length === 0) && (
+                                                    <tr>
+                                                        <td colSpan={4} className="text-center text-muted" style={{ padding: '0.75rem' }}>
+                                                            No items found for this order.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <div className="d-flex justify-content-between align-items-center" style={{ marginBottom: '0.85rem' }}>
+                                        <span className="text-muted fw-semibold">Grand Total</span>
+                                        <span className="fw-bold" style={{ fontSize: '1.05rem' }}>
+                                            ₹{Number(this.state.selectedOrder.totalAmount ?? this.state.selectedOrder.grandTotal ?? 0).toFixed(2)}
+                                        </span>
+                                    </div>
 
                                     <button
                                         type="button"

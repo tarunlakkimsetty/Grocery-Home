@@ -956,9 +956,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                         </thead>
                                         <tbody>
                                             {Array.isArray(offlineOrders) && offlineOrders.map((order) => {
-                                                const total = typeof order.grandTotal === 'number'
-                                                    ? order.grandTotal
-                                                    : (typeof order.totalAmount === 'number' ? order.totalAmount : 0);
+                                                const total = Number(order.totalAmount ?? order.grandTotal ?? 0) || 0;
                                                 const phoneVal = order.customerPhone || order.phone || '—';
                                                 return (
                                                     <tr key={order.id}>

@@ -177,6 +177,9 @@ const runMigration = async () => {
         await addColumnBestEffort('orders', 'isDelivered BOOLEAN DEFAULT FALSE', 'isDelivered');
         await addColumnBestEffort('orders', 'isArchived BOOLEAN DEFAULT FALSE', 'isArchived');
 
+        // Ensure orders.totalAmount exists (older DBs may be missing it)
+        await addColumnBestEffort('orders', 'totalAmount DECIMAL(12,2) DEFAULT 0.00', 'totalAmount');
+
         // Backfill boolean flags for existing data (best-effort)
         try {
             await promisePool.query(`
@@ -199,6 +202,27 @@ const runMigration = async () => {
                 console.log('✓ orders table/columns missing (skipping backfill)');
             } else {
                 console.log('! Could not backfill orders workflow flags:', msg);
+            }
+        }
+
+        // Backfill totalAmount from order_items for existing rows (best-effort)
+        // This fixes Orders/Bills UI showing ₹0.00 when items exist.
+        try {
+            await promisePool.query(`
+                UPDATE orders o
+                SET totalAmount = (
+                    SELECT COALESCE(SUM(oi.quantity * oi.price), 0)
+                    FROM order_items oi
+                    WHERE oi.orderId = o.id
+                )
+            `);
+            console.log('✓ orders.totalAmount backfilled from order_items');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+                console.log('✓ orders/order_items missing (skipping totalAmount backfill)');
+            } else {
+                console.log('! Could not backfill orders.totalAmount:', msg);
             }
         }
 

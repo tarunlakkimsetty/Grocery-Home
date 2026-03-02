@@ -1,5 +1,6 @@
 const Order = require('../models/orderModel');
 const Product = require('../models/productModel');
+const { promisePool } = require('../config/db');
 
 /**
  * @desc    Create online order
@@ -217,16 +218,19 @@ const getAdminOrders = async (req, res, next) => {
  */
 const getOrder = async (req, res, next) => {
     try {
-        const { id } = req.params;
+        const orderId = req.params.id;
 
-        const order = await Order.findById(id);
+        // Fetch order basic details
+        const [orderRows] = await promisePool.query(
+            'SELECT * FROM orders WHERE id = ?',
+            [orderId]
+        );
 
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: 'Order not found'
-            });
+        if (!orderRows.length) {
+            return res.status(404).json({ message: 'Order not found' });
         }
+
+        const order = orderRows[0];
 
         // Check authorization
         if (req.user.role !== 'admin' && req.user.id !== order.customerId) {
@@ -236,9 +240,52 @@ const getOrder = async (req, res, next) => {
             });
         }
 
-        res.status(200).json({
+        // Fetch order items with product names
+        // Use LEFT JOIN to avoid dropping items if a product was deleted later.
+        const [items] = await promisePool.query(
+            `
+            SELECT 
+                oi.id,
+                oi.productId,
+                COALESCE(p.name, oi.productName) AS productName,
+                oi.quantity,
+                oi.price,
+                (oi.quantity * oi.price) AS subtotal,
+                (oi.quantity * oi.price) AS total,
+                oi.isSelected
+            FROM order_items oi
+            LEFT JOIN products p ON oi.productId = p.id
+            WHERE oi.orderId = ?
+            `,
+            [orderId]
+        );
+
+        const normalizedItems = (Array.isArray(items) ? items : []).map((it) => {
+            const quantity = Number(it?.quantity || 0) || 0;
+            const price = Number(it?.price || 0) || 0;
+            const subtotal = Number(it?.subtotal || (quantity * price) || 0) || 0;
+            return {
+                ...it,
+                quantity,
+                price,
+                subtotal,
+                total: Number(it?.total || subtotal || 0) || 0,
+                // Compatibility: existing admin order modals also read `name`
+                name: it?.productName,
+            };
+        });
+
+        const existingTotalAmount = Number(order?.totalAmount || 0) || 0;
+        const computedTotalAmount = normalizedItems.reduce((sum, it) => sum + (Number(it?.subtotal || 0) || 0), 0);
+        const totalAmountSafe = (existingTotalAmount > 0 ? existingTotalAmount : computedTotalAmount);
+
+        res.json({
             success: true,
-            order
+            order: {
+                ...order,
+                totalAmount: totalAmountSafe,
+                items: normalizedItems,
+            }
         });
     } catch (error) {
         next(error);
@@ -590,8 +637,31 @@ const getOfflineOrders = async (req, res, next) => {
             search: typeof search === 'string' && search.trim() ? search.trim() : null
         });
 
+        const safeOrders = Array.isArray(result?.orders) ? result.orders : [];
+        const normalizedOrders = safeOrders.map((order) => {
+            const items = Array.isArray(order?.items) ? order.items : [];
+            const normalizedItems = items.map((item) => {
+                const price = Number(item?.price || 0) || 0;
+                const quantity = Number(item?.quantity || 0) || 0;
+                const total = Number(item?.total || (price * quantity) || 0) || 0;
+                return {
+                    ...item,
+                    price,
+                    quantity,
+                    total,
+                };
+            });
+
+            const totalAmount = Number(order?.totalAmount || 0) || 0;
+            return {
+                ...order,
+                totalAmount,
+                items: normalizedItems,
+            };
+        });
+
         // Frontend expects a raw array
-        res.status(200).json(result.orders || []);
+        res.status(200).json(normalizedOrders);
     } catch (error) {
         next(error);
     }
