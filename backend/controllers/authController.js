@@ -78,6 +78,8 @@ const register = async (req, res, next) => {
             user: {
                 id: newUser.id,
                 fullName: newUser.fullName,
+                phone: newUser.phone,
+                place: newUser.place,
                 role: newUser.role
             }
         });
@@ -134,6 +136,8 @@ const login = async (req, res, next) => {
             user: {
                 id: user.id,
                 fullName: user.fullName,
+                phone: user.phone,
+                place: user.place,
                 role: user.role
             }
         });

@@ -13,6 +13,8 @@ import AdminBillsPage from '../pages/AdminBillsPage';
 import AnalyticsPage from '../pages/AnalyticsPage';
 import AdminOnlineOrdersPage from '../pages/AdminOnlineOrdersPage';
 import AdminOfflineOrdersPage from '../pages/AdminOfflineOrdersPage';
+import AdminCustomerDetailsPage from '../pages/AdminCustomerDetailsPage';
+import AdminCustomerViewPage from '../pages/AdminCustomerViewPage';
 
 // Wrapper to extract route params for class components
 class BillDetailsWrapper extends React.Component {
@@ -22,6 +24,20 @@ class BillDetailsWrapper extends React.Component {
         const path = window.location.pathname;
         const billId = path.split('/bill/')[1];
         return <BillDetailsPage billId={billId} onGoBack={() => window.history.back()} />;
+    }
+}
+
+// Wrapper to extract route params for class components
+class AdminCustomerViewWrapper extends React.Component {
+    render() {
+        const path = window.location.pathname;
+        const customerId = path.split('/admin/customers/')[1];
+        return (
+            <AdminCustomerViewPage
+                customerId={customerId}
+                onGoBack={() => window.history.back()}
+            />
+        );
     }
 }
 
@@ -109,6 +125,24 @@ class AppRoutes extends React.Component {
                     element={
                         <RoleBasedRoute allowedRoles={['admin']}>
                             <AdminOfflineOrdersPage />
+                        </RoleBasedRoute>
+                    }
+                />
+
+                <Route
+                    path="/admin/customers"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminCustomerDetailsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+
+                <Route
+                    path="/admin/customers/:id"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminCustomerViewWrapper />
                         </RoleBasedRoute>
                     }
                 />

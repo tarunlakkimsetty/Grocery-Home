@@ -1,5 +1,6 @@
 const Order = require('../models/orderModel');
 const Product = require('../models/productModel');
+const User = require('../models/userModel');
 const { promisePool } = require('../config/db');
 
 /**
@@ -11,7 +12,7 @@ const createOnlineOrder = async (req, res, next) => {
     try {
         console.log('Incoming Online Order:', req.body);
 
-        const {
+        let {
             customerName,
             phone,
             place,
@@ -23,6 +24,25 @@ const createOnlineOrder = async (req, res, next) => {
 
         const safeItems = Array.isArray(items) ? items : [];
         const customerId = req.user.id;
+
+        // Trust server-side profile details over client payload (prevents placeholder phone like 0000000000)
+        const dbUser = await User.findById(customerId);
+        if (dbUser) {
+            const phoneFromDb = dbUser.phone;
+            const placeFromDb = dbUser.place;
+            const nameFromDb = dbUser.fullName;
+
+            const phoneStr = String(phone || '').trim();
+            if (!phoneStr || phoneStr === '0000000000') {
+                phone = phoneFromDb;
+            }
+            if (!place || String(place).trim() === '' || String(place).trim() === 'Default') {
+                place = placeFromDb || place;
+            }
+            if (!customerName || String(customerName).trim() === '' || String(customerName).trim() === 'Customer') {
+                customerName = nameFromDb || customerName;
+            }
+        }
 
         // Validate required fields
         if (!customerName || !phone || safeItems.length === 0) {
@@ -222,7 +242,14 @@ const getOrder = async (req, res, next) => {
 
         // Fetch order basic details
         const [orderRows] = await promisePool.query(
-            'SELECT * FROM orders WHERE id = ?',
+            `
+            SELECT 
+                o.*,
+                COALESCE(NULLIF(NULLIF(o.phone, ''), '0000000000'), u.phone) AS phone
+            FROM orders o
+            LEFT JOIN users u ON o.customerId = u.id
+            WHERE o.id = ?
+            `,
             [orderId]
         );
 

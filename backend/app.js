@@ -12,6 +12,7 @@ const productRoutes = require('./routes/productRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const billRoutes = require('./routes/billRoutes');
+const customerRoutes = require('./routes/customerRoutes');
 
 const app = express();
 
@@ -81,6 +82,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin/analytics', analyticsRoutes);
+app.use('/api/admin/customers', customerRoutes);
 app.use('/api/bills', billRoutes);
 
 // Error handling middleware (must be last)

@@ -172,46 +172,55 @@ const Order = {
         } = options;
         const offset = (page - 1) * limit;
 
-        let query = 'SELECT * FROM orders';
-        let countQuery = 'SELECT COUNT(*) as total FROM orders';
+        // Join users to safely display the real phone for online orders.
+        // Some older UI flows sent a placeholder phone (e.g., '0000000000');
+        // this coalesces to the user's registered phone when available.
+        let query = `
+            SELECT 
+                o.*,
+                COALESCE(NULLIF(NULLIF(o.phone, ''), '0000000000'), u.phone) AS phone
+            FROM orders o
+            LEFT JOIN users u ON o.customerId = u.id
+        `;
+        let countQuery = 'SELECT COUNT(*) as total FROM orders o';
         const params = [];
         const countParams = [];
         const conditions = [];
 
         if (status) {
-            conditions.push('status = ?');
+            conditions.push('o.status = ?');
             params.push(status);
             countParams.push(status);
         }
 
         if (Array.isArray(statusIn) && statusIn.length > 0) {
             const placeholders = statusIn.map(() => '?').join(',');
-            conditions.push(`status IN (${placeholders})`);
+            conditions.push(`o.status IN (${placeholders})`);
             params.push(...statusIn);
             countParams.push(...statusIn);
         }
 
         if (Array.isArray(statusNotIn) && statusNotIn.length > 0) {
             const placeholders = statusNotIn.map(() => '?').join(',');
-            conditions.push(`status NOT IN (${placeholders})`);
+            conditions.push(`o.status NOT IN (${placeholders})`);
             params.push(...statusNotIn);
             countParams.push(...statusNotIn);
         }
 
         if (orderType) {
-            conditions.push('orderType = ?');
+            conditions.push('o.orderType = ?');
             params.push(orderType);
             countParams.push(orderType);
         }
 
         if (view === 'active') {
-            conditions.push('isArchived = FALSE');
+            conditions.push('o.isArchived = FALSE');
         } else if (view === 'bills') {
-            conditions.push('isArchived = TRUE');
+            conditions.push('o.isArchived = TRUE');
         }
 
         if (search) {
-            conditions.push('customerName LIKE ?');
+            conditions.push('o.customerName LIKE ?');
             params.push(`%${search}%`);
             countParams.push(`%${search}%`);
         }
@@ -222,9 +231,9 @@ const Order = {
         }
 
         if (sortBy === 'updatedAt') {
-            query += ' ORDER BY updatedAt DESC LIMIT ? OFFSET ?';
+            query += ' ORDER BY o.updatedAt DESC LIMIT ? OFFSET ?';
         } else {
-            query += ' ORDER BY orderDate DESC LIMIT ? OFFSET ?';
+            query += ' ORDER BY o.orderDate DESC LIMIT ? OFFSET ?';
         }
         params.push(parseInt(limit), parseInt(offset));
 
