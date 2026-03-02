@@ -5,30 +5,44 @@ const seedDatabase = async () => {
     try {
         console.log('Starting database seeding...');
 
-        // Generate bcrypt hash for admin password
-        const adminPassword = await bcrypt.hash('admin123', 10);
+        // Ensure admin credentials (phone + hashed password)
+        const ADMIN_PHONE = '9441754505';
+        const ADMIN_PASSWORD = 'Sairam@143';
+        const adminPasswordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
 
-        // Check if admin exists
-        const [existingAdmin] = await promisePool.query(
-            'SELECT id FROM users WHERE phone = ?',
-            ['9876543210']
+        const [admins] = await promisePool.query(
+            'SELECT id, phone FROM users WHERE role = ? ORDER BY id ASC LIMIT 1',
+            ['admin']
         );
 
-        if (existingAdmin.length === 0) {
-            // Insert admin user
+        if (admins.length === 0) {
+            // Ensure there is no phone conflict before inserting
+            const [conflict] = await promisePool.query('SELECT id, role FROM users WHERE phone = ? LIMIT 1', [ADMIN_PHONE]);
+            if (conflict.length > 0) {
+                throw new Error(`Cannot create admin: phone ${ADMIN_PHONE} is already used by role=${conflict[0].role}`);
+            }
+
             await promisePool.query(
                 `INSERT INTO users (fullName, phone, place, password, role) 
                  VALUES (?, ?, ?, ?, ?)`,
-                ['Admin User', '9876543210', 'Palakollu', adminPassword, 'admin']
+                ['Admin User', ADMIN_PHONE, 'Palakollu', adminPasswordHash, 'admin']
             );
-            console.log('Admin user created: phone=9876543210, password=admin123');
+            console.log(`Admin user created: phone=${ADMIN_PHONE}`);
         } else {
-            // Update admin password
-            await promisePool.query(
-                'UPDATE users SET password = ? WHERE phone = ?',
-                [adminPassword, '9876543210']
+            const adminId = admins[0].id;
+            const [conflict] = await promisePool.query(
+                'SELECT id, role FROM users WHERE phone = ? AND id <> ? LIMIT 1',
+                [ADMIN_PHONE, adminId]
             );
-            console.log('Admin password updated: phone=9876543210, password=admin123');
+            if (conflict.length > 0) {
+                throw new Error(`Cannot update admin: phone ${ADMIN_PHONE} is already used by role=${conflict[0].role}`);
+            }
+
+            await promisePool.query(
+                'UPDATE users SET phone = ?, password = ? WHERE id = ?',
+                [ADMIN_PHONE, adminPasswordHash, adminId]
+            );
+            console.log(`Admin credentials updated: phone=${ADMIN_PHONE}`);
         }
 
         // Check if products exist

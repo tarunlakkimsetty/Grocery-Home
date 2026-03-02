@@ -156,6 +156,99 @@ const Order = {
     },
 
     /**
+     * Get orders for a registered customer, including offline orders whose phone
+     * exactly matches the customer's registered phone number.
+     *
+     * IMPORTANT: phone matching is exact (no partial), non-null, non-empty.
+     */
+    findByCustomerIdIncludingOfflineByPhone: async (customerId, phone) => {
+        const cleanedPhone = String(phone || '').replace(/\D/g, '');
+        const canMatchPhone = /^\d{10}$/.test(cleanedPhone);
+
+        const params = [customerId];
+        let whereSql = 'WHERE customerId = ?';
+
+        if (canMatchPhone) {
+            whereSql += " OR (orderType = 'Offline' AND phone = ?)";
+            params.push(cleanedPhone);
+        }
+
+        const [orders] = await promisePool.query(
+            `
+            SELECT *
+            FROM orders
+            ${whereSql}
+            ORDER BY COALESCE(createdAt, orderDate, updatedAt) DESC
+            `,
+            params
+        );
+
+        for (let order of orders) {
+            const createdAtSafe = order?.createdAt || order?.orderDate || order?.updatedAt || null;
+            order.createdAt = createdAtSafe;
+            order.date = order?.date || createdAtSafe;
+
+            const [items] = await promisePool.query('SELECT * FROM order_items WHERE orderId = ?', [order.id]);
+            order.items = items;
+
+            const existingTotal = Number(order?.totalAmount || 0) || 0;
+            if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
+                const computedTotal = calculateTotalFromItems(items);
+                if (computedTotal > 0) {
+                    order.totalAmount = computedTotal;
+                }
+            }
+        }
+
+        return orders;
+    },
+
+    /**
+     * Get offline orders for a phone number (exact match).
+     * - Excludes null/empty/invalid phone numbers
+     * - Sorts latest-first
+     * - Includes items and ensures totalAmount/date fields are consistent
+     */
+    findOfflineByPhone: async (phone) => {
+        const cleanedPhone = String(phone || '').replace(/\D/g, '');
+        const canMatchPhone = /^\d{10}$/.test(cleanedPhone);
+
+        if (!canMatchPhone) return [];
+
+        const [orders] = await promisePool.query(
+            `
+            SELECT *
+            FROM orders
+            WHERE orderType = 'Offline'
+              AND phone IS NOT NULL
+              AND phone <> ''
+              AND phone = ?
+            ORDER BY COALESCE(createdAt, orderDate, updatedAt) DESC
+            `,
+            [cleanedPhone]
+        );
+
+        for (let order of orders) {
+            const createdAtSafe = order?.createdAt || order?.orderDate || order?.updatedAt || null;
+            order.createdAt = createdAtSafe;
+            order.date = order?.date || createdAtSafe;
+
+            const [items] = await promisePool.query('SELECT * FROM order_items WHERE orderId = ?', [order.id]);
+            order.items = items;
+
+            const existingTotal = Number(order?.totalAmount || 0) || 0;
+            if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
+                const computedTotal = calculateTotalFromItems(items);
+                if (computedTotal > 0) {
+                    order.totalAmount = computedTotal;
+                }
+            }
+        }
+
+        return orders;
+    },
+
+    /**
      * Get all orders (admin view) with pagination
      */
     findAll: async (options = {}) => {

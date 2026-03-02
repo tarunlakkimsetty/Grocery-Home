@@ -191,12 +191,6 @@ class LoginPage extends React.Component {
                                                         <span className="text-muted">{langCtx.getText('dontHaveAccount')} </span>
                                                         <Link to="/register">{langCtx.getText('createOne')}</Link>
                                                     </div>
-
-                                                    <div className="mt-4 p-3 rounded-3 bg-dark bg-opacity-25" style={{ fontSize: '0.8rem' }}>
-                                                        <strong className="text-warning">{langCtx.getText('demoAccounts')}:</strong><br />
-                                                        {langCtx.getText('admin')}: {langCtx.getText('testAdmin')}<br />
-                                                        {langCtx.getText('customer')}: {langCtx.getText('testCustomer')}
-                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

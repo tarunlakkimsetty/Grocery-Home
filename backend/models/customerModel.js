@@ -13,9 +13,10 @@ const Customer = {
     /**
      * Admin: list all customers with aggregated order analytics.
      */
-    getAllWithAnalytics: async () => {
-        const [rows] = await promisePool.query(
-            `SELECT 
+    getAllWithAnalytics: async ({ search } = {}) => {
+        const trimmedSearch = typeof search === 'string' ? search.trim() : '';
+
+        let sql = `SELECT 
                 u.id,
                 u.fullName AS name,
                 u.phone,
@@ -24,17 +25,32 @@ const Customer = {
                 SUM(CASE WHEN o.status = 'Completed' THEN 1 ELSE 0 END) AS completed_orders,
                 SUM(CASE WHEN o.status = 'Rejected' THEN 1 ELSE 0 END) AS rejected_orders,
 
-                COALESCE(SUM(CASE WHEN o.status = 'Completed' THEN o.totalAmount ELSE 0 END), 0) AS total_spent,
+                COALESCE(SUM(CASE WHEN o.status = 'Completed' THEN COALESCE(o.totalAmount, 0) ELSE 0 END), 0) AS total_spent,
 
                 MAX(CASE WHEN o.status = 'Completed' THEN COALESCE(o.createdAt, o.orderDate, o.updatedAt) END) AS last_completed_date,
                 MAX(CASE WHEN o.status = 'Rejected' THEN COALESCE(o.createdAt, o.orderDate, o.updatedAt) END) AS last_rejected_date
 
             FROM users u
-            LEFT JOIN orders o ON u.id = o.customerId
-            WHERE u.role = 'customer'
+            LEFT JOIN orders o
+              ON (
+                    (o.orderType = 'Online' AND o.customerId = u.id)
+                    OR (o.orderType = 'Offline' AND o.phone = u.phone)
+                 )
+             AND o.status IN ('Completed', 'Rejected')
+            WHERE u.role = 'customer'`;
+
+        const params = [];
+        if (trimmedSearch) {
+            // Case-insensitive partial match on name; partial match on phone.
+            sql += ` AND (LOWER(u.fullName) LIKE ? OR u.phone LIKE ?)`;
+            params.push(`%${trimmedSearch.toLowerCase()}%`, `%${trimmedSearch}%`);
+        }
+
+        sql += `
             GROUP BY u.id
-            ORDER BY u.fullName ASC`
-        );
+            ORDER BY u.fullName ASC`;
+
+        const [rows] = await promisePool.query(sql, params);
 
         return rows.map((r) => ({
             ...r,
@@ -60,13 +76,18 @@ const Customer = {
                 SUM(CASE WHEN o.status = 'Completed' THEN 1 ELSE 0 END) AS completed_orders,
                 SUM(CASE WHEN o.status = 'Rejected' THEN 1 ELSE 0 END) AS rejected_orders,
 
-                COALESCE(SUM(CASE WHEN o.status = 'Completed' THEN o.totalAmount ELSE 0 END), 0) AS total_spent,
+                COALESCE(SUM(CASE WHEN o.status = 'Completed' THEN COALESCE(o.totalAmount, 0) ELSE 0 END), 0) AS total_spent,
 
                 MAX(CASE WHEN o.status = 'Completed' THEN COALESCE(o.createdAt, o.orderDate, o.updatedAt) END) AS last_completed_date,
                 MAX(CASE WHEN o.status = 'Rejected' THEN COALESCE(o.createdAt, o.orderDate, o.updatedAt) END) AS last_rejected_date
 
             FROM users u
-            LEFT JOIN orders o ON u.id = o.customerId
+            LEFT JOIN orders o
+              ON (
+                    (o.orderType = 'Online' AND o.customerId = u.id)
+                    OR (o.orderType = 'Offline' AND o.phone = u.phone)
+                 )
+             AND o.status IN ('Completed', 'Rejected')
             WHERE u.role = 'customer' AND u.id = ?
             GROUP BY u.id
             LIMIT 1`,

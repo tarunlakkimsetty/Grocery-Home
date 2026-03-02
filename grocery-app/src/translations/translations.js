@@ -122,6 +122,7 @@ export const translations = {
     orderPlacedMessage: 'Your order has been placed. You will receive it soon.',
     orderPlacedFailed: 'Failed to place order. Please try again.',
     onlineOrders: 'Online Orders',
+    offlineOrders: 'Offline Orders',
     orderStatus: 'Order Status',
     orderDate: 'Order Date',
     orderDetails: 'Order Details',
@@ -167,11 +168,8 @@ export const translations = {
     createOne: 'Create one',
     alreadyHaveAccount: 'Already have an account?',
     loginHere: 'Login here',
-    demoAccounts: 'Demo Accounts',
     admin: 'Admin',
     customer: 'Customer',
-    testAdmin: '9876543210 / admin123',
-    testCustomer: '9876543211 / john1234',
 
     // Validation Errors
     nameRequired: 'Name is required',
@@ -426,6 +424,7 @@ export const translations = {
     orderPlacedMessage: 'మీ ఆర్డర్ ఇవ్వబడింది. మీకు త్వరలో అందుతుంది.',
     orderPlacedFailed: 'ఆర్డర్ ఇవ్వడం విఫలమైంది. దయచేసి మళ్లీ ప్రయత్నించండి.',
     onlineOrders: 'ఆన్‌లైన్ ఆర్డర్‌లు',
+    offlineOrders: 'ఆఫ్‌లైన్ ఆర్డర్‌లు',
     orderStatus: 'ఆర్డర్ స్థితి',
     orderDate: 'ఆర్డర్ తేదీ',
     orderDetails: 'ఆర్డర్ వివరాలు',
@@ -471,11 +470,8 @@ export const translations = {
     createOne: 'ఒకటి సృష్టించండి',
     alreadyHaveAccount: 'ఇప్పటికే ఖాతా ఉందా?',
     loginHere: 'ఇక్కడ లాగిన్ చేయండి',
-    demoAccounts: 'డెమో ఖాతాలు',
     admin: 'అడ్‌మిన్',
     customer: 'కస్టమర్',
-    testAdmin: '9876543210 / admin123',
-    testCustomer: '9876543211 / john1234',
 
     // Validation Errors
     nameRequired: 'పేరు అవసరం',

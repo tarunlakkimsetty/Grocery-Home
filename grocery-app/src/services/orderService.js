@@ -8,7 +8,7 @@ let mockOrders = [
         id: 2001,
         userId: 2,
         customerName: 'John Doe',
-        customerPhone: '9876543210',
+        customerPhone: '',
         place: 'Tatipaka',
         address: 'Kirana Street, Tatipaka, Razole Mandalam',
         items: [
@@ -25,7 +25,7 @@ let mockOrders = [
         id: 2002,
         userId: 2,
         customerName: 'John Doe',
-        customerPhone: '9876543210',
+        customerPhone: '',
         place: 'Tatipaka',
         address: 'Kirana Street, Tatipaka, Razole Mandalam',
         items: [
@@ -151,6 +151,18 @@ const orderService = {
             return mockOrders
                 .filter((o) => o.userId === customerId)
                 .sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
+    },
+
+    // Customer: get offline orders for the logged-in user
+    // API: GET /api/user/offline-orders
+    getUserOfflineOrders: async () => {
+        try {
+            const response = await axiosInstance.get('/user/offline-orders');
+            return response.data;
+        } catch {
+            // No mock fallback to avoid leaking/mixing offline data.
+            return { success: true, orders: [] };
         }
     },
 

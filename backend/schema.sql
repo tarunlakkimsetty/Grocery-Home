@@ -91,11 +91,11 @@ CREATE INDEX idx_order_items_orderId ON order_items(orderId);
 CREATE INDEX idx_order_items_productId ON order_items(productId);
 
 -- ============================================
--- Insert default admin user (password: admin123)
--- Note: In production, use bcrypt hashed password
+-- Insert default admin user
+-- Note: password is stored as a bcrypt hash (plain text is never stored)
 -- ============================================
 INSERT INTO users (fullName, phone, place, password, role) VALUES
-('Admin User', '9876543210', 'Palakollu', '$2b$10$defaultHashedPasswordForAdmin123', 'admin');
+('Admin User', '9441754505', 'Palakollu', '$2b$10$QGqNPQ65FkTjD4qz5L/GOedtLj0ReolwlP1iRXu1jyXcLdSVtcnzO', 'admin');
 
 -- Confirm tables created
 SELECT 'Schema created successfully!' AS Status;

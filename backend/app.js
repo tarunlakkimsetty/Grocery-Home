@@ -13,6 +13,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const billRoutes = require('./routes/billRoutes');
 const customerRoutes = require('./routes/customerRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -81,6 +82,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/user', userRoutes);
 app.use('/api/admin/analytics', analyticsRoutes);
 app.use('/api/admin/customers', customerRoutes);
 app.use('/api/bills', billRoutes);

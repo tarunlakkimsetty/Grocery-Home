@@ -13,26 +13,67 @@ class AdminCustomerDetailsPage extends React.Component {
         this.state = {
             customers: [],
             loading: true,
+            fetching: false,
             error: null,
+            search: '',
         };
+
+        this._debounceTimer = null;
+        this._fetchSeq = 0;
     }
 
     componentDidMount() {
-        this.fetchCustomers();
+        this.fetchCustomers('', { isInitial: true });
     }
 
-    fetchCustomers = async () => {
-        this.setState({ loading: true, error: null });
+    componentWillUnmount() {
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+        }
+        this._debounceTimer = null;
+    }
+
+    fetchCustomers = async (search, { isInitial = false } = {}) => {
+        const seq = ++this._fetchSeq;
+
+        if (isInitial) {
+            this.setState({ loading: true, error: null });
+        } else {
+            this.setState({ fetching: true, error: null });
+        }
         try {
-            const customers = await customerService.getAdminCustomers();
+            const customers = await customerService.getAdminCustomers(search);
+
+            // Prevent stale responses from overwriting latest search.
+            if (seq !== this._fetchSeq) return;
+
             this.setState({
                 customers: Array.isArray(customers) ? customers : [],
                 loading: false,
+                fetching: false,
             });
         } catch (err) {
-            this.setState({ loading: false, error: err?.message || 'Failed to load customers' });
+            if (seq !== this._fetchSeq) return;
+            this.setState({
+                loading: false,
+                fetching: false,
+                error: err?.message || 'Failed to load customers',
+            });
             toast.error('Failed to load customers');
         }
+    };
+
+    handleSearchChange = (e) => {
+        const value = e?.target?.value ?? '';
+        this.setState({ search: value });
+
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+        }
+
+        this._debounceTimer = setTimeout(() => {
+            this.fetchCustomers(value);
+        }, 250);
     };
 
     formatDate = (dateStr) => {
@@ -106,7 +147,7 @@ class AdminCustomerDetailsPage extends React.Component {
     };
 
     render() {
-        const { loading, error } = this.state;
+        const { loading, error, search } = this.state;
         if (loading) return <Spinner fullPage text="Loading customers..." />;
 
         return (
@@ -117,6 +158,16 @@ class AdminCustomerDetailsPage extends React.Component {
                             <h1>🧾 {langCtx.getText('customerDetails')}</h1>
                             <p>Customer analytics from completed/rejected orders</p>
                         </PageHeader>
+
+                        <div className="mb-3">
+                            <input
+                                type="text"
+                                className="form-control"
+                                placeholder="Search by Name or Phone"
+                                value={search}
+                                onChange={this.handleSearchChange}
+                            />
+                        </div>
 
                         {error && <div className="alert alert-danger">{error}</div>}
                         {this.renderTable(langCtx)}

@@ -26,11 +26,13 @@ class BillHistoryPage extends React.Component {
         this.state = {
             bills: [],
             orders: [],
+            offlineOrders: [],
             loading: true,
             error: null,
             currentPage: 1,
             redirectTo: null,
             activeTab: 'bills',
+            offlineOrdersLoaded: false,
             // Customer Order Details Modal
             orderModalOpen: false,
             selectedOrder: null,
@@ -65,14 +67,45 @@ class BillHistoryPage extends React.Component {
         }
     };
 
+    fetchOfflineOrders = async () => {
+        try {
+            const resp = await orderService.getUserOfflineOrders();
+            const offlineOrders = Array.isArray(resp)
+                ? resp
+                : (resp?.data || resp?.orders || []);
+            this.setState({ offlineOrders, offlineOrdersLoaded: true });
+        } catch (err) {
+            this.setState({ offlineOrders: [], offlineOrdersLoaded: true });
+        }
+    };
+
+    setActiveTab = (tab) => {
+        this.setState({ activeTab: tab, currentPage: 1 }, () => {
+            if (tab === 'offlineOrders' && !this.state.offlineOrdersLoaded) {
+                this.fetchOfflineOrders();
+            }
+        });
+    };
+
     openOrderModal = async (order) => {
         const { user } = this.context;
         const userId = user ? user.id : 2;
         this.setState({ orderModalOpen: true, selectedOrder: order, orderModalLoading: true });
         try {
-            // Always re-fetch from customer endpoint to reflect the final verified order
+            const { activeTab } = this.state;
+
+            if (activeTab === 'offlineOrders') {
+                const resp = await orderService.getUserOfflineOrders();
+                const offlineOrders = Array.isArray(resp)
+                    ? resp
+                    : (resp?.data || resp?.orders || []);
+                const fresh = offlineOrders.find((o) => o.id === order.id);
+                this.setState({ selectedOrder: fresh || order, orderModalLoading: false, offlineOrders });
+                return;
+            }
+
+            // Online Orders tab: re-fetch from customer endpoint to reflect latest status
             const ordersResponse = await orderService.getCustomerOrders(userId);
-            // Handle both { success, data: [...] } and direct array responses
             const orders = Array.isArray(ordersResponse) 
                 ? ordersResponse 
                 : (ordersResponse?.data || ordersResponse?.orders || []);
@@ -142,10 +175,12 @@ class BillHistoryPage extends React.Component {
         const {
             bills,
             orders,
+            offlineOrders,
             loading,
             error,
             currentPage,
             activeTab,
+            offlineOrdersLoaded,
             orderModalOpen,
             selectedOrder,
             orderModalLoading,
@@ -154,7 +189,10 @@ class BillHistoryPage extends React.Component {
         // Safety fallback: ensure bills and orders are arrays
         const safeBills = Array.isArray(bills) ? bills : [];
         const safeOrders = Array.isArray(orders) ? orders : [];
-        const activeList = activeTab === 'bills' ? safeBills : safeOrders;
+        const safeOfflineOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
+        const activeList = activeTab === 'bills'
+            ? safeBills
+            : (activeTab === 'offlineOrders' ? safeOfflineOrders : safeOrders);
         const totalPages = Math.ceil(activeList.length / ITEMS_PER_PAGE);
         const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
         const visibleItems = activeList.slice(startIdx, startIdx + ITEMS_PER_PAGE);
@@ -165,7 +203,7 @@ class BillHistoryPage extends React.Component {
                     <div>
                         <PageHeader>
                             <h1>📋 {langCtx.getText('purchaseHistory')}</h1>
-                            <p>{safeBills.length + safeOrders.length} {langCtx.getText('items')} total transactions</p>
+                            <p>{safeBills.length + safeOrders.length + safeOfflineOrders.length} {langCtx.getText('items')} total transactions</p>
                         </PageHeader>
 
                         {loading && <Spinner fullPage text="Loading history..." />}
@@ -178,7 +216,7 @@ class BillHistoryPage extends React.Component {
                                     <li className="nav-item">
                                         <button
                                             className={'nav-link' + (activeTab === 'bills' ? ' active fw-bold' : '')}
-                                            onClick={() => this.setState({ activeTab: 'bills', currentPage: 1 })}
+                                            onClick={() => this.setActiveTab('bills')}
                                         >
                                             🧾 {langCtx.getText('bills')} ({safeBills.length})
                                         </button>
@@ -186,9 +224,17 @@ class BillHistoryPage extends React.Component {
                                     <li className="nav-item">
                                         <button
                                             className={'nav-link' + (activeTab === 'orders' ? ' active fw-bold' : '')}
-                                            onClick={() => this.setState({ activeTab: 'orders', currentPage: 1 })}
+                                            onClick={() => this.setActiveTab('orders')}
                                         >
                                             🛵 {langCtx.getText('onlineOrders')} ({safeOrders.length})
+                                        </button>
+                                    </li>
+                                    <li className="nav-item">
+                                        <button
+                                            className={'nav-link' + (activeTab === 'offlineOrders' ? ' active fw-bold' : '')}
+                                            onClick={() => this.setActiveTab('offlineOrders')}
+                                        >
+                                            🧾 {langCtx.getText('offlineOrders')} ({safeOfflineOrders.length})
                                         </button>
                                     </li>
                                 </ul>
@@ -305,6 +351,75 @@ class BillHistoryPage extends React.Component {
                                     </TableWrapper>
                                 )}
 
+                                {/* Offline Orders Tab */}
+                                {activeTab === 'offlineOrders' && !offlineOrdersLoaded && (
+                                    <Spinner text="Loading offline orders..." />
+                                )}
+
+                                {activeTab === 'offlineOrders' && offlineOrdersLoaded && safeOfflineOrders.length === 0 && (
+                                    <EmptyState>
+                                        <div className="empty-icon">🧾</div>
+                                        <h3>No offline orders</h3>
+                                        <p>Offline orders linked to your phone will appear here.</p>
+                                    </EmptyState>
+                                )}
+
+                                {activeTab === 'offlineOrders' && safeOfflineOrders.length > 0 && (
+                                    <TableWrapper>
+                                        <table className="table table-hover">
+                                            <thead>
+                                                <tr>
+                                                    <th>{langCtx.getText('orderId')}</th>
+                                                    <th>{langCtx.getText('orderDate')}</th>
+                                                    <th>{langCtx.getText('items')}</th>
+                                                    <th>{langCtx.getText('paymentMethod')}</th>
+                                                    <th>{langCtx.getText('orderStatus')}</th>
+                                                    <th className="text-end">{langCtx.getText('total')}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {visibleItems.map((order) => (
+                                                    <tr
+                                                        key={order.id}
+                                                        onClick={() => this.openOrderModal(order)}
+                                                        style={{ cursor: 'pointer' }}
+                                                    >
+                                                        <td className="fw-bold">#{order.id}</td>
+                                                        <td>
+                                                            {this.formatDate(
+                                                                order.createdAt ||
+                                                                    order.orderDate ||
+                                                                    order.updatedAt ||
+                                                                    order.date
+                                                            )}
+                                                        </td>
+                                                        <td>{(order.items ? order.items.length : 0)} {langCtx.getText('items')}</td>
+                                                        <td>
+                                                            <Badge className="badge-warning">
+                                                                🧾 OFFLINE
+                                                            </Badge>
+                                                        </td>
+                                                        <td>
+                                                            <Badge className={this.getStatusBadge(order.status)}>
+                                                                {order.status === 'Pending' && '⏳ '}
+                                                                {order.status === 'Verified' && '✅ '}
+                                                                {order.status === 'Paid' && '💰 '}
+                                                                {order.status === 'Delivered' && '📦 '}
+                                                                {order.status === 'Rejected' && '❌ '}
+                                                                {order.status}
+                                                            </Badge>
+                                                        </td>
+                                                        <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
+                                                            ₹{this.getOrderTotal(order).toFixed(2)}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                        {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                    </TableWrapper>
+                                )}
+
                                 {/* ── Customer Order Details Modal (Read-only) ── */}
                                 {orderModalOpen && selectedOrder && (
                                     <ModalOverlay onClick={this.closeOrderModal}>
@@ -314,7 +429,7 @@ class BillHistoryPage extends React.Component {
                                         >
                                             <div className="modal-header">
                                                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                    🛵 {langCtx.getText('orderDetails')} — #{selectedOrder.id}
+                                                    {(selectedOrder.orderType === 'Offline' ? '🧾' : '🛵')} {langCtx.getText('orderDetails')} — #{selectedOrder.id}
                                                     <Badge className={this.getStatusBadge(selectedOrder.status)}>
                                                         {selectedOrder.status === 'Pending' && '⏳ '}
                                                         {selectedOrder.status === 'Verified' && '✅ '}
