@@ -335,11 +335,12 @@ const orderService = {
     },
 
     // Fetch Offline Orders
-    // API: GET /api/orders/offline
+    // API: GET /api/orders/admin?view=active&orderType=offline
     getOfflineOrders: async (search) => {
         try {
-            const response = await axiosInstance.get('/orders/offline', {
+            const response = await axiosInstance.get('/orders/admin', {
                 params: {
+                    orderType: 'Offline',
                     view: 'active',
                     search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
                 },

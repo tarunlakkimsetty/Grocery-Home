@@ -205,6 +205,28 @@ const runMigration = async () => {
             }
         }
 
+        // Normalize archive flag from status (Completed/Rejected only)
+        try {
+            await promisePool.query(`
+                UPDATE orders
+                SET isArchived = TRUE
+                WHERE status IN ('Completed', 'Rejected')
+            `);
+            await promisePool.query(`
+                UPDATE orders
+                SET isArchived = FALSE
+                WHERE status NOT IN ('Completed', 'Rejected')
+            `);
+            console.log('✓ orders.isArchived normalized from status');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+                console.log('✓ orders table/columns missing (skipping archive normalization)');
+            } else {
+                console.log('! Could not normalize orders.isArchived:', msg);
+            }
+        }
+
         // Backfill totalAmount from order_items for existing rows (best-effort)
         // This fixes Orders/Bills UI showing ₹0.00 when items exist.
         try {

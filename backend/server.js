@@ -2,21 +2,20 @@ const config = require('./config/config');
 const app = require('./app');
 const { testConnection, promisePool } = require('./config/db');
 
-const ensureRejectedStatusEnum = async () => {
+const ensureOrdersStatusVarchar = async () => {
     try {
         await promisePool.query(`
             ALTER TABLE orders
-            MODIFY COLUMN status ENUM('Pending','Verified','Paid','Delivered','Rejected')
-            DEFAULT 'Pending'
+            MODIFY COLUMN status VARCHAR(50) DEFAULT 'Pending'
         `);
-        console.log("✓ orders.status ensured to include 'Rejected'");
+        console.log("✓ orders.status ensured as VARCHAR(50)");
     } catch (err) {
         const msg = String(err && err.message ? err.message : err);
         // Ignore cases where table doesn't exist yet or MySQL doesn't allow this operation
         if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
             return;
         }
-        console.log("! Could not ensure orders.status includes 'Rejected':", msg);
+        console.log("! Could not ensure orders.status is VARCHAR:", msg);
     }
 };
 
@@ -30,8 +29,8 @@ const startServer = async () => {
         process.exit(1);
     }
 
-    // Best-effort: keep schema compatible with status 'Rejected'
-    await ensureRejectedStatusEnum();
+    // Best-effort: keep schema compatible with workflow statuses like 'Completed'
+    await ensureOrdersStatusVarchar();
 
     // Start Express server
     app.listen(config.port, () => {

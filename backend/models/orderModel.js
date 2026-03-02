@@ -372,7 +372,8 @@ const Order = {
         const order = orderRows[0];
         if (order.status === 'Rejected') throw new Error('Rejected order cannot be marked as paid');
         if (!order.isVerified) throw new Error('Order must be verified before marking as paid');
-        if (order.isPaid) return true; // idempotent
+        // Keep this operation idempotent, but still allow it to correct derived fields
+        // like status/isArchived if an older row was missing updates.
 
         const [result] = await promisePool.query(
             `
@@ -383,6 +384,10 @@ const Order = {
                            WHEN isDelivered = TRUE THEN 'Completed'
                            ELSE 'Paid'
                          END
+                                ,isArchived = CASE
+                                                             WHEN isDelivered = TRUE THEN TRUE
+                                                             ELSE FALSE
+                                                         END
             WHERE id = ? AND isVerified = TRUE
             `,
             [orderId]
@@ -410,7 +415,8 @@ const Order = {
         const order = orderRows[0];
         if (order.status === 'Rejected') throw new Error('Rejected order cannot be delivered');
         if (!order.isVerified) throw new Error('Order must be verified before delivery');
-        if (order.isDelivered) return true; // idempotent
+        // Keep this operation idempotent, but still allow it to correct derived fields
+        // like status/isArchived if an older row was missing updates.
 
         const [result] = await promisePool.query(
             `
@@ -421,6 +427,10 @@ const Order = {
                            WHEN isPaid = TRUE THEN 'Completed'
                            ELSE 'Delivered'
                          END
+                                ,isArchived = CASE
+                                                             WHEN isPaid = TRUE THEN TRUE
+                                                             ELSE FALSE
+                                                         END
             WHERE id = ? AND isVerified = TRUE
             `,
             [orderId]
@@ -456,7 +466,7 @@ const Order = {
             }
 
             const [result] = await connection.query(
-                'UPDATE orders SET status = ? WHERE id = ?',
+                'UPDATE orders SET status = ?, isArchived = TRUE WHERE id = ?',
                 ['Rejected', orderId]
             );
 
@@ -712,6 +722,10 @@ const Order = {
                                    WHEN isDelivered = TRUE THEN 'Completed'
                                    ELSE 'Paid'
                                  END
+                        ,isArchived = CASE
+                                       WHEN isDelivered = TRUE THEN TRUE
+                                       ELSE FALSE
+                                     END
                     WHERE id = ? AND isVerified = TRUE
                     `,
                     [orderId]
@@ -726,9 +740,18 @@ const Order = {
                                    WHEN isPaid = TRUE THEN 'Completed'
                                    ELSE 'Delivered'
                                  END
+                        ,isArchived = CASE
+                                       WHEN isPaid = TRUE THEN TRUE
+                                       ELSE FALSE
+                                     END
                     WHERE id = ? AND isVerified = TRUE
                     `,
                     [orderId]
+                );
+            } else if (nextStatus === 'Rejected') {
+                await connection.query(
+                    'UPDATE orders SET status = ?, isArchived = TRUE WHERE id = ?',
+                    ['Rejected', orderId]
                 );
             } else {
                 await connection.query(
