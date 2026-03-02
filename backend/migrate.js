@@ -177,6 +177,10 @@ const runMigration = async () => {
         await addColumnBestEffort('orders', 'isDelivered BOOLEAN DEFAULT FALSE', 'isDelivered');
         await addColumnBestEffort('orders', 'isArchived BOOLEAN DEFAULT FALSE', 'isArchived');
 
+        // Ensure orders.createdAt exists (customer history + stable sorting)
+        // Prefer DATETIME for display purposes, but keep best-effort behavior across MySQL versions.
+        await addColumnBestEffort('orders', 'createdAt DATETIME DEFAULT CURRENT_TIMESTAMP', 'createdAt');
+
         // Ensure orders.totalAmount exists (older DBs may be missing it)
         await addColumnBestEffort('orders', 'totalAmount DECIMAL(12,2) DEFAULT 0.00', 'totalAmount');
 
@@ -224,6 +228,22 @@ const runMigration = async () => {
                 console.log('✓ orders table/columns missing (skipping archive normalization)');
             } else {
                 console.log('! Could not normalize orders.isArchived:', msg);
+            }
+        }
+
+        // Backfill createdAt for existing rows (best-effort)
+        try {
+            await promisePool.query(`
+                UPDATE orders
+                SET createdAt = COALESCE(createdAt, orderDate, updatedAt, NOW())
+            `);
+            console.log('✓ orders.createdAt backfilled from orderDate/updatedAt');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+                console.log('✓ orders table/columns missing (skipping createdAt backfill)');
+            } else {
+                console.log('! Could not backfill orders.createdAt:', msg);
             }
         }
 

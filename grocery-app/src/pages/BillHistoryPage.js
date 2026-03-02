@@ -88,8 +88,17 @@ class BillHistoryPage extends React.Component {
     };
 
     formatDate = (dateStr) => {
-        const d = new Date(dateStr);
-        return d.toLocaleDateString('en-IN', {
+        if (!dateStr) return '-';
+
+        // MySQL often returns DATETIME like "2026-03-02 10:30:00" which can be
+        // inconsistently parsed across browsers unless we convert to ISO-ish.
+        const raw = String(dateStr);
+        const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+
+        const d = new Date(normalized);
+        if (Number.isNaN(d.getTime())) return '-';
+
+        return d.toLocaleString('en-IN', {
             day: '2-digit',
             month: 'short',
             year: 'numeric',
@@ -261,8 +270,15 @@ class BillHistoryPage extends React.Component {
                                                         style={{ cursor: 'pointer' }}
                                                     >
                                                         <td className="fw-bold">#{order.id}</td>
-                                                        <td>{this.formatDate(order.date)}</td>
-                                                        <td>{order.items.length} {langCtx.getText('items')}</td>
+                                                        <td>
+                                                            {this.formatDate(
+                                                                order.createdAt ||
+                                                                    order.orderDate ||
+                                                                    order.updatedAt ||
+                                                                    order.date
+                                                            )}
+                                                        </td>
+                                                        <td>{(order.items ? order.items.length : 0)} {langCtx.getText('items')}</td>
                                                         <td>
                                                             <Badge className="badge-warning">
                                                                 🛵 COD

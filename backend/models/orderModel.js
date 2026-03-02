@@ -120,12 +120,23 @@ const Order = {
      */
     findByCustomerId: async (customerId) => {
         const [orders] = await promisePool.query(
-            `SELECT * FROM orders WHERE customerId = ? ORDER BY orderDate DESC`,
+            `
+            SELECT *
+            FROM orders
+            WHERE customerId = ?
+            ORDER BY COALESCE(createdAt, orderDate, updatedAt) DESC
+            `,
             [customerId]
         );
 
         // Get items for each order
         for (let order of orders) {
+            // Ensure a consistent date field for clients.
+            // Some older UI code expects `date`, while newer prefers `createdAt`.
+            const createdAtSafe = order?.createdAt || order?.orderDate || order?.updatedAt || null;
+            order.createdAt = createdAtSafe;
+            order.date = order?.date || createdAtSafe;
+
             const [items] = await promisePool.query(
                 'SELECT * FROM order_items WHERE orderId = ?',
                 [order.id]
