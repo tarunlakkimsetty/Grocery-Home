@@ -3,6 +3,15 @@ const Product = require('../models/productModel');
 const User = require('../models/userModel');
 const { promisePool } = require('../config/db');
 
+const SHOP_INFO = {
+    name: process.env.SHOP_NAME || 'Om Sri Satya Sai Rama Kirana And General Merchants',
+    address:
+        process.env.SHOP_ADDRESS ||
+        'Kirana Street, Tatipaka, Razole Mandalam, Dr. B.R. Ambedkar Konaseema District',
+    gst: process.env.SHOP_GST || '',
+    phone: process.env.SHOP_PHONE || '9441754505',
+};
+
 /**
  * @desc    Create online order
  * @route   POST /api/orders/online
@@ -365,6 +374,106 @@ const getOrder = async (req, res, next) => {
                 totalAmount: totalAmountSafe,
                 items: normalizedItems,
             }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Get printable bill data for any order status
+ * @route   GET /api/orders/:id/print
+ * @access  Admin only
+ */
+const getOrderPrintData = async (req, res, next) => {
+    try {
+        const orderId = req.params.id;
+
+        const [orderRows] = await promisePool.query(
+            `
+            SELECT
+                o.*,
+                COALESCE(NULLIF(NULLIF(o.phone, ''), '0000000000'), u.phone) AS phone
+            FROM orders o
+            LEFT JOIN users u ON o.customerId = u.id
+            WHERE o.id = ?
+            `,
+            [orderId]
+        );
+
+        if (!orderRows.length) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found',
+            });
+        }
+
+        const order = orderRows[0];
+
+        const [items] = await promisePool.query(
+            `
+            SELECT
+                oi.id,
+                oi.productId,
+                COALESCE(p.name, oi.productName) AS productName,
+                oi.quantity,
+                oi.price,
+                (oi.quantity * oi.price) AS subtotal,
+                (oi.quantity * oi.price) AS total
+            FROM order_items oi
+            LEFT JOIN products p ON oi.productId = p.id
+            WHERE oi.orderId = ?
+            ORDER BY oi.id ASC
+            `,
+            [orderId]
+        );
+
+        const normalizedItems = (Array.isArray(items) ? items : []).map((item) => {
+            const quantity = Number(item?.quantity || 0) || 0;
+            const price = Number(item?.price || 0) || 0;
+            const subtotal = Number(item?.subtotal || quantity * price || 0) || 0;
+            return {
+                productId: item?.productId,
+                productName: item?.productName || '',
+                quantity,
+                price,
+                subtotal,
+            };
+        });
+
+        const computedTotal = normalizedItems.reduce((sum, item) => sum + (Number(item?.subtotal || 0) || 0), 0);
+        const totalAmount = Number(order?.totalAmount || 0) > 0 ? Number(order.totalAmount) : computedTotal;
+        const advanceAmountRaw = Number(order?.advanceAmount || 0);
+        const advanceAmount = Number.isFinite(advanceAmountRaw) ? advanceAmountRaw : 0;
+        const remainingBalance = Number(totalAmount || 0) - Number(advanceAmount || 0);
+
+        res.status(200).json({
+            success: true,
+            bill: {
+                shop: {
+                    name: SHOP_INFO.name,
+                    address: SHOP_INFO.address,
+                    phone: SHOP_INFO.phone,
+                    gst: SHOP_INFO.gst || null,
+                },
+                order: {
+                    id: order.id,
+                    orderType: order.orderType,
+                    orderDate: order.orderDate || order.createdAt || order.updatedAt || null,
+                    status: order.status || 'Pending',
+                    paymentStatus: order.paymentStatus || 'Unpaid',
+                    customerName: order.customerName || '',
+                    customerPhone: order.phone || order.customerPhone || '',
+                    customerAddress: order.address || '',
+                    place: order.place || '',
+                },
+                items: normalizedItems,
+                totals: {
+                    totalAmount,
+                    advanceAmount,
+                    remainingBalance,
+                },
+            },
         });
     } catch (error) {
         next(error);
@@ -767,5 +876,6 @@ module.exports = {
     rejectOrder,
     addItemToOrder,
     createOfflineOrder,
-    getOfflineOrders
+    getOfflineOrders,
+    getOrderPrintData,
 };

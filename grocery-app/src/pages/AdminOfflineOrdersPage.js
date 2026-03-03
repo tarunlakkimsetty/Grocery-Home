@@ -5,6 +5,7 @@ import productService from '../services/productService';
 import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
 import { t, statusKey, hasTranslation, getLocale } from '../utils/i18n';
+import { openBillPrintWindow } from '../utils/printBill';
 import styled from 'styled-components';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import {
@@ -181,7 +182,7 @@ class AdminOfflineOrdersPage extends React.Component {
             address: '',
             orderDate: todayStr,
             createItems: [],
-            createChecked: new Set(),
+            selectedProducts: [],
             createAddProductId: '',
             createAddQty: 1,
 
@@ -195,6 +196,9 @@ class AdminOfflineOrdersPage extends React.Component {
 
             // Search
             searchQuery: '',
+
+            // Print Bill loading by order id
+            printLoadingByOrder: {},
 
             // Advance Payment (per order row)
             advanceInputs: {},
@@ -421,7 +425,7 @@ class AdminOfflineOrdersPage extends React.Component {
             address: '',
             orderDate: todayStr,
             createItems: [],
-            createChecked: new Set(),
+            selectedProducts: [],
             createAddProductId: '',
             createAddQty: 1,
         });
@@ -481,22 +485,21 @@ class AdminOfflineOrdersPage extends React.Component {
             ];
         }
 
-        const nextChecked = new Set(this.state.createChecked);
-        nextChecked.add(productId);
-
         this.setState({
             createItems: nextItems,
-            createChecked: nextChecked,
             createAddProductId: '',
             createAddQty: 1,
         });
     };
 
     toggleCreateCheck = (productId) => {
-        const next = new Set(this.state.createChecked);
-        if (next.has(productId)) next.delete(productId);
-        else next.add(productId);
-        this.setState({ createChecked: next });
+        const { selectedProducts } = this.state;
+        const isSelected = selectedProducts.includes(productId);
+        const nextSelectedProducts = isSelected
+            ? selectedProducts.filter((id) => id !== productId)
+            : [...selectedProducts, productId];
+
+        this.setState({ selectedProducts: nextSelectedProducts });
     };
 
     updateCreateQuantity = (productId, delta) => {
@@ -510,16 +513,15 @@ class AdminOfflineOrdersPage extends React.Component {
 
     removeCreateItem = (productId) => {
         const nextItems = this.state.createItems.filter((i) => i.productId !== productId);
-        const nextChecked = new Set(this.state.createChecked);
-        nextChecked.delete(productId);
-        this.setState({ createItems: nextItems, createChecked: nextChecked });
+        const nextSelectedProducts = this.state.selectedProducts.filter((id) => id !== productId);
+        this.setState({ createItems: nextItems, selectedProducts: nextSelectedProducts });
     };
 
     getCreateSelectedTotal = () => {
-        const { createItems, createChecked } = this.state;
-        if (!createChecked || createChecked.size === 0) return 0;
+        const { createItems, selectedProducts } = this.state;
+        if (!Array.isArray(selectedProducts) || selectedProducts.length === 0) return 0;
         return createItems
-            .filter((i) => createChecked.has(i.productId))
+            .filter((i) => selectedProducts.includes(i.productId))
             .reduce((sum, i) => sum + (i.total || 0), 0);
     };
 
@@ -535,7 +537,7 @@ class AdminOfflineOrdersPage extends React.Component {
             address,
             orderDate,
             createItems,
-            createChecked,
+            selectedProducts,
         } = this.state;
 
         if (!customerName.trim()) {
@@ -554,13 +556,13 @@ class AdminOfflineOrdersPage extends React.Component {
             toast.warning(t('addAtLeastOneItem'));
             return;
         }
-        if (!createChecked || createChecked.size === 0) {
+        if (!Array.isArray(selectedProducts) || selectedProducts.length === 0) {
             toast.warning(t('selectAtLeastOneItemToBill'));
             return;
         }
 
         const finalItems = createItems
-            .filter((i) => createChecked.has(i.productId))
+            .filter((i) => selectedProducts.includes(i.productId))
             .map((i) => {
                 const qtyRaw = parseInt(i.quantity, 10);
                 const qty = Number.isFinite(qtyRaw) ? Math.max(0, qtyRaw) : 0;
@@ -645,6 +647,32 @@ class AdminOfflineOrdersPage extends React.Component {
 
     closeModal = () => {
         this.setState({ selectedOrder: null, modalOpen: false, modalItems: [] });
+    };
+
+    handlePrintBill = async (orderId) => {
+        if (!orderId) return;
+
+        this.setState((prev) => ({
+            printLoadingByOrder: {
+                ...prev.printLoadingByOrder,
+                [orderId]: true,
+            },
+        }));
+
+        try {
+            const billPayload = await orderService.getPrintableBill(orderId);
+            openBillPrintWindow(billPayload);
+        } catch (err) {
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : 'Failed to open printable bill');
+        } finally {
+            this.setState((prev) => ({
+                printLoadingByOrder: {
+                    ...prev.printLoadingByOrder,
+                    [orderId]: false,
+                },
+            }));
+        }
     };
 
     toggleItemCheck = (productId) => {
@@ -980,6 +1008,7 @@ class AdminOfflineOrdersPage extends React.Component {
                         checkedItems,
                         addProductId,
                         addProductQty,
+                        printLoadingByOrder,
                     } = this.state;
 
                     const createSelectedTotal = this.getCreateSelectedTotal();
@@ -1146,12 +1175,21 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             </Badge>
                                                         </td>
                                                         <td className="text-center">
-                                                            <ActionButton
-                                                                className="btn-view"
-                                                                onClick={() => this.openModal(order)}
-                                                            >
-                                                                🔍 {langCtx.getText('viewOrder')}
-                                                            </ActionButton>
+                                                            <div className="d-flex flex-column align-items-center gap-1">
+                                                                <ActionButton
+                                                                    className="btn-view"
+                                                                    onClick={() => this.openModal(order)}
+                                                                >
+                                                                    🔍 {langCtx.getText('viewOrder')}
+                                                                </ActionButton>
+                                                                <ActionButton
+                                                                    className="btn-primary-soft"
+                                                                    onClick={() => this.handlePrintBill(order.id)}
+                                                                    disabled={Boolean(printLoadingByOrder[order.id])}
+                                                                >
+                                                                    🖨️ {Boolean(printLoadingByOrder[order.id]) ? 'Printing...' : 'Print Bill'}
+                                                                </ActionButton>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );
@@ -1321,7 +1359,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 </tr>
                                                             )}
                                                             {createItems.map((item) => {
-                                                                const checked = this.state.createChecked.has(item.productId);
+                                                                const checked = this.state.selectedProducts.includes(item.productId);
                                                                 return (
                                                                     <tr
                                                                         key={item.productId}
@@ -1461,9 +1499,18 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     </span>
                                                 )}
                                             </h3>
-                                            <button className="close-btn" onClick={this.closeModal}>
-                                                ×
-                                            </button>
+                                            <div className="d-flex align-items-center gap-2">
+                                                <ActionButton
+                                                    className="btn-primary-soft"
+                                                    onClick={() => this.handlePrintBill(selectedOrder.id)}
+                                                    disabled={Boolean(printLoadingByOrder[selectedOrder.id])}
+                                                >
+                                                    🖨️ {Boolean(printLoadingByOrder[selectedOrder.id]) ? 'Printing...' : 'Print Bill'}
+                                                </ActionButton>
+                                                <button className="close-btn" onClick={this.closeModal}>
+                                                    ×
+                                                </button>
+                                            </div>
                                         </div>
 
                                         <div className="modal-body">

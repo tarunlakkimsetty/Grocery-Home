@@ -180,6 +180,81 @@ const orderService = {
         }
     },
 
+    // Admin: get printable bill data for any order status
+    // API: GET /api/orders/:id/print
+    getPrintableBill: async (orderId) => {
+        const mapOrderToPrintableBill = (order) => {
+            const safeOrder = order || {};
+            const items = Array.isArray(safeOrder.items)
+                ? safeOrder.items.map((item) => {
+                    const quantity = Number(item?.quantity || 0) || 0;
+                    const price = Number(item?.price || 0) || 0;
+                    const subtotal = Number(item?.subtotal || item?.total || quantity * price || 0) || 0;
+                    return {
+                        productId: item?.productId,
+                        productName: item?.name || item?.productName || '',
+                        quantity,
+                        price,
+                        subtotal,
+                    };
+                })
+                : [];
+
+            const computedTotal = items.reduce((sum, item) => sum + (Number(item?.subtotal || 0) || 0), 0);
+            const totalAmount = Number(safeOrder.totalAmount ?? safeOrder.grandTotal ?? computedTotal ?? 0) || 0;
+            const advanceAmount = Number(safeOrder.advanceAmount || 0) || 0;
+
+            return {
+                success: true,
+                bill: {
+                    shop: {
+                        name: 'Om Sri Satya Sai Rama Kirana And General Merchants',
+                        address: 'Kirana Street, Tatipaka, Razole Mandalam, Dr. B.R. Ambedkar Konaseema District',
+                        phone: '9441754505',
+                        gst: null,
+                    },
+                    order: {
+                        id: safeOrder.id,
+                        orderType: safeOrder.orderType || 'Online',
+                        orderDate: safeOrder.orderDate || safeOrder.date || safeOrder.createdAt || new Date().toISOString(),
+                        status: safeOrder.status || 'Pending',
+                        paymentStatus: safeOrder.paymentStatus || 'Unpaid',
+                        customerName: safeOrder.customerName || '',
+                        customerPhone: safeOrder.phone || safeOrder.customerPhone || '',
+                        customerAddress: safeOrder.address || '',
+                        place: safeOrder.place || '',
+                    },
+                    items,
+                    totals: {
+                        totalAmount,
+                        advanceAmount,
+                        remainingBalance: totalAmount - advanceAmount,
+                    },
+                },
+            };
+        };
+
+        try {
+            const response = await axiosInstance.get('/orders/' + orderId);
+            const apiOrder = response?.data?.order || response?.data;
+            if (apiOrder) {
+                return mapOrderToPrintableBill(apiOrder);
+            }
+        } catch {
+            try {
+                const printResponse = await axiosInstance.get('/orders/' + orderId + '/print');
+                if (printResponse?.data) return printResponse.data;
+            } catch {
+                // continue to mock fallback
+            }
+
+            const order = findMockOrderById(orderId);
+            if (!order) throw new Error('Order not found');
+
+            return mapOrderToPrintableBill(order);
+        }
+    },
+
     // Admin: mark order as Verified
     // API: PUT /api/orders/:id/verify
     // Some backends may accept a payload (finalItems, grandTotal). Keep it optional.

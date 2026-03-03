@@ -14,7 +14,8 @@ const {
     rejectOrder,
     addItemToOrder,
     createOfflineOrder,
-    getOfflineOrders
+    getOfflineOrders,
+    getOrderPrintData,
 } = require('../controllers/orderController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { isAdmin } = require('../middleware/roleMiddleware');
@@ -41,6 +42,7 @@ router.put('/:id/advance', authMiddleware, isAdmin, orderValidators.updateAdvanc
 router.put('/:id/status', authMiddleware, isAdmin, orderValidators.getById, updateOrderStatus);
 router.put('/:id/reject', authMiddleware, isAdmin, checkOrderNotLocked, orderValidators.getById, rejectOrder);
 router.post('/:id/add-item', authMiddleware, isAdmin, checkOrderNotLocked, orderValidators.addItem, addItemToOrder);
+router.get('/:id/print', authMiddleware, isAdmin, orderValidators.getById, getOrderPrintData);
 
 // Get single order (customer can view own, admin can view all)
 router.get('/:id', authMiddleware, orderValidators.getById, getOrder);

@@ -5,6 +5,7 @@ import productService from '../services/productService';
 import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
 import { t, statusKey, hasTranslation } from '../utils/i18n';
+import { openBillPrintWindow } from '../utils/printBill';
 import styled from 'styled-components';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import {
@@ -185,8 +186,8 @@ class AdminOnlineOrdersPage extends React.Component {
             selectedOrder: null,
             modalOpen: false,
             actionLoading: false,
-            // Item-level check state: { orderId: Set<productId> }
-            checkedItems: {},
+            // Item-level check state for currently open order modal
+            selectedProducts: [],
             // Editable items inside open modal (deep copy of selectedOrder.items)
             modalItems: [],
             // Add Product section state (Pending only)
@@ -195,6 +196,9 @@ class AdminOnlineOrdersPage extends React.Component {
 
             // Search
             searchQuery: '',
+
+            // Print Bill loading by order id
+            printLoadingByOrder: {},
 
             // Advance Payment (per order row)
             advanceInputs: {},
@@ -371,14 +375,10 @@ class AdminOnlineOrdersPage extends React.Component {
 
     openModal = (order) => {
         const orderItems = Array.isArray(order?.items) ? order.items : [];
-        // Initialize checked items for this order if not already tracked
-        const hasTracked = Object.prototype.hasOwnProperty.call(this.state.checkedItems, order.id);
-        const existingChecked = hasTracked
-            ? this.state.checkedItems[order.id]
-            : new Set(orderItems.map((item) => item.productId));
         this.setState({
             selectedOrder: order,
             modalOpen: true,
+            selectedProducts: [],
             // Deep copy items so quantity edits don't mutate source
             modalItems: orderItems.map((item) => ({
                 ...item,
@@ -388,38 +388,54 @@ class AdminOnlineOrdersPage extends React.Component {
                 quantity: Number.isFinite(Number(item?.quantity)) ? Number(item.quantity) : 0,
                 total: Number(item?.total || 0) || (Number(item?.price || 0) || 0) * (Number(item?.quantity || 0) || 0),
             })),
-            checkedItems: {
-                ...this.state.checkedItems,
-                [order.id]: existingChecked,
-            },
             addProductId: '',
             addProductQty: 1,
         });
     };
 
     closeModal = () => {
-        this.setState({ selectedOrder: null, modalOpen: false, modalItems: [] });
+        this.setState({ selectedOrder: null, modalOpen: false, modalItems: [], selectedProducts: [] });
+    };
+
+    handlePrintBill = async (orderId) => {
+        if (!orderId) return;
+
+        this.setState((prev) => ({
+            printLoadingByOrder: {
+                ...prev.printLoadingByOrder,
+                [orderId]: true,
+            },
+        }));
+
+        try {
+            const billPayload = await orderService.getPrintableBill(orderId);
+            openBillPrintWindow(billPayload);
+        } catch (err) {
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : 'Failed to open printable bill');
+        } finally {
+            this.setState((prev) => ({
+                printLoadingByOrder: {
+                    ...prev.printLoadingByOrder,
+                    [orderId]: false,
+                },
+            }));
+        }
     };
 
     // ─── Item Checkbox ─────────────────────────────────────────────────────────
 
     toggleItemCheck = (productId) => {
-        const { selectedOrder, checkedItems } = this.state;
+        const { selectedOrder, selectedProducts } = this.state;
         if (!selectedOrder) return;
         // Lock: no changes allowed once order is no longer Pending
         if (selectedOrder.status !== 'Pending') return;
-        const currentSet = new Set(checkedItems[selectedOrder.id] || []);
-        if (currentSet.has(productId)) {
-            currentSet.delete(productId);
-        } else {
-            currentSet.add(productId);
-        }
-        this.setState({
-            checkedItems: {
-                ...checkedItems,
-                [selectedOrder.id]: currentSet,
-            },
-        });
+        const isSelected = selectedProducts.includes(productId);
+        const nextSelectedProducts = isSelected
+            ? selectedProducts.filter((id) => id !== productId)
+            : [...selectedProducts, productId];
+
+        this.setState({ selectedProducts: nextSelectedProducts });
     };
 
     // ─── Quantity Editing (PART 2) ─────────────────────────────────────────────
@@ -453,7 +469,7 @@ class AdminOnlineOrdersPage extends React.Component {
     };
 
     handleAddProductToOrder = async () => {
-        const { selectedOrder, addProductId, addProductQty, products, modalItems, checkedItems } = this.state;
+        const { selectedOrder, addProductId, addProductQty, products, modalItems } = this.state;
         if (!selectedOrder || selectedOrder.status !== 'Pending') return;
 
         const productId = parseInt(addProductId, 10);
@@ -499,16 +515,8 @@ class AdminOnlineOrdersPage extends React.Component {
                 ];
             }
 
-            // Default = checked
-            const currentSet = new Set(checkedItems[selectedOrder.id] || []);
-            currentSet.add(productId);
-
             this.setState({
                 modalItems: nextModalItems,
-                checkedItems: {
-                    ...checkedItems,
-                    [selectedOrder.id]: currentSet,
-                },
                 addProductId: '',
                 addProductQty: 1,
             });
@@ -523,12 +531,11 @@ class AdminOnlineOrdersPage extends React.Component {
     // ─── Computed: Checked Total (PART 1) ─────────────────────────────────────
 
     getCheckedTotal = () => {
-        const { selectedOrder, checkedItems, modalItems } = this.state;
+        const { selectedOrder, selectedProducts, modalItems } = this.state;
         if (!selectedOrder) return 0;
-        const checked = checkedItems[selectedOrder.id] || new Set();
-        if (checked.size === 0) return 0;
+        if (!Array.isArray(selectedProducts) || selectedProducts.length === 0) return 0;
         return modalItems
-            .filter((item) => checked.has(item.productId))
+            .filter((item) => selectedProducts.includes(item.productId))
             .reduce((sum, item) => sum + (Number(item?.total || 0) || 0), 0);
     };
 
@@ -546,12 +553,11 @@ class AdminOnlineOrdersPage extends React.Component {
     handleVerify = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
-            const { selectedOrder, modalItems, checkedItems } = this.state;
+            const { selectedOrder, modalItems, selectedProducts } = this.state;
             if (!selectedOrder || selectedOrder.id !== orderId) return;
             if (selectedOrder.status !== 'Pending') return;
 
-            const checkedSet = checkedItems[orderId] || new Set(modalItems.map((i) => i.productId));
-            if (!checkedSet || checkedSet.size === 0) {
+            if (!Array.isArray(selectedProducts) || selectedProducts.length === 0) {
                 toast.warning(t('selectAtLeastOneItemBeforeVerifying'));
                 return;
             }
@@ -559,7 +565,7 @@ class AdminOnlineOrdersPage extends React.Component {
             // Allow quantity = 0 in UI before verification.
             // On verify, drop any checked items with qty <= 0 (backend requires qty >= 1).
             const finalItems = modalItems
-                .filter((i) => checkedSet.has(i.productId))
+                .filter((i) => selectedProducts.includes(i.productId))
                 .map((i) => {
                     const qty = parseInt(i.quantity, 10);
                     const quantity = Number.isFinite(qty) ? qty : 0;
@@ -606,10 +612,7 @@ class AdminOnlineOrdersPage extends React.Component {
                 onlineOrders: orders,
                 selectedOrder: nextSelectedOrder,
                 modalItems: finalItems,
-                checkedItems: {
-                    ...checkedItems,
-                    [orderId]: new Set(finalItems.map((i) => i.productId)),
-                },
+                selectedProducts: finalItems.map((i) => i.productId),
             });
 
             toast.success(t('orderVerifiedSynced'));
@@ -783,13 +786,14 @@ class AdminOnlineOrdersPage extends React.Component {
                         errorKey,
                         selectedOrder,
                         modalOpen,
-                        checkedItems,
+                        selectedProducts,
                         modalItems,
                         actionLoading,
                         products,
                         productsLoading,
                         addProductId,
                         addProductQty,
+                        printLoadingByOrder,
                     } = this.state;
 
                     console.log('Admin Orders State:', products);
@@ -956,12 +960,21 @@ class AdminOnlineOrdersPage extends React.Component {
                                                         </div>
                                                     </td>
                                                     <td className="text-center">
-                                                        <ActionButton
-                                                            className="btn-view"
-                                                            onClick={() => this.openModal(order)}
-                                                        >
-                                                            🔍 {langCtx.getText('viewOrder')}
-                                                        </ActionButton>
+                                                        <div className="d-flex flex-column align-items-center gap-1">
+                                                            <ActionButton
+                                                                className="btn-view"
+                                                                onClick={() => this.openModal(order)}
+                                                            >
+                                                                🔍 {langCtx.getText('viewOrder')}
+                                                            </ActionButton>
+                                                            <ActionButton
+                                                                className="btn-payment"
+                                                                onClick={() => this.handlePrintBill(order.id)}
+                                                                disabled={Boolean(printLoadingByOrder[order.id])}
+                                                            >
+                                                                🖨️ {Boolean(printLoadingByOrder[order.id]) ? 'Printing...' : 'Print Bill'}
+                                                            </ActionButton>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -1001,9 +1014,18 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     </span>
                                                 )}
                                             </h3>
-                                            <button className="close-btn" onClick={this.closeModal}>
-                                                ×
-                                            </button>
+                                            <div className="d-flex align-items-center gap-2">
+                                                <ActionButton
+                                                    className="btn-payment"
+                                                    onClick={() => this.handlePrintBill(selectedOrder.id)}
+                                                    disabled={Boolean(printLoadingByOrder[selectedOrder.id])}
+                                                >
+                                                    🖨️ {Boolean(printLoadingByOrder[selectedOrder.id]) ? 'Printing...' : 'Print Bill'}
+                                                </ActionButton>
+                                                <button className="close-btn" onClick={this.closeModal}>
+                                                    ×
+                                                </button>
+                                            </div>
                                         </div>
 
                                         <div className="modal-body">
@@ -1204,9 +1226,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     </thead>
                                                     <tbody>
                                                         {modalItems.map((item) => {
-                                                            const checked = (
-                                                                checkedItems[selectedOrder.id] || new Set()
-                                                            ).has(item.productId);
+                                                            const checked = selectedProducts.includes(item.productId);
 
                                                             return (
                                                                 <tr
@@ -1312,8 +1332,8 @@ class AdminOnlineOrdersPage extends React.Component {
                                             {/* PART 1: Checked Total — dynamic, updates with checkboxes + qty */}
                                             <TotalBar>
                                                 <span className="total-label">
-                                                    {checkedItems[selectedOrder.id] && checkedItems[selectedOrder.id].size > 0
-                                                        ? `✓ ${langCtx.getText('selectedTotal')} (${checkedItems[selectedOrder.id].size})`
+                                                    {selectedProducts.length > 0
+                                                        ? `✓ ${langCtx.getText('selectedTotal')} (${selectedProducts.length})`
                                                         : langCtx.getText('selectItemsToCalculateTotal')}
                                                 </span>
                                                 <span className="total-value">
