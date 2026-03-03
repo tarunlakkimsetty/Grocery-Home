@@ -16,6 +16,7 @@ let mockOrders = [
             { productId: 7, name: 'Full Cream Milk (1L)', price: 62, quantity: 3, total: 186 },
         ],
         grandTotal: 1026,
+        advanceAmount: 0,
         paymentType: 'Cash on Delivery',
         paymentStatus: 'Pending Payment',
         status: 'Pending',
@@ -33,6 +34,7 @@ let mockOrders = [
             { productId: 25, name: 'Sunflower Oil (1L)', price: 145, quantity: 1, total: 145 },
         ],
         grandTotal: 255,
+        advanceAmount: 0,
         paymentType: 'Cash on Delivery',
         paymentStatus: 'Paid',
         status: 'Verified',
@@ -284,6 +286,29 @@ const orderService = {
         }
     },
 
+    // Admin: update advance amount
+    // API: PUT /api/orders/:id/advance
+    updateAdvanceAmount: async (orderId, advanceAmount) => {
+        try {
+            const response = await axiosInstance.put('/orders/' + orderId + '/advance', { advanceAmount });
+            return response.data;
+        } catch {
+            const order = findMockOrderById(orderId);
+            if (!order) throw new Error('Order not found');
+
+            const status = String(order.status || '').trim().toLowerCase();
+            const paymentStatus = String(order.paymentStatus || '').trim().toLowerCase();
+            const isLocked = Boolean(order.isPaid) || paymentStatus === 'paid' || status === 'paid' || status === 'completed' || status === 'mark paid';
+            if (isLocked) throw new Error('Advance amount cannot be updated after Paid/Completed');
+
+            const num = Number(advanceAmount);
+            if (!Number.isFinite(num) || num < 0) throw new Error('Invalid advance amount');
+
+            order.advanceAmount = num;
+            return { success: true, order };
+        }
+    },
+
     // Admin: mark order as Delivered (requires paymentStatus === 'Paid')
     deliverOrder: async (orderId) => {
         try {
@@ -333,6 +358,7 @@ const orderService = {
                 address: payload.address || '',
                 items: payload.items || [],
                 grandTotal: payload.totalAmount || 0,
+                advanceAmount: 0,
                 paymentType: 'Cash',
                 paymentStatus: payload.status === 'Paid' ? 'Paid' : 'Pending Payment',
                 status: payload.status || 'Pending',

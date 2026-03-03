@@ -168,6 +168,53 @@ const getCustomerOrders = async (req, res, next) => {
 };
 
 /**
+ * @desc    Update advance amount (admin)
+ * @route   PUT /api/orders/:id/advance
+ * @access  Admin only
+ */
+const updateOrderAdvance = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { advanceAmount } = req.body || {};
+
+        const num = Number(advanceAmount);
+        if (!Number.isFinite(num)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Advance amount must be a valid number',
+            });
+        }
+        if (num < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Advance amount cannot be negative',
+            });
+        }
+
+        await Order.updateAdvanceAmount(id, num);
+        const order = await Order.findById(id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Advance amount updated',
+            order,
+        });
+    } catch (error) {
+        if (
+            error.message.includes('Paid/Completed') ||
+            error.message.includes('Order not found') ||
+            error.message.includes('Advance amount')
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+            });
+        }
+        next(error);
+    }
+};
+
+/**
  * @desc    Get all orders (admin view)
  * @route   GET /api/orders/admin
  * @access  Admin only
@@ -214,9 +261,14 @@ const getAdminOrders = async (req, res, next) => {
             });
 
             const totalAmount = Number(order?.totalAmount || 0) || 0;
+            const advanceAmount = Number(order?.advanceAmount || 0);
+            const advanceAmountSafe = Number.isFinite(advanceAmount) ? advanceAmount : 0;
+            const remainingBalance = totalAmount - (Number(advanceAmountSafe || 0) || 0);
             return {
                 ...order,
                 totalAmount,
+                advanceAmount: advanceAmountSafe,
+                remainingBalance,
                 items: normalizedItems,
             };
         });
@@ -404,7 +456,7 @@ const markOrderPaid = async (req, res, next) => {
             order
         });
     } catch (error) {
-        if (error.message.includes('must be verified')) {
+        if (error.message.includes('must be verified') || error.message.includes('Remaining balance')) {
             return res.status(400).json({
                 success: false,
                 message: error.message
@@ -433,7 +485,7 @@ const markOrderDelivered = async (req, res, next) => {
             order
         });
     } catch (error) {
-        if (error.message.includes('must be verified')) {
+        if (error.message.includes('must be verified') || error.message.includes('must be paid')) {
             return res.status(400).json({
                 success: false,
                 message: error.message
@@ -478,6 +530,8 @@ const updateOrderStatus = async (req, res, next) => {
             error.message.includes('cannot be updated') ||
             error.message.includes('Only Pending orders can be rejected') ||
             error.message.includes('must be verified') ||
+            error.message.includes('must be paid') ||
+            error.message.includes('Remaining balance') ||
             error.message.includes('Approve payment') ||
             error.message.includes('Insufficient stock') ||
             error.message.includes('already verified')
@@ -680,9 +734,14 @@ const getOfflineOrders = async (req, res, next) => {
             });
 
             const totalAmount = Number(order?.totalAmount || 0) || 0;
+            const advanceAmount = Number(order?.advanceAmount || 0);
+            const advanceAmountSafe = Number.isFinite(advanceAmount) ? advanceAmount : 0;
+            const remainingBalance = totalAmount - (Number(advanceAmountSafe || 0) || 0);
             return {
                 ...order,
                 totalAmount,
+                advanceAmount: advanceAmountSafe,
+                remainingBalance,
                 items: normalizedItems,
             };
         });
@@ -703,6 +762,7 @@ module.exports = {
     verifyOrder,
     markOrderPaid,
     markOrderDelivered,
+    updateOrderAdvance,
     updateOrderStatus,
     rejectOrder,
     addItemToOrder,

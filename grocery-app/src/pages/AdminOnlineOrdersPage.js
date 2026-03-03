@@ -4,6 +4,7 @@ import orderService from '../services/orderService';
 import productService from '../services/productService';
 import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
+import { t, statusKey, hasTranslation } from '../utils/i18n';
 import styled from 'styled-components';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import {
@@ -177,7 +178,7 @@ class AdminOnlineOrdersPage extends React.Component {
             isLoading: true,
             orders: [],
             loading: true,
-            error: null,
+            errorKey: null,
             products: [],
             productsLoading: false,
             // Modal
@@ -194,6 +195,10 @@ class AdminOnlineOrdersPage extends React.Component {
 
             // Search
             searchQuery: '',
+
+            // Advance Payment (per order row)
+            advanceInputs: {},
+            advanceSaving: {},
         };
     }
 
@@ -211,10 +216,127 @@ class AdminOnlineOrdersPage extends React.Component {
             const response = await orderService.getAllOrders(searchQuery);
             console.log('Admin Online Orders:', response);
             const orders = Array.isArray(response) ? response : (response?.orders || response?.data || []);
-            this.setState({ orders, onlineOrders: orders, loading: false, isLoading: false });
+            // Initialize/refresh advance input values from API (but don't overwrite in-progress edits)
+            const nextAdvanceInputs = { ...this.state.advanceInputs };
+            (Array.isArray(orders) ? orders : []).forEach((o) => {
+                const id = o && o.id;
+                if (!id) return;
+                if (nextAdvanceInputs[id] === undefined) {
+                    const fromApi = Number(o.advanceAmount || 0);
+                    nextAdvanceInputs[id] = Number.isFinite(fromApi) ? String(fromApi) : '0';
+                }
+            });
+
+            this.setState({
+                orders,
+                onlineOrders: orders,
+                advanceInputs: nextAdvanceInputs,
+                errorKey: null,
+                loading: false,
+                isLoading: false,
+            });
         } catch (err) {
-            this.setState({ error: 'Failed to load orders', loading: false, isLoading: false });
-            toast.error('Failed to load orders');
+            this.setState({ errorKey: 'failedToLoadOrders', loading: false, isLoading: false });
+            toast.error(t('failedToLoadOrders'));
+        }
+    };
+
+    // ─── Advance Payment Helpers ───────────────────────────────────────────
+
+    isAdvanceEditable = (order) => {
+        const statusRaw = String(order?.status || '').trim();
+        const statusLower = statusRaw.toLowerCase();
+        const paymentStatusLower = String(order?.paymentStatus || '').trim().toLowerCase();
+
+        // Hard lock after payment/completion
+        const isLocked =
+            Boolean(order?.isPaid) ||
+            paymentStatusLower === 'paid' ||
+            statusLower === 'paid' ||
+            statusLower === 'completed' ||
+            statusLower === 'mark paid';
+
+        if (isLocked) return false;
+
+        // Spec-allowed statuses
+        const allowed = new Set(['pending', 'confirmed', 'processing', 'verified', 'delivered']);
+        return allowed.has(statusLower);
+    };
+
+    getAdvanceInputValue = (order) => {
+        const id = order && order.id;
+        if (!id) return '0';
+        const v = this.state.advanceInputs[id];
+        if (v !== undefined && v !== null) return String(v);
+        const fromApi = Number(order?.advanceAmount || 0);
+        return String(Number.isFinite(fromApi) ? fromApi : 0);
+    };
+
+    handleAdvanceInputChange = (orderId, value) => {
+        this.setState({
+            advanceInputs: {
+                ...this.state.advanceInputs,
+                [orderId]: value,
+            },
+        });
+    };
+
+    submitAdvance = async (order) => {
+        const orderId = order && order.id;
+        if (!orderId) return;
+
+        const editable = this.isAdvanceEditable(order);
+        if (!editable) {
+            toast.error(t('advanceEditLocked'));
+            return;
+        }
+
+        const raw = this.getAdvanceInputValue(order);
+        const num = Number(raw);
+        if (!Number.isFinite(num)) {
+            toast.error(t('enterValidAdvanceAmount'));
+            return;
+        }
+        if (num < 0) {
+            toast.error(t('advanceAmountCannotBeNegative'));
+            return;
+        }
+
+        this.setState({
+            advanceSaving: {
+                ...this.state.advanceSaving,
+                [orderId]: true,
+            },
+        });
+
+        try {
+            const resp = await orderService.updateAdvanceAmount(orderId, num);
+            const updatedOrder = resp?.order || resp?.data?.order || resp;
+
+            // Update orders list in-place for snappy UI
+            const patchList = (list) => (Array.isArray(list) ? list.map((o) => (o.id === orderId ? { ...o, ...updatedOrder } : o)) : list);
+
+            this.setState((prev) => ({
+                orders: patchList(prev.orders),
+                onlineOrders: patchList(prev.onlineOrders),
+                selectedOrder: prev.selectedOrder && prev.selectedOrder.id === orderId ? { ...prev.selectedOrder, ...updatedOrder } : prev.selectedOrder,
+                advanceInputs: {
+                    ...prev.advanceInputs,
+                    [orderId]: String(Number(updatedOrder?.advanceAmount || 0) || 0),
+                },
+            }));
+
+            toast.success(t('advanceUpdated'));
+        } catch (e) {
+            const rawMsg = e?.response?.data?.errorKey || e?.response?.data?.message || e?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToUpdateAdvance'));
+        } finally {
+            this.setState({
+                advanceSaving: {
+                    ...this.state.advanceSaving,
+                    [orderId]: false,
+                },
+            });
         }
     };
 
@@ -241,7 +363,7 @@ class AdminOnlineOrdersPage extends React.Component {
             this.setState({ products: safeProducts, productsLoading: false });
         } catch (err) {
             this.setState({ productsLoading: false });
-            toast.error('Failed to load products');
+            toast.error(t('failedToLoadProducts'));
         }
     };
 
@@ -336,14 +458,14 @@ class AdminOnlineOrdersPage extends React.Component {
 
         const productId = parseInt(addProductId, 10);
         if (!productId) {
-            toast.warning('Please select a product');
+            toast.warning(t('pleaseSelectProduct'));
             return;
         }
 
         const quantity = Math.max(1, parseInt(addProductQty, 10) || 1);
         const product = products.find((p) => p.id === productId);
         if (!product) {
-            toast.error('Selected product not found');
+            toast.error(t('selectedProductNotFound'));
             return;
         }
 
@@ -391,7 +513,8 @@ class AdminOnlineOrdersPage extends React.Component {
                 addProductQty: 1,
             });
         } catch (err) {
-            toast.error(err.message || 'Failed to add product to order');
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToAddProductToOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -429,7 +552,7 @@ class AdminOnlineOrdersPage extends React.Component {
 
             const checkedSet = checkedItems[orderId] || new Set(modalItems.map((i) => i.productId));
             if (!checkedSet || checkedSet.size === 0) {
-                toast.warning('Select at least one item before verifying');
+                toast.warning(t('selectAtLeastOneItemBeforeVerifying'));
                 return;
             }
 
@@ -452,7 +575,7 @@ class AdminOnlineOrdersPage extends React.Component {
                 .filter((i) => (Number(i.quantity || 0) || 0) > 0);
 
             if (finalItems.length === 0) {
-                toast.warning('Selected items must have quantity greater than 0');
+                toast.warning(t('selectedItemsQtyGreaterThanZero'));
                 return;
             }
 
@@ -489,9 +612,9 @@ class AdminOnlineOrdersPage extends React.Component {
                 },
             });
 
-            toast.success('Order verified and synced with customer.');
+            toast.success(t('orderVerifiedSynced'));
         } catch (err) {
-            toast.error('Failed to update order status');
+            toast.error(t('failedToUpdateOrderStatus'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -539,9 +662,9 @@ class AdminOnlineOrdersPage extends React.Component {
                     : null;
                 this.setState({ orders, onlineOrders: orders, selectedOrder });
             }
-            toast.success('Payment approved for Order #' + orderId + ' 💳');
+            toast.success(`${t('paymentApprovedSuccess')} 💳`);
         } catch (err) {
-            toast.error('Failed to approve payment');
+            toast.error(t('failedToApprovePayment'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -566,9 +689,9 @@ class AdminOnlineOrdersPage extends React.Component {
 
             // Re-fetch so Completed moves out of Active.
             await this.fetchOrders();
-            toast.success('Order #' + orderId + ' marked as Delivered 📦');
+            toast.success(`${t('orderMarkedDelivered')} 📦`);
         } catch (err) {
-            toast.error('Failed to update order status');
+            toast.error(t('failedToUpdateOrderStatus'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -580,7 +703,7 @@ class AdminOnlineOrdersPage extends React.Component {
         if (!selectedOrder || selectedOrder.status !== 'Pending') return;
 
         // Keep confirm minimal; no extra UX beyond a standard prompt.
-        const ok = window.confirm('Reject this order?');
+        const ok = window.confirm(t('rejectOrderConfirm'));
         if (!ok) return;
 
         this.setState({ actionLoading: true });
@@ -588,9 +711,9 @@ class AdminOnlineOrdersPage extends React.Component {
             await orderService.rejectOrder(orderId);
             // Rejected orders no longer match the active filter; refetch to remove from list
             await this.fetchOrders();
-            toast.success('Order #' + orderId + ' rejected');
+            toast.success(t('orderRejected'));
         } catch (err) {
-            toast.error('Failed to reject order');
+            toast.error(t('failedToRejectOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -632,11 +755,11 @@ class AdminOnlineOrdersPage extends React.Component {
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
 
-    formatDate = (dateStr) => {
+    formatDate = (dateStr, locale = 'en-IN') => {
         if (!dateStr) return '—';
         const d = new Date(dateStr);
         if (Number.isNaN(d.getTime())) return '—';
-        return d.toLocaleDateString('en-IN', {
+        return d.toLocaleDateString(locale, {
             day: '2-digit',
             month: 'short',
             year: 'numeric',
@@ -651,12 +774,13 @@ class AdminOnlineOrdersPage extends React.Component {
         return (
             <LanguageContext.Consumer>
                 {(langCtx) => {
+                    const locale = langCtx.currentLanguage === 'te' ? 'te-IN' : 'en-IN';
                     const {
                         onlineOrders,
                         isLoading,
                         orders,
                         loading,
-                        error,
+                        errorKey,
                         selectedOrder,
                         modalOpen,
                         checkedItems,
@@ -695,12 +819,28 @@ class AdminOnlineOrdersPage extends React.Component {
                             (selectedOrder.isDelivered ||
                                 ['Delivered', 'Completed'].includes(selectedOrder.status))
                         );
+
+                    const getPaymentStatusText = (paymentStatus) => {
+                        const lower = String(paymentStatus || '').trim().toLowerCase();
+                        return lower === 'paid'
+                            ? langCtx.getText('paymentApproved')
+                            : langCtx.getText('pendingPayment');
+                    };
                     const isRejected =
                         selectedOrder && selectedOrder.status === 'Rejected';
                     // Lock editing once order moves past Pending
                     const isLocked =
                         selectedOrder && selectedOrder.status !== 'Pending';
                     const isPending = selectedOrder && selectedOrder.status === 'Pending';
+
+                    const totalForPayment = Number(selectedOrder?.totalAmount ?? selectedOrder?.grandTotal ?? checkedTotal ?? 0) || 0;
+                    const advanceForPayment = Number(selectedOrder?.advanceAmount ?? 0) || 0;
+                    const remainingForPayment = selectedOrder
+                        ? (Number.isFinite(Number(selectedOrder?.remainingBalance))
+                            ? Number(selectedOrder.remainingBalance)
+                            : (totalForPayment - advanceForPayment))
+                        : 0;
+                    const isRemainingSettled = Math.abs(Number(remainingForPayment) || 0) <= 0.009;
 
                     const effectiveOrders = Array.isArray(onlineOrders) ? onlineOrders : orders;
                     const effectiveLoading = typeof isLoading === 'boolean' ? isLoading : loading;
@@ -711,24 +851,26 @@ class AdminOnlineOrdersPage extends React.Component {
                             {/* ── Page Header ── */}
                             <PageHeader>
                                 <h1>🛵 {langCtx.getText('onlineOrders')}</h1>
-                                <p>{safeOrders.length} Cash on Delivery order(s)</p>
+                                <p>
+                                    {safeOrders.length} {langCtx.getText('cashOnDeliveryOrderCountLabel')}
+                                </p>
                             </PageHeader>
 
                             <div className="mb-3" style={{ maxWidth: '420px' }}>
                                 <input
                                     type="text"
                                     className="form-control"
-                                    placeholder="Search by Customer Name"
+                                    placeholder={langCtx.getText('searchByCustomerName')}
                                     value={this.state.searchQuery}
                                     onChange={this.handleSearchChange}
                                 />
                             </div>
 
-                            {effectiveLoading && <Spinner fullPage text="Loading orders..." />}
-                            {error && <div className="alert alert-danger">{error}</div>}
+                            {effectiveLoading && <Spinner fullPage text={langCtx.getText('loadingOrders')} />}
+                            {errorKey && <div className="alert alert-danger">{langCtx.getText(errorKey)}</div>}
 
                             {/* ── Empty State ── */}
-                            {!effectiveLoading && !error && (!safeOrders || safeOrders.length === 0) && (
+                            {!effectiveLoading && !errorKey && (!safeOrders || safeOrders.length === 0) && (
                                 <EmptyState>
                                     <div className="empty-icon">🛵</div>
                                     <h3>{langCtx.getText('noOrders')}</h3>
@@ -737,7 +879,7 @@ class AdminOnlineOrdersPage extends React.Component {
                             )}
 
                             {/* ── Orders Table ── */}
-                            {!effectiveLoading && !error && safeOrders.length > 0 && (
+                            {!effectiveLoading && !errorKey && safeOrders.length > 0 && (
                                 <TableWrapper>
                                     <table className="table table-hover align-middle">
                                         <thead>
@@ -747,6 +889,8 @@ class AdminOnlineOrdersPage extends React.Component {
                                                 <th>{langCtx.getText('phone')}</th>
                                                 <th>{langCtx.getText('orderDate')}</th>
                                                 <th className="text-end">{langCtx.getText('billAmount')}</th>
+                                                <th className="text-end">{langCtx.getText('advance')}</th>
+                                                <th className="text-end">{langCtx.getText('remaining')}</th>
                                                 <th className="text-center">{langCtx.getText('orderStatus')}</th>
                                                 <th className="text-center">{langCtx.getText('viewOrder')}</th>
                                             </tr>
@@ -758,19 +902,56 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     <td>{order.customerName}</td>
                                                     <td>{order.phone || order.customerPhone || '—'}</td>
                                                     <td style={{ whiteSpace: 'nowrap' }}>
-                                                        {this.formatDate(order.orderDate || order.date)}
+                                                        {this.formatDate(order.orderDate || order.date, locale)}
                                                     </td>
                                                     <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
                                                         ₹{Number(order.totalAmount ?? order.grandTotal ?? 0).toFixed(2)}
                                                     </td>
+                                                    <td className="text-end" style={{ minWidth: '160px' }}>
+                                                        <div className="d-flex flex-column align-items-end gap-1">
+                                                            <input
+                                                                type="number"
+                                                                className="form-control form-control-sm"
+                                                                style={{ maxWidth: '150px' }}
+                                                                min="0"
+                                                                step="0.01"
+                                                                value={this.getAdvanceInputValue(order)}
+                                                                disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
+                                                                onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}
+                                                            />
+                                                            <div className="d-flex gap-1" style={{ justifyContent: 'flex-end' }}>
+                                                                {Number(order.advanceAmount || 0) <= 0 && this.isAdvanceEditable(order) && (
+                                                                    <ActionButton
+                                                                        className="btn-payment"
+                                                                        disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                        onClick={() => this.submitAdvance(order)}
+                                                                    >
+                                                                        {langCtx.getText('enterAdvance')}
+                                                                    </ActionButton>
+                                                                )}
+                                                                {Number(order.advanceAmount || 0) > 0 && this.isAdvanceEditable(order) && (
+                                                                    <ActionButton
+                                                                        className="btn-payment"
+                                                                        disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                        onClick={() => this.submitAdvance(order)}
+                                                                    >
+                                                                        {langCtx.getText('editAdvance')}
+                                                                    </ActionButton>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="text-end fw-bold" style={{ color: (Number(order.remainingBalance ?? ((Number(order.totalAmount || 0) || 0) - (Number(order.advanceAmount || 0) || 0))) || 0) < 0 ? '#c62828' : '#2E7D32' }}>
+                                                        ₹{Number(order.remainingBalance ?? ((Number(order.totalAmount || 0) || 0) - (Number(order.advanceAmount || 0) || 0))).toFixed(2)}
+                                                    </td>
                                                     <td className="text-center">
                                                         <div className="d-flex flex-column align-items-center gap-1">
                                                             <Badge className={this.getStatusBadgeClass(order.status)}>
-                                                                {this.getStatusIcon(order.status)} {order.status}
+                                                                {this.getStatusIcon(order.status)} {langCtx.getText(statusKey(order.status))}
                                                             </Badge>
                                                             <Badge className={this.getPaymentBadgeClass(order.paymentStatus)}>
                                                                 {this.getPaymentIcon(order.paymentStatus)}{' '}
-                                                                {order.paymentStatus || 'Pending Payment'}
+                                                                {getPaymentStatusText(order.paymentStatus)}
                                                             </Badge>
                                                         </div>
                                                     </td>
@@ -816,7 +997,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                         letterSpacing: '0.5px',
                                                         textTransform: 'uppercase',
                                                     }}>
-                                                        🔒 Order Finalized
+                                                        🔒 {langCtx.getText('orderFinalized')}
                                                     </span>
                                                 )}
                                             </h3>
@@ -856,20 +1037,20 @@ class AdminOnlineOrdersPage extends React.Component {
                                                             <span className="value">{selectedOrder.place || '—'}</span>
                                                         </DetailRow>
                                                         <DetailRow>
-                                                            <span className="label">📍 Address</span>
+                                                            <span className="label">📍 {langCtx.getText('addressLabel')}</span>
                                                             <span className="value">{selectedOrder.address || '—'}</span>
                                                         </DetailRow>
                                                     </div>
                                                     <div className="col-12 col-sm-6">
                                                         <DetailRow>
                                                             <span className="label">📅 {langCtx.getText('orderDate')}</span>
-                                                            <span className="value">{this.formatDate(selectedOrder.orderDate || selectedOrder.date)}</span>
+                                                            <span className="value">{this.formatDate(selectedOrder.orderDate || selectedOrder.date, locale)}</span>
                                                         </DetailRow>
                                                         <DetailRow>
                                                             <span className="label">📊 {langCtx.getText('orderStatus')}</span>
                                                             <span>
                                                                 <Badge className={this.getStatusBadgeClass(selectedOrder.status)}>
-                                                                    {this.getStatusIcon(selectedOrder.status)} {selectedOrder.status}
+                                                                    {this.getStatusIcon(selectedOrder.status)} {langCtx.getText(statusKey(selectedOrder.status))}
                                                                 </Badge>
                                                             </span>
                                                         </DetailRow>
@@ -879,7 +1060,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                             <span>
                                                                 <Badge className={this.getPaymentBadgeClass(selectedOrder.paymentStatus)}>
                                                                     {this.getPaymentIcon(selectedOrder.paymentStatus)}{' '}
-                                                                    {selectedOrder.paymentStatus || 'Pending Payment'}
+                                                                    {getPaymentStatusText(selectedOrder.paymentStatus)}
                                                                 </Badge>
                                                             </span>
                                                         </DetailRow>
@@ -898,11 +1079,11 @@ class AdminOnlineOrdersPage extends React.Component {
                                                         border: '1px solid #e9ecef',
                                                     }}
                                                 >
-                                                    <SectionTitle>➕ Add Product to Order</SectionTitle>
+                                                    <SectionTitle>➕ {langCtx.getText('addProductToOrder')}</SectionTitle>
                                                     <div className="row g-2 align-items-end">
                                                         <div className="col-12 col-md-7">
                                                             <label className="form-label small fw-semibold mb-1">
-                                                                Product
+                                                                {langCtx.getText('product')}
                                                             </label>
                                                             <select
                                                                 className="form-select"
@@ -910,7 +1091,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                 onChange={this.onChangeAddProductId}
                                                                 disabled={actionLoading || productsLoading}
                                                             >
-                                                                <option value="">Select product...</option>
+                                                                <option value="">{langCtx.getText('selectProduct')}</option>
                                                                 {Array.isArray(products) && products.map((p) => (
                                                                     <option key={p.id} value={p.id}>
                                                                         {p.name} — ₹{p.price}
@@ -920,7 +1101,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                         </div>
                                                         <div className="col-6 col-md-3">
                                                             <label className="form-label small fw-semibold mb-1">
-                                                                Quantity
+                                                                {langCtx.getText('quantity')}
                                                             </label>
                                                             <input
                                                                 type="number"
@@ -939,7 +1120,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                 disabled={actionLoading || productsLoading}
                                                                 style={{ fontWeight: '700' }}
                                                             >
-                                                                Add
+                                                                {langCtx.getText('add')}
                                                             </button>
                                                         </div>
                                                     </div>
@@ -947,7 +1128,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                         className="text-muted d-block mt-2"
                                                         style={{ fontSize: '0.78rem' }}
                                                     >
-                                                        Added items are selected by default and included in the total.
+                                                        {langCtx.getText('addedItemsSelectedByDefault')}
                                                     </small>
                                                 </div>
                                             )}
@@ -976,7 +1157,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     fontSize: '0.82rem',
                                                     color: '#495057',
                                                 }}>
-                                                    🔒 <span>This order is <strong>finalized</strong> and cannot be modified. Items and quantities are read-only.</span>
+                                                    🔒 <span>{langCtx.getText('orderFinalizedReadOnly')}</span>
                                                 </div>
                                             )}
 
@@ -1079,7 +1260,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                                     this.updateItemQuantity(item.productId, -1)
                                                                                 }
                                                                                 disabled={isLocked || (Number(item.quantity || 0) || 0) <= 0}
-                                                                                title={isLocked ? 'Order is locked' : 'Decrease quantity'}
+                                                                                title={isLocked ? langCtx.getText('orderLocked') : langCtx.getText('decreaseQuantity')}
                                                                             >
                                                                                 −
                                                                             </button>
@@ -1092,7 +1273,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                                     this.updateItemQuantity(item.productId, +1)
                                                                                 }
                                                                                 disabled={isLocked}
-                                                                                title={isLocked ? 'Order is locked' : 'Increase quantity'}
+                                                                                title={isLocked ? langCtx.getText('orderLocked') : langCtx.getText('increaseQuantity')}
                                                                             >
                                                                                 +
                                                                             </button>
@@ -1131,17 +1312,47 @@ class AdminOnlineOrdersPage extends React.Component {
                                             {/* PART 1: Checked Total — dynamic, updates with checkboxes + qty */}
                                             <TotalBar>
                                                 <span className="total-label">
-                                                    {checkedItems[selectedOrder.id] &&
-                                                    checkedItems[selectedOrder.id].size > 0
-                                                        ? `✓ Selected Total (${checkedItems[selectedOrder.id].size} item${
-                                                              checkedItems[selectedOrder.id].size > 1 ? 's' : ''
-                                                          }):`
-                                                        : 'Select items above to calculate total:'}
+                                                    {checkedItems[selectedOrder.id] && checkedItems[selectedOrder.id].size > 0
+                                                        ? `✓ ${langCtx.getText('selectedTotal')} (${checkedItems[selectedOrder.id].size})`
+                                                        : langCtx.getText('selectItemsToCalculateTotal')}
                                                 </span>
                                                 <span className="total-value">
                                                     ₹{Number(checkedTotal || 0).toFixed(2)}
                                                 </span>
                                             </TotalBar>
+
+                                            {(() => {
+                                                const total = Number(selectedOrder?.totalAmount ?? selectedOrder?.grandTotal ?? 0) || 0;
+                                                const advance = Number(selectedOrder?.advanceAmount ?? 0) || 0;
+                                                const remaining = Number.isFinite(Number(selectedOrder?.remainingBalance))
+                                                    ? Number(selectedOrder.remainingBalance)
+                                                    : (total - advance);
+                                                const remainingColor = remaining < 0 ? '#c62828' : '#2E7D32';
+
+                                                return (
+                                                    <div
+                                                        className="d-flex justify-content-between align-items-center mt-2"
+                                                        style={{
+                                                            background: '#f8f9fa',
+                                                            border: '1px solid #e9ecef',
+                                                            borderRadius: '8px',
+                                                            padding: '0.65rem 0.85rem',
+                                                        }}
+                                                    >
+                                                        <div className="d-flex flex-column" style={{ gap: '0.1rem' }}>
+                                                            <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
+                                                                {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{advance.toFixed(2)}</span>
+                                                            </span>
+                                                            <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
+                                                                {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{remaining.toFixed(2)}</span>
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-muted" style={{ fontSize: '0.78rem' }}>
+                                                            ({langCtx.getText('billAmount')}: ₹{total.toFixed(2)})
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
 
                                             {/* PART 4: Payment Section */}
                                             <div
@@ -1176,7 +1387,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                             )}
                                                             style={{ marginLeft: '0.3rem' }}
                                                         >
-                                                            {selectedOrder.paymentStatus || 'Pending Payment'}
+                                                            {getPaymentStatusText(selectedOrder.paymentStatus)}
                                                         </Badge>
                                                     </div>
                                                     {!isPaymentPaid && (
@@ -1185,13 +1396,19 @@ class AdminOnlineOrdersPage extends React.Component {
                                                             onClick={() =>
                                                                 this.handleApprovePayment(selectedOrder.id)
                                                             }
-                                                            disabled={actionLoading || isRejected || !isVerified}
-                                                            title={!isVerified ? 'Verify the order first' : 'Mark as Paid'}
+                                                            disabled={actionLoading || isRejected || !isVerified || !isRemainingSettled}
+                                                            title={
+                                                                !isVerified
+                                                                    ? langCtx.getText('verifyOrderFirst')
+                                                                    : (!isRemainingSettled
+                                                                        ? langCtx.getText('remainingMustBeZeroToMarkPaid')
+                                                                        : langCtx.getText('markAsPaid'))
+                                                            }
                                                         >
                                                             {actionLoading ? (
                                                                 <>
                                                                     <span className="spinner-border spinner-border-sm" />
-                                                                    Processing...
+                                                                    {langCtx.getText('processing')}
                                                                 </>
                                                             ) : (
                                                                 <>💳 {langCtx.getText('approvePayment')}</>
@@ -1246,7 +1463,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                         disabled={actionLoading}
                                                         style={{ fontSize: '0.82rem', fontWeight: '600' }}
                                                     >
-                                                        ❌ Reject
+                                                        ❌ {langCtx.getText('rejectOrder')}
                                                     </button>
                                                 )}
 
@@ -1262,19 +1479,19 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     }
                                                     title={
                                                         !isVerified
-                                                            ? 'Verify the order first'
+                                                            ? langCtx.getText('verifyOrderFirst')
                                                             : isDelivered
-                                                            ? 'Already Delivered'
-                                                            : 'Mark as Delivered'
+                                                            ? langCtx.getText('alreadyDelivered')
+                                                            : langCtx.getText('markAsDelivered')
                                                     }
                                                 >
                                                     {actionLoading ? (
                                                         <>
                                                             <span className="spinner-border spinner-border-sm" />
-                                                            Processing...
+                                                            {langCtx.getText('processing')}
                                                         </>
                                                     ) : (
-                                                        <>📦 {langCtx.getText('markDelivered')}</>
+                                                        <>📦 {langCtx.getText('markDeliveredAction')}</>
                                                     )}
                                                 </ActionButton>
 

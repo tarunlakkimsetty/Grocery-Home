@@ -191,6 +191,23 @@ const orderValidators = {
         param('id')
             .isInt({ min: 1 }).withMessage('Invalid order ID'),
         validate
+    ],
+    updateAdvance: [
+        param('id')
+            .isInt({ min: 1 }).withMessage('Invalid order ID'),
+        body('advanceAmount')
+            .custom((value) => {
+                // Allow numeric strings but reject empty/NaN/negative.
+                const num = Number(value);
+                if (!Number.isFinite(num)) {
+                    throw new Error('Advance amount must be a valid number');
+                }
+                if (num < 0) {
+                    throw new Error('Advance amount cannot be negative');
+                }
+                return true;
+            }),
+        validate
     ]
 };
 

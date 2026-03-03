@@ -4,6 +4,7 @@ import orderService from '../services/orderService';
 import productService from '../services/productService';
 import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
+import { t, statusKey, hasTranslation, getLocale } from '../utils/i18n';
 import styled from 'styled-components';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import {
@@ -168,7 +169,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
             // Back-compat for existing render logic
             loading: true,
-            error: null,
+            errorKey: null,
             actionLoading: false,
             productsLoading: false,
 
@@ -194,6 +195,10 @@ class AdminOfflineOrdersPage extends React.Component {
 
             // Search
             searchQuery: '',
+
+            // Advance Payment (per order row)
+            advanceInputs: {},
+            advanceSaving: {},
         };
     }
 
@@ -218,14 +223,122 @@ class AdminOfflineOrdersPage extends React.Component {
                 ? response
                 : (response?.orders || response?.data?.orders || response?.data || []);
 
+            const safeOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
+            const nextAdvanceInputs = { ...this.state.advanceInputs };
+            safeOrders.forEach((o) => {
+                const id = o && o.id;
+                if (!id) return;
+                if (nextAdvanceInputs[id] === undefined) {
+                    const fromApi = Number(o.advanceAmount || 0);
+                    nextAdvanceInputs[id] = Number.isFinite(fromApi) ? String(fromApi) : '0';
+                }
+            });
+
             this.setState({
-                offlineOrders: Array.isArray(offlineOrders) ? offlineOrders : [],
+                offlineOrders: safeOrders,
+                advanceInputs: nextAdvanceInputs,
+                errorKey: null,
                 loading: false,
                 isLoading: false,
             });
         } catch (err) {
-            this.setState({ error: 'Failed to load offline orders', loading: false, isLoading: false });
-            toast.error('Failed to load offline orders');
+            this.setState({ errorKey: 'failedToLoadOfflineOrders', loading: false, isLoading: false });
+            toast.error(t('failedToLoadOfflineOrders'));
+        }
+    };
+
+    // ─── Advance Payment Helpers ───────────────────────────────────────────
+
+    isAdvanceEditable = (order) => {
+        const statusRaw = String(order?.status || '').trim();
+        const statusLower = statusRaw.toLowerCase();
+        const paymentStatusLower = String(order?.paymentStatus || '').trim().toLowerCase();
+
+        const isLocked =
+            Boolean(order?.isPaid) ||
+            paymentStatusLower === 'paid' ||
+            statusLower === 'paid' ||
+            statusLower === 'completed' ||
+            statusLower === 'mark paid';
+
+        if (isLocked) return false;
+
+        const allowed = new Set(['pending', 'confirmed', 'processing', 'verified', 'delivered']);
+        return allowed.has(statusLower);
+    };
+
+    getAdvanceInputValue = (order) => {
+        const id = order && order.id;
+        if (!id) return '0';
+        const v = this.state.advanceInputs[id];
+        if (v !== undefined && v !== null) return String(v);
+        const fromApi = Number(order?.advanceAmount || 0);
+        return String(Number.isFinite(fromApi) ? fromApi : 0);
+    };
+
+    handleAdvanceInputChange = (orderId, value) => {
+        this.setState({
+            advanceInputs: {
+                ...this.state.advanceInputs,
+                [orderId]: value,
+            },
+        });
+    };
+
+    submitAdvance = async (order) => {
+        const orderId = order && order.id;
+        if (!orderId) return;
+
+        const editable = this.isAdvanceEditable(order);
+        if (!editable) {
+            toast.error(t('advanceEditLocked'));
+            return;
+        }
+
+        const raw = this.getAdvanceInputValue(order);
+        const num = Number(raw);
+        if (!Number.isFinite(num)) {
+            toast.error(t('enterValidAdvanceAmount'));
+            return;
+        }
+        if (num < 0) {
+            toast.error(t('advanceAmountCannotBeNegative'));
+            return;
+        }
+
+        this.setState({
+            advanceSaving: {
+                ...this.state.advanceSaving,
+                [orderId]: true,
+            },
+        });
+
+        try {
+            const resp = await orderService.updateAdvanceAmount(orderId, num);
+            const updatedOrder = resp?.order || resp?.data?.order || resp;
+
+            const patchList = (list) => (Array.isArray(list) ? list.map((o) => (o.id === orderId ? { ...o, ...updatedOrder } : o)) : list);
+
+            this.setState((prev) => ({
+                offlineOrders: patchList(prev.offlineOrders),
+                selectedOrder: prev.selectedOrder && prev.selectedOrder.id === orderId ? { ...prev.selectedOrder, ...updatedOrder } : prev.selectedOrder,
+                advanceInputs: {
+                    ...prev.advanceInputs,
+                    [orderId]: String(Number(updatedOrder?.advanceAmount || 0) || 0),
+                },
+            }));
+
+            toast.success(t('advanceUpdated'));
+        } catch (e) {
+            const rawMsg = e?.response?.data?.errorKey || e?.response?.data?.message || e?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToUpdateAdvance'));
+        } finally {
+            this.setState({
+                advanceSaving: {
+                    ...this.state.advanceSaving,
+                    [orderId]: false,
+                },
+            });
         }
     };
 
@@ -251,22 +364,23 @@ class AdminOfflineOrdersPage extends React.Component {
             });
         } catch (err) {
             this.setState({ productsLoading: false });
-            toast.error('Failed to load products');
+            toast.error(t('failedToLoadProducts'));
         }
     };
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     formatDate = (dateStr) => {
+        const locale = getLocale();
         const d = new Date(dateStr);
         return (
-            d.toLocaleDateString('en-IN', {
+            d.toLocaleDateString(locale, {
                 day: '2-digit',
                 month: 'short',
                 year: 'numeric',
             }) +
             ' | ' +
-            d.toLocaleTimeString('en-IN', {
+            d.toLocaleTimeString(locale, {
                 hour: '2-digit',
                 minute: '2-digit',
             })
@@ -330,13 +444,13 @@ class AdminOfflineOrdersPage extends React.Component {
         const { createAddProductId, createAddQty, products, createItems } = this.state;
         const productId = parseInt(createAddProductId, 10);
         if (!productId) {
-            toast.warning('Please select a product');
+            toast.warning(t('pleaseSelectProduct'));
             return;
         }
 
         const product = products.find((p) => p.id === productId);
         if (!product) {
-            toast.error('Selected product not found');
+            toast.error(t('selectedProductNotFound'));
             return;
         }
 
@@ -425,23 +539,23 @@ class AdminOfflineOrdersPage extends React.Component {
         } = this.state;
 
         if (!customerName.trim()) {
-            toast.warning('Customer Name is required');
+            toast.warning(t('customerNameRequired'));
             return;
         }
         if (!phone.trim()) {
-            toast.warning('Phone Number is required');
+            toast.warning(t('phoneNumberRequired'));
             return;
         }
         if (!place.trim()) {
-            toast.warning('Place / City is required');
+            toast.warning(t('placeRequired'));
             return;
         }
         if (!createItems.length) {
-            toast.warning('Add at least one item');
+            toast.warning(t('addAtLeastOneItem'));
             return;
         }
         if (!createChecked || createChecked.size === 0) {
-            toast.warning('Select at least one item to bill');
+            toast.warning(t('selectAtLeastOneItemToBill'));
             return;
         }
 
@@ -463,7 +577,7 @@ class AdminOfflineOrdersPage extends React.Component {
             .filter((i) => (Number(i.quantity || 0) || 0) > 0);
 
         if (finalItems.length === 0) {
-            toast.warning('Selected items must have quantity greater than 0');
+            toast.warning(t('selectedItemsQtyGreaterThanZero'));
             return;
         }
 
@@ -483,11 +597,12 @@ class AdminOfflineOrdersPage extends React.Component {
                 orderType: 'Offline',
                 orderDate: orderDateIso,
             });
-            toast.success('Offline order created successfully');
+            toast.success(t('offlineOrderCreatedSuccessfully'));
             this.closeCreateModal();
             await this.fetchOfflineOrders();
         } catch (err) {
-            toast.error(err.message || 'Failed to create offline order');
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToCreateOfflineOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -608,13 +723,13 @@ class AdminOfflineOrdersPage extends React.Component {
 
         const productId = parseInt(addProductId, 10);
         if (!productId) {
-            toast.warning('Please select a product');
+            toast.warning(t('pleaseSelectProduct'));
             return;
         }
 
         const product = products.find((p) => p.id === productId);
         if (!product) {
-            toast.error('Selected product not found');
+            toast.error(t('selectedProductNotFound'));
             return;
         }
 
@@ -658,7 +773,8 @@ class AdminOfflineOrdersPage extends React.Component {
                 addProductQty: 1,
             });
         } catch (err) {
-            toast.error(err.message || 'Failed to add product to order');
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToAddProductToOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -679,7 +795,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
             const checkedSet = checkedItems[orderId] || new Set(modalItems.map((i) => i.productId));
             if (!checkedSet || checkedSet.size === 0) {
-                toast.warning('Select at least one item before verifying');
+                toast.warning(t('selectAtLeastOneItemBeforeVerifying'));
                 return;
             }
 
@@ -701,7 +817,7 @@ class AdminOfflineOrdersPage extends React.Component {
                 .filter((i) => (Number(i.quantity || 0) || 0) > 0);
 
             if (finalItems.length === 0) {
-                toast.warning('Selected items must have quantity greater than 0');
+                toast.warning(t('selectedItemsQtyGreaterThanZero'));
                 return;
             }
 
@@ -726,9 +842,9 @@ class AdminOfflineOrdersPage extends React.Component {
                 },
             });
 
-            toast.success('Order verified and locked.');
+            toast.success(t('orderVerifiedAndLocked'));
         } catch (err) {
-            toast.error('Failed to verify order');
+            toast.error(t('failedToVerifyOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -777,9 +893,9 @@ class AdminOfflineOrdersPage extends React.Component {
 
                 this.setState({ offlineOrders, selectedOrder });
             }
-            toast.success('Payment marked as Paid 💳');
+            toast.success(`${t('paymentMarkedPaid')} 💳`);
         } catch (err) {
-            toast.error('Failed to update payment status');
+            toast.error(t('failedToUpdatePaymentStatus'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -803,9 +919,9 @@ class AdminOfflineOrdersPage extends React.Component {
 
             // Re-fetch so Completed moves out of Active.
             await this.fetchOfflineOrders();
-            toast.success('Order marked as Delivered 📦');
+            toast.success(`${t('orderMarkedDelivered')} 📦`);
         } catch (err) {
-            toast.error('Failed to update order status');
+            toast.error(t('failedToUpdateOrderStatus'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -815,13 +931,13 @@ class AdminOfflineOrdersPage extends React.Component {
         const { selectedOrder } = this.state;
         if (!selectedOrder || selectedOrder.status !== 'Pending') return;
 
-        const ok = window.confirm('Reject this offline order?');
+        const ok = window.confirm(t('rejectOfflineOrderConfirm'));
         if (!ok) return;
 
         this.setState({ actionLoading: true });
         try {
             await orderService.rejectOrder(orderId);
-            toast.success('Order rejected');
+            toast.success(t('orderRejected'));
             await this.fetchOfflineOrders();
             // If modal is open for the same order, reflect status immediately
             const updatedSelected = this.state.selectedOrder && this.state.selectedOrder.id === orderId
@@ -829,7 +945,7 @@ class AdminOfflineOrdersPage extends React.Component {
                 : this.state.selectedOrder;
             this.setState({ selectedOrder: updatedSelected });
         } catch (err) {
-            toast.error('Reject failed');
+            toast.error(t('rejectFailed'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -845,7 +961,7 @@ class AdminOfflineOrdersPage extends React.Component {
                         offlineOrders,
                         isLoading,
                         loading,
-                        error,
+                        errorKey,
                         createModalOpen,
                         actionLoading,
                         products,
@@ -895,20 +1011,31 @@ class AdminOfflineOrdersPage extends React.Component {
                         );
                     const isRejected = selectedOrder && selectedOrder.status === 'Rejected';
 
+                    const totalForPayment = Number(selectedOrder?.totalAmount ?? selectedOrder?.grandTotal ?? checkedTotal ?? 0) || 0;
+                    const advanceForPayment = Number(selectedOrder?.advanceAmount ?? 0) || 0;
+                    const remainingForPayment = selectedOrder
+                        ? (Number.isFinite(Number(selectedOrder?.remainingBalance))
+                            ? Number(selectedOrder.remainingBalance)
+                            : (totalForPayment - advanceForPayment))
+                        : 0;
+                    const isRemainingSettled = Math.abs(Number(remainingForPayment) || 0) <= 0.009;
+
                     const effectiveLoading = typeof isLoading === 'boolean' ? isLoading : loading;
 
                     return (
                         <div>
                             <PageHeader>
-                                <h1>🧾 Offline Orders</h1>
-                                <p>{offlineOrders.length} offline order(s)</p>
+                                <h1>🧾 {langCtx.getText('offlineOrders')}</h1>
+                                <p>
+                                    {offlineOrders.length} {langCtx.getText('offlineOrderCountLabel')}
+                                </p>
                             </PageHeader>
 
                             <div className="mb-3" style={{ maxWidth: '420px' }}>
                                 <input
                                     type="text"
                                     className="form-control"
-                                    placeholder="Search by Customer Name"
+                                    placeholder={langCtx.getText('searchByCustomerName')}
                                     value={this.state.searchQuery}
                                     onChange={this.handleSearchChange}
                                 />
@@ -916,29 +1043,29 @@ class AdminOfflineOrdersPage extends React.Component {
 
                             <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                                 <div className="text-muted" style={{ fontSize: '0.9rem' }}>
-                                    Create and manage offline orders (Cash by default)
+                                    {langCtx.getText('offlineOrdersSubtitle')}
                                 </div>
                                 <ActionButton
                                     className="btn-primary-soft"
                                     onClick={this.openCreateModal}
                                     disabled={productsLoading}
                                 >
-                                    ➕ Create Offline Order
+                                    ➕ {langCtx.getText('createOfflineOrder')}
                                 </ActionButton>
                             </div>
 
-                            {effectiveLoading && <Spinner fullPage text="Loading offline orders..." />}
-                            {error && <div className="alert alert-danger">{error}</div>}
+                            {effectiveLoading && <Spinner fullPage text={langCtx.getText('loadingOfflineOrders')} />}
+                            {errorKey && <div className="alert alert-danger">{langCtx.getText(errorKey)}</div>}
 
-                            {!effectiveLoading && !error && offlineOrders.length === 0 && (
+                            {!effectiveLoading && !errorKey && offlineOrders.length === 0 && (
                                 <EmptyState>
                                     <div className="empty-icon">🧾</div>
-                                    <h3>No Offline Orders</h3>
-                                    <p>Create your first offline order using the button above.</p>
+                                    <h3>{langCtx.getText('noOfflineOrders')}</h3>
+                                    <p>{langCtx.getText('createFirstOfflineOrder')}</p>
                                 </EmptyState>
                             )}
 
-                            {!effectiveLoading && !error && offlineOrders.length > 0 && (
+                            {!effectiveLoading && !errorKey && offlineOrders.length > 0 && (
                                 <TableWrapper>
                                     <table className="table table-hover align-middle">
                                         <thead>
@@ -947,9 +1074,11 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 <th>{langCtx.getText('customerName')}</th>
                                                 <th>{langCtx.getText('phone')}</th>
                                                 <th>{langCtx.getText('place')}</th>
-                                                <th style={{ whiteSpace: 'normal' }}>Order Date</th>
+                                                <th style={{ whiteSpace: 'normal' }}>{langCtx.getText('orderDate')}</th>
                                                 <th className="text-end">{langCtx.getText('total')}</th>
-                                                <th className="text-center">Type</th>
+                                                <th className="text-end">{langCtx.getText('advance')}</th>
+                                                <th className="text-end">{langCtx.getText('remaining')}</th>
+                                                <th className="text-center">{langCtx.getText('orderType')}</th>
                                                 <th className="text-center">{langCtx.getText('orderStatus')}</th>
                                                 <th className="text-center">{langCtx.getText('viewOrder')}</th>
                                             </tr>
@@ -957,6 +1086,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                         <tbody>
                                             {Array.isArray(offlineOrders) && offlineOrders.map((order) => {
                                                 const total = Number(order.totalAmount ?? order.grandTotal ?? 0) || 0;
+                                                const remaining = Number(order.remainingBalance ?? (total - (Number(order.advanceAmount || 0) || 0))) || 0;
                                                 const phoneVal = order.customerPhone || order.phone || '—';
                                                 return (
                                                     <tr key={order.id}>
@@ -970,12 +1100,49 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
                                                             ₹{total.toFixed(2)}
                                                         </td>
+                                                        <td className="text-end" style={{ minWidth: '160px' }}>
+                                                            <div className="d-flex flex-column align-items-end gap-1">
+                                                                <input
+                                                                    type="number"
+                                                                    className="form-control form-control-sm"
+                                                                    style={{ maxWidth: '150px' }}
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={this.getAdvanceInputValue(order)}
+                                                                    disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
+                                                                    onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}
+                                                                />
+                                                                <div className="d-flex gap-1" style={{ justifyContent: 'flex-end' }}>
+                                                                    {Number(order.advanceAmount || 0) <= 0 && this.isAdvanceEditable(order) && (
+                                                                        <ActionButton
+                                                                            className="btn-primary-soft"
+                                                                            disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                            onClick={() => this.submitAdvance(order)}
+                                                                        >
+                                                                            {langCtx.getText('enterAdvance')}
+                                                                        </ActionButton>
+                                                                    )}
+                                                                    {Number(order.advanceAmount || 0) > 0 && this.isAdvanceEditable(order) && (
+                                                                        <ActionButton
+                                                                            className="btn-primary-soft"
+                                                                            disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                            onClick={() => this.submitAdvance(order)}
+                                                                        >
+                                                                            {langCtx.getText('editAdvance')}
+                                                                        </ActionButton>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="text-end fw-bold" style={{ color: remaining < 0 ? '#c62828' : '#2E7D32' }}>
+                                                            ₹{remaining.toFixed(2)}
+                                                        </td>
                                                         <td className="text-center">
-                                                            <Badge className="badge-admin">Offline</Badge>
+                                                            <Badge className="badge-admin">{langCtx.getText('offline')}</Badge>
                                                         </td>
                                                         <td className="text-center">
                                                             <Badge className={this.getStatusBadgeClass(order.status)}>
-                                                                {this.getStatusIcon(order.status)} {order.status}
+                                                                {this.getStatusIcon(order.status)} {langCtx.getText(statusKey(order.status))}
                                                             </Badge>
                                                         </td>
                                                         <td className="text-center">
@@ -1002,7 +1169,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                         onClick={(e) => e.stopPropagation()}
                                     >
                                         <div className="modal-header">
-                                            <h3>➕ Create Offline Order</h3>
+                                            <h3>➕ {langCtx.getText('createOfflineOrder')}</h3>
                                             <button className="close-btn" onClick={this.closeCreateModal}>
                                                 ×
                                             </button>
@@ -1019,46 +1186,46 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
-                                                <SectionTitle>Step 1 — Customer Details</SectionTitle>
+                                                <SectionTitle>{langCtx.getText('step1CustomerDetails')}</SectionTitle>
                                                 <div className="row g-2">
                                                     <div className="col-12 col-md-6">
                                                         <label className="form-label small fw-semibold mb-1">
-                                                            Customer Name <span className="text-danger">*</span>
+                                                            {langCtx.getText('customerName')} <span className="text-danger">*</span>
                                                         </label>
                                                         <input
                                                             type="text"
                                                             className="form-control"
                                                             value={customerName}
                                                             onChange={this.onCreateFieldChange('customerName')}
-                                                            placeholder="Enter customer name"
+                                                            placeholder={langCtx.getText('enterCustomerName')}
                                                         />
                                                     </div>
                                                     <div className="col-12 col-md-6">
                                                         <label className="form-label small fw-semibold mb-1">
-                                                            Phone Number <span className="text-danger">*</span>
+                                                            {langCtx.getText('phone')} <span className="text-danger">*</span>
                                                         </label>
                                                         <input
                                                             type="text"
                                                             className="form-control"
                                                             value={phone}
                                                             onChange={this.onCreateFieldChange('phone')}
-                                                            placeholder="Enter phone number"
+                                                            placeholder={langCtx.getText('enterPhoneNumber')}
                                                         />
                                                     </div>
                                                     <div className="col-12 col-md-6">
                                                         <label className="form-label small fw-semibold mb-1">
-                                                            Place / City <span className="text-danger">*</span>
+                                                            {langCtx.getText('place')} <span className="text-danger">*</span>
                                                         </label>
                                                         <input
                                                             type="text"
                                                             className="form-control"
                                                             value={place}
                                                             onChange={this.onCreateFieldChange('place')}
-                                                            placeholder="Enter place / city"
+                                                            placeholder={langCtx.getText('enterPlaceCity')}
                                                         />
                                                     </div>
                                                     <div className="col-12 col-md-6">
-                                                        <label className="form-label small fw-semibold mb-1">Order Date</label>
+                                                        <label className="form-label small fw-semibold mb-1">{langCtx.getText('orderDate')}</label>
                                                         <input
                                                             type="date"
                                                             className="form-control"
@@ -1067,13 +1234,15 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         />
                                                     </div>
                                                     <div className="col-12">
-                                                        <label className="form-label small fw-semibold mb-1">Address (Optional)</label>
+                                                        <label className="form-label small fw-semibold mb-1">
+                                                            {langCtx.getText('addressLabel')} ({langCtx.getText('optional')})
+                                                        </label>
                                                         <input
                                                             type="text"
                                                             className="form-control"
                                                             value={address}
                                                             onChange={this.onCreateFieldChange('address')}
-                                                            placeholder="Enter address"
+                                                            placeholder={langCtx.getText('enterAddress')}
                                                         />
                                                     </div>
                                                 </div>
@@ -1089,17 +1258,17 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
-                                                <SectionTitle>Step 2 — Add Items</SectionTitle>
+                                                <SectionTitle>{langCtx.getText('step2AddItems')}</SectionTitle>
                                                 <div className="row g-2 align-items-end mb-3">
                                                     <div className="col-12 col-md-7">
-                                                        <label className="form-label small fw-semibold mb-1">Product</label>
+                                                        <label className="form-label small fw-semibold mb-1">{langCtx.getText('product')}</label>
                                                         <select
                                                             className="form-select"
                                                             value={createAddProductId}
                                                             onChange={(e) => this.setState({ createAddProductId: e.target.value })}
                                                             disabled={productsLoading}
                                                         >
-                                                            <option value="">Select product...</option>
+                                                            <option value="">{langCtx.getText('selectProduct')}</option>
                                                             {Array.isArray(products) &&
                                                                 products.map((p) => (
                                                                 <option key={p.id ?? p._id} value={p.id ?? p._id}>
@@ -1109,7 +1278,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         </select>
                                                     </div>
                                                     <div className="col-6 col-md-3">
-                                                        <label className="form-label small fw-semibold mb-1">Quantity</label>
+                                                        <label className="form-label small fw-semibold mb-1">{langCtx.getText('quantity')}</label>
                                                         <input
                                                             type="number"
                                                             className="form-control"
@@ -1126,7 +1295,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             disabled={productsLoading}
                                                             style={{ fontWeight: '700' }}
                                                         >
-                                                            Add
+                                                            {langCtx.getText('add')}
                                                         </button>
                                                     </div>
                                                 </div>
@@ -1136,18 +1305,18 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         <thead style={{ background: '#f8f9fa' }}>
                                                             <tr>
                                                                 <th className="text-center" style={{ width: '44px' }}>✓</th>
-                                                                <th>Product Name</th>
-                                                                <th className="text-center" style={{ width: '90px' }}>Price</th>
-                                                                <th className="text-center" style={{ width: '120px' }}>Quantity</th>
-                                                                <th className="text-end" style={{ width: '110px' }}>Total</th>
-                                                                <th className="text-center" style={{ width: '90px' }}>Remove</th>
+                                                                <th>{langCtx.getText('productName')}</th>
+                                                                <th className="text-center" style={{ width: '90px' }}>{langCtx.getText('price')}</th>
+                                                                <th className="text-center" style={{ width: '120px' }}>{langCtx.getText('quantity')}</th>
+                                                                <th className="text-end" style={{ width: '110px' }}>{langCtx.getText('total')}</th>
+                                                                <th className="text-center" style={{ width: '90px' }}>{langCtx.getText('remove')}</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
                                                             {createItems.length === 0 && (
                                                                 <tr>
                                                                     <td colSpan="6" className="text-center text-muted" style={{ padding: '1rem' }}>
-                                                                        No items added yet
+                                                                        {langCtx.getText('noItemsAddedYet')}
                                                                     </td>
                                                                 </tr>
                                                             )}
@@ -1167,7 +1336,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                 style={{ accentColor: '#2E7D32' }}
                                                                             />
                                                                         </td>
-                                                                        <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || 'Product Name Missing'}</td>
+                                                                        <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || langCtx.getText('productNameMissing')}</td>
                                                                         <td className="text-center">₹{item.price}</td>
                                                                         <td className="text-center">
                                                                             <QtyControl>
@@ -1216,22 +1385,22 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
-                                                <SectionTitle>Step 3 — Total Calculation</SectionTitle>
+                                                <SectionTitle>{langCtx.getText('step3TotalCalculation')}</SectionTitle>
                                                 <div className="d-flex flex-column gap-2">
                                                     <TotalBar style={{ marginBottom: 0 }}>
-                                                        <span className="total-label">✓ Selected Total:</span>
+                                                        <span className="total-label">✓ {langCtx.getText('selectedTotal')}</span>
                                                         <span className="total-value">₹{createSelectedTotal.toFixed(2)}</span>
                                                     </TotalBar>
                                                     <div className="d-flex justify-content-between align-items-center px-2">
                                                         <span className="text-muted fw-semibold" style={{ fontSize: '0.9rem' }}>
-                                                            Grand Total (all items):
+                                                            {langCtx.getText('grandTotalAllItems')}
                                                         </span>
                                                         <span className="fw-bold" style={{ color: '#2E7D32', fontSize: '1.05rem' }}>
                                                             ₹{createGrandTotal.toFixed(2)}
                                                         </span>
                                                     </div>
                                                     <small className="text-muted" style={{ fontSize: '0.78rem' }}>
-                                                        Only checked items will be saved and billed.
+                                                        {langCtx.getText('onlyCheckedItemsBilled')}
                                                     </small>
                                                 </div>
                                             </div>
@@ -1252,7 +1421,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 disabled={actionLoading}
                                                 style={{ fontSize: '0.82rem', fontWeight: '700' }}
                                             >
-                                                {actionLoading ? 'Saving...' : 'Save Order'}
+                                                {actionLoading ? langCtx.getText('saving') : langCtx.getText('saveOrder')}
                                             </button>
                                         </div>
                                     </ModalContent>
@@ -1268,9 +1437,9 @@ class AdminOfflineOrdersPage extends React.Component {
                                     >
                                         <div className="modal-header">
                                             <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                🧾 Offline Order — #{selectedOrder.id}
+                                                🧾 {langCtx.getText('offlineOrder')} — #{selectedOrder.id}
                                                 <Badge className={this.getStatusBadgeClass(selectedOrder.status)}>
-                                                    {this.getStatusIcon(selectedOrder.status)} {selectedOrder.status}
+                                                    {this.getStatusIcon(selectedOrder.status)} {langCtx.getText(statusKey(selectedOrder.status))}
                                                 </Badge>
                                                 {isLocked && (
                                                     <span
@@ -1288,7 +1457,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             textTransform: 'uppercase',
                                                         }}
                                                     >
-                                                        🔒 Locked
+                                                        🔒 {langCtx.getText('locked')}
                                                     </span>
                                                 )}
                                             </h3>
@@ -1308,35 +1477,35 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
-                                                <SectionTitle>Customer Details</SectionTitle>
+                                                <SectionTitle>{langCtx.getText('customerDetails')}</SectionTitle>
                                                 <div className="row g-0">
                                                     <div className="col-12 col-sm-6">
                                                         <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">👤 Name</span>
+                                                            <span className="text-muted">👤 {langCtx.getText('name')}</span>
                                                             <span className="fw-semibold">{selectedOrder.customerName}</span>
                                                         </div>
                                                         <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">📞 Phone</span>
+                                                            <span className="text-muted">📞 {langCtx.getText('phone')}</span>
                                                             <span className="fw-semibold">{selectedOrder.customerPhone || selectedOrder.phone || '—'}</span>
                                                         </div>
                                                         <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">🏘️ Place</span>
+                                                            <span className="text-muted">🏘️ {langCtx.getText('place')}</span>
                                                             <span className="fw-semibold">{selectedOrder.place || '—'}</span>
                                                         </div>
                                                     </div>
                                                     <div className="col-12 col-sm-6">
                                                         <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">📅 Date</span>
+                                                            <span className="text-muted">📅 {langCtx.getText('orderDate')}</span>
                                                             <span className="fw-semibold">
                                                                 {this.formatDate(selectedOrder.orderDate || selectedOrder.date)}
                                                             </span>
                                                         </div>
                                                         <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">💰 Payment</span>
-                                                            <span className="fw-semibold">Cash</span>
+                                                            <span className="text-muted">💰 {langCtx.getText('paymentMethod')}</span>
+                                                            <span className="fw-semibold">{langCtx.getText('cash')}</span>
                                                         </div>
                                                         <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">📍 Address</span>
+                                                            <span className="text-muted">📍 {langCtx.getText('addressLabel')}</span>
                                                             <span className="fw-semibold">{selectedOrder.address || '—'}</span>
                                                         </div>
                                                     </div>
@@ -1354,17 +1523,17 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         border: '1px solid #e9ecef',
                                                     }}
                                                 >
-                                                    <SectionTitle>Add Product to Order</SectionTitle>
+                                                    <SectionTitle>{langCtx.getText('addProductToOrder')}</SectionTitle>
                                                     <div className="row g-2 align-items-end">
                                                         <div className="col-12 col-md-7">
-                                                            <label className="form-label small fw-semibold mb-1">Product</label>
+                                                            <label className="form-label small fw-semibold mb-1">{langCtx.getText('product')}</label>
                                                             <select
                                                                 className="form-select"
                                                                 value={addProductId}
                                                                 onChange={this.onChangeAddProductId}
                                                                 disabled={actionLoading || productsLoading}
                                                             >
-                                                                <option value="">Select product...</option>
+                                                                <option value="">{langCtx.getText('selectProduct')}</option>
                                                                 {Array.isArray(products) &&
                                                                     products.map((p) => (
                                                                     <option key={p.id ?? p._id} value={p.id ?? p._id}>
@@ -1374,7 +1543,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             </select>
                                                         </div>
                                                         <div className="col-6 col-md-3">
-                                                            <label className="form-label small fw-semibold mb-1">Quantity</label>
+                                                            <label className="form-label small fw-semibold mb-1">{langCtx.getText('quantity')}</label>
                                                             <input
                                                                 type="number"
                                                                 className="form-control"
@@ -1392,7 +1561,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 disabled={actionLoading || productsLoading}
                                                                 style={{ fontWeight: '700' }}
                                                             >
-                                                                Add
+                                                                {langCtx.getText('add')}
                                                             </button>
                                                         </div>
                                                     </div>
@@ -1400,7 +1569,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                             )}
 
                                             {/* Items Table */}
-                                            <SectionTitle>Ordered Items</SectionTitle>
+                                            <SectionTitle>{langCtx.getText('orderedItems')}</SectionTitle>
                                             {isLocked && (
                                                 <div
                                                     style={{
@@ -1416,7 +1585,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         color: '#495057',
                                                     }}
                                                 >
-                                                    🔒 <span>This order is locked and cannot be modified.</span>
+                                                    🔒 <span>{langCtx.getText('orderLockedCannotModify')}</span>
                                                 </div>
                                             )}
 
@@ -1432,11 +1601,11 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     <thead style={{ background: '#f8f9fa' }}>
                                                         <tr>
                                                             <th className="text-center" style={{ width: '44px' }}>✓</th>
-                                                            <th>Product Name</th>
-                                                            <th className="text-center" style={{ width: '110px' }}>Quantity</th>
-                                                            <th className="text-center" style={{ width: '80px' }}>Price</th>
-                                                            <th className="text-end" style={{ width: '100px' }}>Total</th>
-                                                            <th className="text-center" style={{ width: '80px' }}>Remove</th>
+                                                            <th>{langCtx.getText('productName')}</th>
+                                                            <th className="text-center" style={{ width: '110px' }}>{langCtx.getText('quantity')}</th>
+                                                            <th className="text-center" style={{ width: '80px' }}>{langCtx.getText('price')}</th>
+                                                            <th className="text-end" style={{ width: '100px' }}>{langCtx.getText('total')}</th>
+                                                            <th className="text-center" style={{ width: '80px' }}>{langCtx.getText('remove')}</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -1460,7 +1629,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             }}
                                                                         />
                                                                     </td>
-                                                                    <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || 'Product Name Missing'}</td>
+                                                                    <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || langCtx.getText('productNameMissing')}</td>
                                                                     <td className="text-center">
                                                                         <QtyControl>
                                                                             <button
@@ -1502,9 +1671,42 @@ class AdminOfflineOrdersPage extends React.Component {
                                             </div>
 
                                             <TotalBar style={{ marginTop: '0.6rem' }}>
-                                                <span className="total-label">✓ Selected Total:</span>
+                                                <span className="total-label">✓ {langCtx.getText('selectedTotal')}</span>
                                                 <span className="total-value">₹{checkedTotal.toFixed(2)}</span>
                                             </TotalBar>
+
+                                            {(() => {
+                                                const total = Number(selectedOrder?.totalAmount ?? selectedOrder?.grandTotal ?? 0) || 0;
+                                                const advance = Number(selectedOrder?.advanceAmount ?? 0) || 0;
+                                                const remaining = Number.isFinite(Number(selectedOrder?.remainingBalance))
+                                                    ? Number(selectedOrder.remainingBalance)
+                                                    : (total - advance);
+                                                const remainingColor = remaining < 0 ? '#c62828' : '#2E7D32';
+
+                                                return (
+                                                    <div
+                                                        className="d-flex justify-content-between align-items-center mt-2"
+                                                        style={{
+                                                            background: '#f8f9fa',
+                                                            border: '1px solid #e9ecef',
+                                                            borderRadius: '8px',
+                                                            padding: '0.65rem 0.85rem',
+                                                        }}
+                                                    >
+                                                        <div className="d-flex flex-column" style={{ gap: '0.1rem' }}>
+                                                            <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
+                                                                {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{advance.toFixed(2)}</span>
+                                                            </span>
+                                                            <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
+                                                                {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{remaining.toFixed(2)}</span>
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-muted" style={{ fontSize: '0.78rem' }}>
+                                                            ({langCtx.getText('billAmount')}: ₹{total.toFixed(2)})
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
 
                                         <div className="modal-footer" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -1517,7 +1719,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     disabled={!isPending || isRejected || actionLoading}
                                                     onChange={(e) => this.handleVerifyCheckbox(e.target.checked)}
                                                 />
-                                                <label htmlFor="verifyOfflineOrder">Mark Order Verified</label>
+                                                <label htmlFor="verifyOfflineOrder">{langCtx.getText('markOrderVerified')}</label>
                                             </VerifyCheckWrapper>
 
                                             <div className="ms-auto d-flex gap-2 flex-wrap">
@@ -1525,11 +1727,17 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     type="button"
                                                     className="btn btn-primary btn-sm"
                                                     onClick={() => this.handleMarkPaid(selectedOrder.id)}
-                                                    disabled={actionLoading || isRejected || !isVerified || isPaid}
-                                                    title={!isVerified ? 'Verify the order first' : 'Mark as Paid'}
+                                                    disabled={actionLoading || isRejected || !isVerified || isPaid || !isRemainingSettled}
+                                                    title={
+                                                        !isVerified
+                                                            ? langCtx.getText('verifyOrderFirst')
+                                                            : (!isRemainingSettled
+                                                                ? langCtx.getText('remainingMustBeZeroToMarkPaid')
+                                                                : langCtx.getText('markAsPaid'))
+                                                    }
                                                     style={{ fontWeight: '700' }}
                                                 >
-                                                    💳 Mark Paid
+                                                    💳 {langCtx.getText('markPaid')}
                                                 </button>
 
                                                 <button
@@ -1537,10 +1745,10 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     className="btn btn-success btn-sm"
                                                     onClick={() => this.handleDeliver(selectedOrder.id)}
                                                     disabled={actionLoading || isRejected || !isVerified || isDelivered}
-                                                    title={!isVerified ? 'Verify the order first' : 'Mark as Delivered'}
+                                                    title={!isVerified ? langCtx.getText('verifyOrderFirst') : langCtx.getText('markAsDelivered')}
                                                     style={{ fontWeight: '700' }}
                                                 >
-                                                    📦 Mark Delivered
+                                                    📦 {langCtx.getText('markDeliveredAction')}
                                                 </button>
 
                                                 {isPending && !isRejected && (
@@ -1551,7 +1759,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         disabled={actionLoading}
                                                         style={{ fontWeight: '700' }}
                                                     >
-                                                        ❌ Reject Order
+                                                        ❌ {langCtx.getText('rejectOrder')}
                                                     </button>
                                                 )}
 

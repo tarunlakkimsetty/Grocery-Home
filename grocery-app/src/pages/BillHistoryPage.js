@@ -15,6 +15,7 @@ import {
     ModalOverlay,
     ModalContent,
 } from '../styledComponents/FormStyles';
+import { t } from '../utils/i18n';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -62,8 +63,8 @@ class BillHistoryPage extends React.Component {
                 : (ordersResponse?.data || ordersResponse?.orders || []);
             this.setState({ bills, orders, loading: false });
         } catch (err) {
-            this.setState({ error: 'Failed to load history', loading: false });
-            toast.error('Failed to load history');
+            this.setState({ error: t('failedToLoadHistory'), loading: false });
+            toast.error(t('failedToLoadHistory'));
         }
     };
 
@@ -167,6 +168,17 @@ class BillHistoryPage extends React.Component {
         }, 0);
     };
 
+    getAdvanceAmount = (order) => {
+        const val = Number(order?.advanceAmount ?? 0);
+        return Number.isFinite(val) ? val : 0;
+    };
+
+    getRemainingBalance = (order) => {
+        const remaining = Number(order?.remainingBalance);
+        if (Number.isFinite(remaining)) return remaining;
+        return this.getOrderTotal(order) - this.getAdvanceAmount(order);
+    };
+
     render() {
         if (this.state.redirectTo) {
             return <Navigate to={this.state.redirectTo} />;
@@ -206,7 +218,7 @@ class BillHistoryPage extends React.Component {
                             <p>{safeBills.length + safeOrders.length + safeOfflineOrders.length} {langCtx.getText('items')} total transactions</p>
                         </PageHeader>
 
-                        {loading && <Spinner fullPage text="Loading history..." />}
+                        {loading && <Spinner fullPage text={langCtx.getText('loadingHistory')} />}
                         {error && <div className="alert alert-danger">{error}</div>}
 
                         {!loading && !error && (
@@ -306,6 +318,8 @@ class BillHistoryPage extends React.Component {
                                                     <th>{langCtx.getText('paymentMethod')}</th>
                                                     <th>{langCtx.getText('orderStatus')}</th>
                                                     <th className="text-end">{langCtx.getText('total')}</th>
+                                                    <th className="text-end">{langCtx.getText('advance')}</th>
+                                                    <th className="text-end">{langCtx.getText('remaining')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -343,6 +357,15 @@ class BillHistoryPage extends React.Component {
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
                                                             ₹{this.getOrderTotal(order).toFixed(2)}
                                                         </td>
+                                                        <td className="text-end">
+                                                            ₹{this.getAdvanceAmount(order).toFixed(2)}
+                                                        </td>
+                                                        <td
+                                                            className="text-end fw-bold"
+                                                            style={{ color: this.getRemainingBalance(order) < 0 ? '#c62828' : '#2E7D32' }}
+                                                        >
+                                                            ₹{this.getRemainingBalance(order).toFixed(2)}
+                                                        </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -353,14 +376,14 @@ class BillHistoryPage extends React.Component {
 
                                 {/* Offline Orders Tab */}
                                 {activeTab === 'offlineOrders' && !offlineOrdersLoaded && (
-                                    <Spinner text="Loading offline orders..." />
+                                    <Spinner text={langCtx.getText('loadingOfflineOrders')} />
                                 )}
 
                                 {activeTab === 'offlineOrders' && offlineOrdersLoaded && safeOfflineOrders.length === 0 && (
                                     <EmptyState>
                                         <div className="empty-icon">🧾</div>
-                                        <h3>No offline orders</h3>
-                                        <p>Offline orders linked to your phone will appear here.</p>
+                                        <h3>{langCtx.getText('noOfflineOrdersTitle')}</h3>
+                                        <p>{langCtx.getText('offlineOrdersLinkedMessage')}</p>
                                     </EmptyState>
                                 )}
 
@@ -375,6 +398,8 @@ class BillHistoryPage extends React.Component {
                                                     <th>{langCtx.getText('paymentMethod')}</th>
                                                     <th>{langCtx.getText('orderStatus')}</th>
                                                     <th className="text-end">{langCtx.getText('total')}</th>
+                                                    <th className="text-end">{langCtx.getText('advance')}</th>
+                                                    <th className="text-end">{langCtx.getText('remaining')}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -411,6 +436,15 @@ class BillHistoryPage extends React.Component {
                                                         </td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
                                                             ₹{this.getOrderTotal(order).toFixed(2)}
+                                                        </td>
+                                                        <td className="text-end">
+                                                            ₹{this.getAdvanceAmount(order).toFixed(2)}
+                                                        </td>
+                                                        <td
+                                                            className="text-end fw-bold"
+                                                            style={{ color: this.getRemainingBalance(order) < 0 ? '#c62828' : '#2E7D32' }}
+                                                        >
+                                                            ₹{this.getRemainingBalance(order).toFixed(2)}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -525,6 +559,46 @@ class BillHistoryPage extends React.Component {
                                                             </span>
                                                             <span className="fw-bold" style={{ color: '#2E7D32', fontSize: '1.05rem' }}>
                                                                 ₹{this.getOrderTotal(selectedOrder).toFixed(2)}
+                                                            </span>
+                                                        </div>
+
+                                                        <div
+                                                            className="d-flex justify-content-between align-items-center mt-2"
+                                                            style={{
+                                                                background: '#f8f9fa',
+                                                                border: '1px solid #e9ecef',
+                                                                borderRadius: '8px',
+                                                                padding: '0.65rem 0.85rem',
+                                                            }}
+                                                        >
+                                                            <span className="fw-semibold text-muted">
+                                                                {langCtx.getText('advance')}:
+                                                            </span>
+                                                            <span className="fw-bold" style={{ color: '#495057', fontSize: '1.02rem' }}>
+                                                                ₹{this.getAdvanceAmount(selectedOrder).toFixed(2)}
+                                                            </span>
+                                                        </div>
+
+                                                        <div
+                                                            className="d-flex justify-content-between align-items-center mt-2"
+                                                            style={{
+                                                                background: '#f8f9fa',
+                                                                border: '1px solid #e9ecef',
+                                                                borderRadius: '8px',
+                                                                padding: '0.65rem 0.85rem',
+                                                            }}
+                                                        >
+                                                            <span className="fw-semibold text-muted">
+                                                                {langCtx.getText('remaining')}:
+                                                            </span>
+                                                            <span
+                                                                className="fw-bold"
+                                                                style={{
+                                                                    color: this.getRemainingBalance(selectedOrder) < 0 ? '#c62828' : '#2E7D32',
+                                                                    fontSize: '1.02rem',
+                                                                }}
+                                                            >
+                                                                ₹{this.getRemainingBalance(selectedOrder).toFixed(2)}
                                                             </span>
                                                         </div>
                                                     </>

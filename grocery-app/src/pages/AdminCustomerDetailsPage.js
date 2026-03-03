@@ -6,6 +6,7 @@ import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { TableWrapper, EmptyState } from '../styledComponents/FormStyles';
+import { t } from '../utils/i18n';
 
 class AdminCustomerDetailsPage extends React.Component {
     constructor(props) {
@@ -57,9 +58,9 @@ class AdminCustomerDetailsPage extends React.Component {
             this.setState({
                 loading: false,
                 fetching: false,
-                error: err?.message || 'Failed to load customers',
+                error: err?.message || t('failedToLoadCustomers'),
             });
-            toast.error('Failed to load customers');
+            toast.error(t('failedToLoadCustomers'));
         }
     };
 
@@ -101,7 +102,7 @@ class AdminCustomerDetailsPage extends React.Component {
                 <EmptyState>
                     <div className="empty-icon">👤</div>
                     <h3>{langCtx.getText('customerDetails')}</h3>
-                    <p>No customers found.</p>
+                    <p>{langCtx.getText('noCustomersFound')}</p>
                 </EmptyState>
             );
         }
@@ -111,15 +112,15 @@ class AdminCustomerDetailsPage extends React.Component {
                 <table className="table">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Phone</th>
-                            <th>Place</th>
-                            <th className="text-center">Completed</th>
-                            <th className="text-center">Rejected</th>
-                            <th className="text-end">Total Spent</th>
-                            <th>Last Completed</th>
-                            <th>Last Rejected</th>
-                            <th className="text-center">View</th>
+                            <th>{langCtx.getText('name')}</th>
+                            <th>{langCtx.getText('phone')}</th>
+                            <th>{langCtx.getText('place')}</th>
+                            <th className="text-center">{langCtx.getText('completed')}</th>
+                            <th className="text-center">{langCtx.getText('rejected')}</th>
+                            <th className="text-end">{langCtx.getText('totalSpent')}</th>
+                            <th>{langCtx.getText('lastCompleted')}</th>
+                            <th>{langCtx.getText('lastRejected')}</th>
+                            <th className="text-center">{langCtx.getText('view')}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -135,7 +136,7 @@ class AdminCustomerDetailsPage extends React.Component {
                                 <td>{this.formatDate(c.last_rejected_date)}</td>
                                 <td className="text-center">
                                     <Link to={`/admin/customers/${c.id}`} className="btn btn-sm btn-outline-primary">
-                                        View
+                                        {langCtx.getText('view')}
                                     </Link>
                                 </td>
                             </tr>
@@ -148,7 +149,7 @@ class AdminCustomerDetailsPage extends React.Component {
 
     render() {
         const { loading, error, search } = this.state;
-        if (loading) return <Spinner fullPage text="Loading customers..." />;
+        if (loading) return <Spinner fullPage text={t('loadingCustomers')} />;
 
         return (
             <LanguageContext.Consumer>
@@ -156,14 +157,14 @@ class AdminCustomerDetailsPage extends React.Component {
                     <div>
                         <PageHeader>
                             <h1>🧾 {langCtx.getText('customerDetails')}</h1>
-                            <p>Customer analytics from completed/rejected orders</p>
+                            <p>{langCtx.getText('customerAnalyticsSubtitle')}</p>
                         </PageHeader>
 
                         <div className="mb-3">
                             <input
                                 type="text"
                                 className="form-control"
-                                placeholder="Search by Name or Phone"
+                                placeholder={langCtx.getText('searchByNameOrPhone')}
                                 value={search}
                                 onChange={this.handleSearchChange}
                             />

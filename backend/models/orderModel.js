@@ -68,6 +68,10 @@ const Order = {
             return {
                 id: orderId,
                 ...orderData,
+                // Ensure API response matches DB total
+                totalAmount: computedTotalAmount,
+                advanceAmount: 0,
+                remainingBalance: computedTotalAmount,
                 orderType: 'Online',
                 status: 'Pending',
                 paymentStatus: 'Unpaid'
@@ -105,14 +109,68 @@ const Order = {
             if (computedTotal > 0) totalAmountSafe = computedTotal;
         }
 
+        const advanceAmountSafe = Number(order?.advanceAmount || 0);
+        const advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
+        const remainingBalance = (Number(totalAmountSafe || 0) || 0) - (Number(advanceAmount || 0) || 0);
+
         return {
             ...order,
             totalAmount: totalAmountSafe,
+            advanceAmount,
+            remainingBalance,
             items: itemRows.map((it) => ({
                 ...it,
                 name: it.productName
             }))
         };
+    },
+
+    /**
+     * Update advanceAmount for an order.
+     * Rules:
+     * - advanceAmount must be numeric and >= 0
+     * - Not allowed once order is Paid or Completed
+     */
+    updateAdvanceAmount: async (orderId, advanceAmount) => {
+        const connection = await promisePool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [rows] = await connection.query(
+                'SELECT id, status, paymentStatus, isPaid FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+            if (rows.length === 0) throw new Error('Order not found');
+
+            const order = rows[0];
+            const status = String(order?.status || '').trim();
+            const paymentStatus = String(order?.paymentStatus || '').trim();
+            const isPaid = Boolean(order?.isPaid);
+
+            const statusLower = status.toLowerCase();
+            const isLocked = isPaid || paymentStatus.toLowerCase() === 'paid' || statusLower === 'paid' || statusLower === 'completed' || statusLower === 'mark paid';
+
+            if (isLocked) {
+                throw new Error('Advance amount cannot be updated after Paid/Completed');
+            }
+
+            const num = Number(advanceAmount);
+            if (!Number.isFinite(num)) throw new Error('Advance amount must be a valid number');
+            if (num < 0) throw new Error('Advance amount cannot be negative');
+
+            await connection.query(
+                'UPDATE orders SET advanceAmount = ? WHERE id = ?',
+                [num, orderId]
+            );
+
+            await connection.commit();
+            return true;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     },
 
     /**
@@ -150,6 +208,11 @@ const Order = {
                     order.totalAmount = computedTotal;
                 }
             }
+
+            const totalAmountSafe = Number(order?.totalAmount || 0) || 0;
+            const advanceAmountSafe = Number(order?.advanceAmount || 0);
+            order.advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
+            order.remainingBalance = totalAmountSafe - (Number(order.advanceAmount || 0) || 0);
         }
 
         return orders;
@@ -198,6 +261,11 @@ const Order = {
                     order.totalAmount = computedTotal;
                 }
             }
+
+            const totalAmountSafe = Number(order?.totalAmount || 0) || 0;
+            const advanceAmountSafe = Number(order?.advanceAmount || 0);
+            order.advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
+            order.remainingBalance = totalAmountSafe - (Number(order.advanceAmount || 0) || 0);
         }
 
         return orders;
@@ -243,6 +311,11 @@ const Order = {
                     order.totalAmount = computedTotal;
                 }
             }
+
+            const totalAmountSafe = Number(order?.totalAmount || 0) || 0;
+            const advanceAmountSafe = Number(order?.advanceAmount || 0);
+            order.advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
+            order.remainingBalance = totalAmountSafe - (Number(order.advanceAmount || 0) || 0);
         }
 
         return orders;
@@ -348,6 +421,12 @@ const Order = {
                     order.totalAmount = computedTotal;
                 }
             }
+
+            // Normalize advance/remaining for consumers
+            const advanceAmountSafe = Number(order?.advanceAmount || 0);
+            order.advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
+            const totalAmountSafe = Number(order?.totalAmount || 0) || 0;
+            order.remainingBalance = totalAmountSafe - (Number(order.advanceAmount || 0) || 0);
         }
 
         return {
@@ -476,7 +555,7 @@ const Order = {
      */
     markPaid: async (orderId) => {
         const [orderRows] = await promisePool.query(
-            'SELECT id, status, isVerified, isPaid, isDelivered FROM orders WHERE id = ?',
+            'SELECT id, status, isVerified, isPaid, isDelivered, totalAmount, advanceAmount FROM orders WHERE id = ?',
             [orderId]
         );
 
@@ -485,6 +564,13 @@ const Order = {
         const order = orderRows[0];
         if (order.status === 'Rejected') throw new Error('Rejected order cannot be marked as paid');
         if (!order.isVerified) throw new Error('Order must be verified before marking as paid');
+
+        const totalAmount = Number(order?.totalAmount || 0) || 0;
+        const advanceAmount = Number(order?.advanceAmount || 0) || 0;
+        const remaining = totalAmount - advanceAmount;
+        if (Math.abs(remaining) > 0.009) {
+            throw new Error('Remaining balance must be 0 before marking as paid');
+        }
         // Keep this operation idempotent, but still allow it to correct derived fields
         // like status/isArchived if an older row was missing updates.
 
@@ -694,6 +780,9 @@ const Order = {
             return {
                 id: orderId,
                 ...orderData,
+                totalAmount: computedTotalAmount,
+                advanceAmount: 0,
+                remainingBalance: computedTotalAmount,
                 orderType: 'Offline',
                 status: 'Pending',
                 paymentStatus: 'Unpaid'
@@ -797,7 +886,7 @@ const Order = {
             await connection.beginTransaction();
 
             const [orderRows] = await connection.query(
-                'SELECT status, paymentStatus, isVerified, isPaid, isDelivered FROM orders WHERE id = ? FOR UPDATE',
+                'SELECT status, paymentStatus, isVerified, isPaid, isDelivered, totalAmount, advanceAmount FROM orders WHERE id = ? FOR UPDATE',
                 [orderId]
             );
 
@@ -819,6 +908,15 @@ const Order = {
 
             if (nextStatus === 'Paid' && currentStatus === 'Pending') {
                 throw new Error('Order must be verified before marking as paid');
+            }
+
+            if (nextStatus === 'Paid') {
+                const totalAmount = Number(orderRows[0]?.totalAmount || 0) || 0;
+                const advanceAmount = Number(orderRows[0]?.advanceAmount || 0) || 0;
+                const remaining = totalAmount - advanceAmount;
+                if (Math.abs(remaining) > 0.009) {
+                    throw new Error('Remaining balance must be 0 before marking as paid');
+                }
             }
 
             if (nextStatus === 'Delivered' && !isVerified) {

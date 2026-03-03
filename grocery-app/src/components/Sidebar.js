@@ -125,7 +125,7 @@ class Sidebar extends React.Component {
                                         <Link to="/admin/offline-orders" style={{ textDecoration: 'none' }}>
                                             <SidebarItem>
                                                 <span className="item-icon">🧾</span>
-                                                <span className="item-label">Offline Orders</span>
+                                                <span className="item-label">{langCtx.getText('offlineOrders')}</span>
                                             </SidebarItem>
                                         </Link>
                                         <Link to="/admin/customers" style={{ textDecoration: 'none' }}>

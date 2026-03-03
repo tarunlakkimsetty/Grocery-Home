@@ -17,7 +17,7 @@ class Navbar extends React.Component {
     static contextType = AuthContext;
 
     render() {
-        const { user, isAuthenticated, logout } = this.context;
+        const { user, isAuthenticated, logout, role } = this.context;
         const { onToggleSidebar } = this.props;
 
         return (
@@ -37,17 +37,32 @@ class Navbar extends React.Component {
                                         <NavBrand>
                                             <div className="logo-icon">🛒</div>
                                             <div className="d-flex flex-column" style={{ minWidth: 0 }}>
-                                                <div className="brand-text fw-bold" title={langCtx.getText('shopName')}>
-                                                    {langCtx.getText('shopName')}
+                                                <div
+                                                    className="brand-text fw-bold d-flex align-items-center gap-2"
+                                                    title={`${langCtx.getText('shopName')} | ${langCtx.getText('phoneLink')}`}
+                                                    style={{ minWidth: 0 }}
+                                                >
+                                                    <span className="text-truncate" style={{ minWidth: 0 }}>
+                                                        {langCtx.getText('shopName')}
+                                                    </span>
+
+                                                    {isAuthenticated && role === 'customer' && (
+                                                        <span
+                                                            className="fw-semibold opacity-75"
+                                                            style={{ whiteSpace: 'nowrap', fontSize: '0.85em' }}
+                                                        >
+                                                            | {langCtx.getText('phoneLink')}
+                                                        </span>
+                                                    )}
                                                 </div>
 
                                                 {isAuthenticated && (
                                                     <small
                                                         className="text-light opacity-75 text-truncate"
-                                                        title={`${langCtx.getText('ownerName')} | ${langCtx.getText('address').split('\n').join(', ')} | ${langCtx.getText('phoneLink')}`}
+                                                        title={`${langCtx.getText('ownerName')} | ${langCtx.getText('address').split('\n').join(', ')}`}
                                                         style={{ maxWidth: '100%' }}
                                                     >
-                                                        {langCtx.getText('ownerName')} | {langCtx.getText('address').split('\n').join(', ')} | {langCtx.getText('phoneLink')}
+                                                        {langCtx.getText('ownerName')} | {langCtx.getText('address').split('\n').join(', ')}
                                                     </small>
                                                 )}
                                             </div>

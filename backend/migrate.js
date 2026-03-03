@@ -184,6 +184,9 @@ const runMigration = async () => {
         // Ensure orders.totalAmount exists (older DBs may be missing it)
         await addColumnBestEffort('orders', 'totalAmount DECIMAL(12,2) DEFAULT 0.00', 'totalAmount');
 
+        // Ensure orders.advanceAmount exists (advance payment feature)
+        await addColumnBestEffort('orders', 'advanceAmount DECIMAL(12,2) NOT NULL DEFAULT 0.00', 'advanceAmount');
+
         // Backfill boolean flags for existing data (best-effort)
         try {
             await promisePool.query(`
