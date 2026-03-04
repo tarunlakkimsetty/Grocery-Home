@@ -19,7 +19,7 @@ let mockOrders = [
         advanceAmount: 0,
         paymentType: 'Cash on Delivery',
         paymentStatus: 'Pending Payment',
-        status: 'Pending',
+        status: 'Pending Acceptance',
         date: '2026-02-27T11:00:00Z',
     },
     {
@@ -78,7 +78,7 @@ const orderService = {
                 grandTotal: orderData.totalAmount,
                 paymentType: orderData.paymentMethod || 'Cash on Delivery',
                 paymentStatus: 'Pending Payment',
-                status: 'Pending',
+                status: 'Pending Acceptance',
                 date: new Date().toISOString(),
             };
             mockOrders.push(newOrder);
@@ -290,7 +290,7 @@ const orderService = {
         } catch {
             const order = findMockOrderById(orderId);
             if (!order) throw new Error('Order not found');
-            if (order.status !== 'Pending') throw new Error('Order is locked');
+            if (order.status !== 'Accepted') throw new Error('Order is locked');
 
             const existing = order.items.find((i) => i.productId === productId);
             if (existing) {
@@ -323,11 +323,22 @@ const orderService = {
         } catch {
             const order = findMockOrderById(orderId);
             if (!order) throw new Error('Order not found');
-            if (order.status !== 'Pending') throw new Error('Order is locked');
+            if (order.status !== 'Accepted') throw new Error('Order is locked');
 
             order.items = items;
             order.grandTotal = grandTotal;
             return order;
+        }
+    },
+
+    // Admin: accept online order
+    // API: PUT /api/orders/:id/accept
+    acceptOrder: async (orderId) => {
+        try {
+            const response = await axiosInstance.put('/orders/' + orderId + '/accept');
+            return response.data;
+        } catch (error) {
+            throw error;
         }
     },
 

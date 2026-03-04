@@ -1,5 +1,55 @@
 const { promisePool } = require('../config/db');
 
+const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
+
+const aggregateRequestedQuantities = (items) => {
+    const safe = Array.isArray(items) ? items : [];
+    const byProductId = new Map();
+
+    for (const item of safe) {
+        // Unselected items should not participate in stock validation or totals.
+        // This is important for the admin verification flow where unchecked products
+        // remain on the order but are not part of the verified bill.
+        if (item && item.isSelected === false) continue;
+
+        const productId = Number(item?.productId);
+        const quantityRaw = Number(item?.quantity);
+        const quantity = Number.isFinite(quantityRaw) ? Math.floor(quantityRaw) : NaN;
+
+        if (!Number.isInteger(productId) || productId <= 0) continue;
+        if (!Number.isInteger(quantity) || quantity <= 0) continue;
+
+        byProductId.set(productId, (byProductId.get(productId) || 0) + quantity);
+    }
+
+    return byProductId;
+};
+
+const assertSufficientStock = async (connection, itemsOrMap) => {
+    const requested = itemsOrMap instanceof Map ? itemsOrMap : aggregateRequestedQuantities(itemsOrMap);
+    const productIds = Array.from(requested.keys());
+
+    if (productIds.length === 0) return;
+
+    const placeholders = productIds.map(() => '?').join(',');
+    const [rows] = await connection.query(
+        `SELECT id, stock FROM products WHERE id IN (${placeholders}) FOR UPDATE`,
+        productIds
+    );
+
+    const stockById = new Map((rows || []).map((r) => [Number(r.id), Number(r.stock)]));
+
+    for (const productId of productIds) {
+        const qty = requested.get(productId) || 0;
+        const rawStock = stockById.get(productId);
+        const stock = Number.isFinite(rawStock) && rawStock >= 0 ? rawStock : 0;
+
+        if (qty > stock) {
+            throw new Error(STOCK_LIMIT_MESSAGE);
+        }
+    }
+};
+
 const calculateTotalFromItems = (items) => {
     const safe = Array.isArray(items) ? items : [];
     return safe.reduce((sum, it) => {
@@ -14,6 +64,20 @@ const calculateTotalFromItems = (items) => {
     }, 0);
 };
 
+const normalize = (value) => String(value || '').trim().toLowerCase();
+
+const canModifyBeforeVerification = (order) => {
+    const type = normalize(order?.orderType);
+    const status = normalize(order?.status);
+
+    if (type === 'online') {
+        return status === 'accepted';
+    }
+
+    // Offline keeps the older workflow.
+    return status === 'pending' || status === 'accepted';
+};
+
 const Order = {
     /**
      * Create online order with items (using transaction)
@@ -23,6 +87,9 @@ const Order = {
         
         try {
             await connection.beginTransaction();
+
+            // Backend enforcement: validate stock before creating order/items.
+            await assertSufficientStock(connection, items);
 
             const {
                 customerId,
@@ -37,7 +104,7 @@ const Order = {
             const [orderResult] = await connection.query(
                 `INSERT INTO orders 
                 (customerId, customerName, phone, place, address, orderType, status, paymentStatus, totalAmount) 
-                VALUES (?, ?, ?, ?, ?, 'Online', 'Pending', 'Unpaid', ?)`,
+                VALUES (?, ?, ?, ?, ?, 'Online', 'Pending Acceptance', 'Unpaid', ?)`,
                 [customerId, customerName, phone, place, address, totalAmount]
             );
 
@@ -73,7 +140,7 @@ const Order = {
                 advanceAmount: 0,
                 remainingBalance: computedTotalAmount,
                 orderType: 'Online',
-                status: 'Pending',
+                status: 'Pending Acceptance',
                 paymentStatus: 'Unpaid'
             };
         } catch (error) {
@@ -451,7 +518,7 @@ const Order = {
 
             // Check if order is still Pending
             const [orderCheck] = await connection.query(
-                'SELECT status FROM orders WHERE id = ? FOR UPDATE',
+                'SELECT status, orderType FROM orders WHERE id = ? FOR UPDATE',
                 [orderId]
             );
 
@@ -459,9 +526,12 @@ const Order = {
                 throw new Error('Order not found');
             }
 
-            if (orderCheck[0].status !== 'Pending') {
+            if (!canModifyBeforeVerification(orderCheck[0])) {
                 throw new Error('Order is locked. Cannot modify after verification.');
             }
+
+            // Backend enforcement: validate stock against the full updated quantities.
+            await assertSufficientStock(connection, items);
 
             // Delete existing items
             await connection.query('DELETE FROM order_items WHERE orderId = ?', [orderId]);
@@ -512,7 +582,10 @@ const Order = {
                 throw new Error('Order not found');
             }
 
-            if (orderCheck[0].status !== 'Pending') {
+            if (!canModifyBeforeVerification(orderCheck[0])) {
+                if (normalize(orderCheck[0]?.orderType) === 'online' && normalize(orderCheck[0]?.status) === 'pending acceptance') {
+                    throw new Error('Order must be accepted before verification');
+                }
                 throw new Error('Order already verified or processed');
             }
 
@@ -520,6 +593,14 @@ const Order = {
             const [items] = await connection.query(
                 'SELECT * FROM order_items WHERE orderId = ? AND isSelected = TRUE',
                 [orderId]
+            );
+
+            // Ensure bill amount matches verified (selected) items.
+            // This makes remaining balance (totalAmount - advanceAmount) correct immediately.
+            const verifiedTotal = calculateTotalFromItems(items);
+            await connection.query(
+                'UPDATE orders SET totalAmount = ? WHERE id = ?',
+                [Number(verifiedTotal || 0) || 0, orderId]
             );
 
             // Update stock for each selected item
@@ -530,7 +611,7 @@ const Order = {
                 );
 
                 if (stockResult.affectedRows === 0) {
-                    throw new Error(`Insufficient stock for product: ${item.productName}`);
+                    throw new Error(STOCK_LIMIT_MESSAGE);
                 }
             }
 
@@ -652,7 +733,7 @@ const Order = {
             await connection.beginTransaction();
 
             const [orderCheck] = await connection.query(
-                'SELECT status FROM orders WHERE id = ? FOR UPDATE',
+                'SELECT status, orderType FROM orders WHERE id = ? FOR UPDATE',
                 [orderId]
             );
 
@@ -660,8 +741,17 @@ const Order = {
                 throw new Error('Order not found');
             }
 
-            if (orderCheck[0].status !== 'Pending') {
-                throw new Error('Only Pending orders can be rejected');
+            const orderType = normalize(orderCheck[0]?.orderType);
+            const status = normalize(orderCheck[0]?.status);
+
+            if (orderType === 'online') {
+                if (!['pending acceptance', 'accepted'].includes(status)) {
+                    throw new Error('Only Pending Acceptance/Accepted online orders can be rejected');
+                }
+            } else {
+                if (status !== 'pending') {
+                    throw new Error('Only Pending offline orders can be rejected');
+                }
             }
 
             const [result] = await connection.query(
@@ -690,7 +780,7 @@ const Order = {
 
             // Check if order is Pending
             const [orderCheck] = await connection.query(
-                'SELECT status, totalAmount FROM orders WHERE id = ? FOR UPDATE',
+                'SELECT status, orderType, totalAmount FROM orders WHERE id = ? FOR UPDATE',
                 [orderId]
             );
 
@@ -698,9 +788,20 @@ const Order = {
                 throw new Error('Order not found');
             }
 
-            if (orderCheck[0].status !== 'Pending') {
+            if (!canModifyBeforeVerification(orderCheck[0])) {
                 throw new Error('Cannot add items to a verified order');
             }
+
+            // Backend enforcement: ensure cumulative quantity for this product in this order
+            // does not exceed available stock.
+            const [existingQtyRows] = await connection.query(
+                'SELECT COALESCE(SUM(quantity), 0) AS qty FROM order_items WHERE orderId = ? AND productId = ?',
+                [orderId, item.productId]
+            );
+            const existingQty = Number(existingQtyRows?.[0]?.qty || 0) || 0;
+            const requestedTotalQty = existingQty + (Number(item?.quantity || 0) || 0);
+            const requestedMap = new Map([[Number(item.productId), requestedTotalQty]]);
+            await assertSufficientStock(connection, requestedMap);
 
             // Insert new item
             const itemTotal = item.price * item.quantity;
@@ -736,6 +837,9 @@ const Order = {
         
         try {
             await connection.beginTransaction();
+
+            // Backend enforcement: validate stock before creating order/items.
+            await assertSufficientStock(connection, items);
 
             const {
                 customerName,
@@ -886,7 +990,7 @@ const Order = {
             await connection.beginTransaction();
 
             const [orderRows] = await connection.query(
-                'SELECT status, paymentStatus, isVerified, isPaid, isDelivered, totalAmount, advanceAmount FROM orders WHERE id = ? FOR UPDATE',
+                'SELECT status, orderType, paymentStatus, isVerified, isPaid, isDelivered, totalAmount, advanceAmount FROM orders WHERE id = ? FOR UPDATE',
                 [orderId]
             );
 
@@ -895,18 +999,26 @@ const Order = {
             }
 
             const currentStatus = orderRows[0].status;
+            const currentOrderType = normalize(orderRows[0].orderType);
             const currentPayment = orderRows[0].paymentStatus;
             const isVerified = !!orderRows[0].isVerified;
+            const currentStatusLower = normalize(currentStatus);
 
             if (currentStatus === 'Rejected' && nextStatus !== 'Rejected') {
                 throw new Error('Rejected order cannot be updated');
             }
 
-            if (nextStatus === 'Rejected' && currentStatus !== 'Pending') {
-                throw new Error('Only Pending orders can be rejected');
+            if (nextStatus === 'Rejected') {
+                if (currentOrderType === 'online') {
+                    if (!['pending acceptance', 'accepted'].includes(currentStatusLower)) {
+                        throw new Error('Only Pending Acceptance/Accepted online orders can be rejected');
+                    }
+                } else if (currentStatusLower !== 'pending') {
+                    throw new Error('Only Pending offline orders can be rejected');
+                }
             }
 
-            if (nextStatus === 'Paid' && currentStatus === 'Pending') {
+            if (nextStatus === 'Paid' && !isVerified) {
                 throw new Error('Order must be verified before marking as paid');
             }
 
@@ -970,6 +1082,56 @@ const Order = {
                     [nextStatus, orderId]
                 );
             }
+
+            await connection.commit();
+            return true;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+    ,
+
+    /**
+     * Accept online order (admin action)
+     */
+    acceptOnlineOrder: async (orderId) => {
+        const connection = await promisePool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [orderRows] = await connection.query(
+                'SELECT id, orderType, status, isVerified, isPaid, isDelivered FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+
+            if (orderRows.length === 0) throw new Error('Order not found');
+
+            const order = orderRows[0];
+            if (normalize(order.orderType) !== 'online') {
+                throw new Error('Only online orders can be accepted');
+            }
+
+            if (order.isVerified || order.isPaid || order.isDelivered) {
+                throw new Error('Order already processed and cannot be accepted');
+            }
+
+            const currentStatus = normalize(order.status);
+            if (currentStatus === 'accepted') {
+                await connection.commit();
+                return true;
+            }
+
+            if (!['pending acceptance', 'pending'].includes(currentStatus)) {
+                throw new Error('Only Pending/Pending Acceptance orders can be accepted');
+            }
+
+            await connection.query(
+                'UPDATE orders SET status = ?, acceptedAt = NOW() WHERE id = ?',
+                ['Accepted', orderId]
+            );
 
             await connection.commit();
             return true;

@@ -51,6 +51,31 @@ class AdminCustomerViewPage extends React.Component {
         );
     };
 
+    formatShortDate = (dateStr) => {
+        if (!dateStr) return '-';
+        const d = new Date(dateStr);
+        if (Number.isNaN(d.getTime())) return '-';
+        return d.toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+        });
+    };
+
+    renderStarString = (avgRating) => {
+        const n = Number(avgRating);
+        if (!Number.isFinite(n)) return '—';
+        const filled = Math.max(0, Math.min(5, Math.round(n)));
+        return '★'.repeat(filled) + '☆'.repeat(5 - filled);
+    };
+
+    renderStarsForRating = (rating) => {
+        const n = Number(rating);
+        if (!Number.isFinite(n)) return '—';
+        const filled = Math.max(0, Math.min(5, Math.floor(n)));
+        return '★'.repeat(filled) + '☆'.repeat(5 - filled);
+    };
+
     render() {
         const { customer, loading, error } = this.state;
         const { onGoBack } = this.props;
@@ -77,54 +102,91 @@ class AdminCustomerViewPage extends React.Component {
                         {!customer && !error && <div className="alert alert-warning">{langCtx.getText('notFound')}</div>}
 
                         {customer && (
-                            <TableWrapper>
-                                <table className="table">
-                                    <thead>
-                                        <tr>
-                                            <th>Field</th>
-                                            <th>Value</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td className="fw-semibold">Customer Name</td>
-                                            <td>{customer.name || '-'}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Phone Number</td>
-                                            <td>{customer.phone || '-'}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Place</td>
-                                            <td>{customer.place || '-'}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Total Orders</td>
-                                            <td>{Number(customer.total_orders || 0)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Completed Orders Count</td>
-                                            <td>{Number(customer.completed_orders || 0)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Rejected Orders Count</td>
-                                            <td>{Number(customer.rejected_orders || 0)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Total Amount Spent (Completed)</td>
-                                            <td className="fw-bold">₹{Number(customer.total_spent || 0).toFixed(2)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Last Order Date (Completed)</td>
-                                            <td>{this.formatDate(customer.last_completed_date)}</td>
-                                        </tr>
-                                        <tr>
-                                            <td className="fw-semibold">Last Order Date (Rejected)</td>
-                                            <td>{this.formatDate(customer.last_rejected_date)}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </TableWrapper>
+                            <div>
+                                <TableWrapper>
+                                    <table className="table">
+                                        <thead>
+                                            <tr>
+                                                <th>Field</th>
+                                                <th>Value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td className="fw-semibold">Customer Name</td>
+                                                <td>{customer.name || '-'}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Phone Number</td>
+                                                <td>{customer.phone || '-'}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Place</td>
+                                                <td>{customer.place || '-'}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Total Orders</td>
+                                                <td>{Number(customer.total_orders || 0)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Average Rating</td>
+                                                <td>
+                                                    {customer.avg_rating === null || customer.avg_rating === undefined
+                                                        ? '-'
+                                                        : `${this.renderStarString(customer.avg_rating)} (${Number(customer.avg_rating).toFixed(1)}) (${Number(
+                                                              customer.rating_count || 0
+                                                          )} ratings)`}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Completed Orders Count</td>
+                                                <td>{Number(customer.completed_orders || 0)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Rejected Orders Count</td>
+                                                <td>{Number(customer.rejected_orders || 0)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Total Amount Spent (Completed)</td>
+                                                <td className="fw-bold">₹{Number(customer.total_spent || 0).toFixed(2)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Last Order Date (Completed)</td>
+                                                <td>{this.formatDate(customer.last_completed_date)}</td>
+                                            </tr>
+                                            <tr>
+                                                <td className="fw-semibold">Last Order Date (Rejected)</td>
+                                                <td>{this.formatDate(customer.last_rejected_date)}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </TableWrapper>
+
+                                <div style={{ marginTop: '1rem' }}>
+                                    <h3 style={{ marginBottom: '0.5rem' }}>Recent Feedback (Last 5)</h3>
+                                    <TableWrapper>
+                                        {Array.isArray(customer.recent_feedback) && customer.recent_feedback.length > 0 ? (
+                                            <ol style={{ margin: 0, paddingLeft: '1.25rem' }}>
+                                                {customer.recent_feedback.slice(0, 5).map((f, idx) => (
+                                                    <li key={idx} style={{ marginBottom: '0.5rem' }}>
+                                                        <div style={{ fontWeight: 800 }}>{this.renderStarsForRating(f?.rating)}</div>
+                                                        <div>
+                                                            {String(f?.comment || '').trim().length
+                                                                ? String(f.comment).trim()
+                                                                : 'No comment provided'}
+                                                        </div>
+                                                        <div className="text-muted" style={{ fontSize: '0.9rem' }}>
+                                                            {this.formatShortDate(f?.created_at)}
+                                                        </div>
+                                                    </li>
+                                                ))}
+                                            </ol>
+                                        ) : (
+                                            <div className="text-muted">No feedback yet</div>
+                                        )}
+                                    </TableWrapper>
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}

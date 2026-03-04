@@ -54,6 +54,12 @@ const ActionButton = styled.button`
         border: 1px solid #dee2e6;
         &:hover { background: #e9ecef; }
     }
+    &.btn-accept {
+        background: rgba(255, 152, 0, 0.12);
+        color: #e65100;
+        border: 1px solid rgba(255, 152, 0, 0.35);
+        &:hover:not(:disabled) { background: rgba(255, 152, 0, 0.24); }
+    }
     &:disabled {
         opacity: 0.4;
         cursor: not-allowed;
@@ -263,7 +269,7 @@ class AdminOnlineOrdersPage extends React.Component {
         if (isLocked) return false;
 
         // Spec-allowed statuses
-        const allowed = new Set(['pending', 'confirmed', 'processing', 'verified', 'delivered']);
+        const allowed = new Set(['accepted', 'confirmed', 'processing', 'verified', 'delivered']);
         return allowed.has(statusLower);
     };
 
@@ -375,10 +381,25 @@ class AdminOnlineOrdersPage extends React.Component {
 
     openModal = (order) => {
         const orderItems = Array.isArray(order?.items) ? order.items : [];
+        const shouldRestoreSelection =
+            !!(
+                order &&
+                (order.isVerified || ['Verified', 'Paid', 'Delivered', 'Completed'].includes(order.status))
+            );
+
+        const selectedFromDb = shouldRestoreSelection
+            ? orderItems
+                .filter((item) => {
+                    const hasFlag = !(item?.isSelected === undefined || item?.isSelected === null);
+                    return hasFlag ? Boolean(item.isSelected) : true;
+                })
+                .map((item) => item.productId)
+            : [];
+
         this.setState({
             selectedOrder: order,
             modalOpen: true,
-            selectedProducts: [],
+            selectedProducts: selectedFromDb,
             // Deep copy items so quantity edits don't mutate source
             modalItems: orderItems.map((item) => ({
                 ...item,
@@ -428,8 +449,8 @@ class AdminOnlineOrdersPage extends React.Component {
     toggleItemCheck = (productId) => {
         const { selectedOrder, selectedProducts } = this.state;
         if (!selectedOrder) return;
-        // Lock: no changes allowed once order is no longer Pending
-        if (selectedOrder.status !== 'Pending') return;
+        // Lock: online order changes are allowed only after acceptance.
+        if (selectedOrder.status !== 'Accepted') return;
         const isSelected = selectedProducts.includes(productId);
         const nextSelectedProducts = isSelected
             ? selectedProducts.filter((id) => id !== productId)
@@ -442,8 +463,8 @@ class AdminOnlineOrdersPage extends React.Component {
 
     updateItemQuantity = (productId, delta) => {
         const { selectedOrder } = this.state;
-        // Lock: no quantity edits once order is no longer Pending
-        if (selectedOrder && selectedOrder.status !== 'Pending') return;
+        // Lock: online order changes are allowed only after acceptance.
+        if (selectedOrder && selectedOrder.status !== 'Accepted') return;
         const updatedItems = this.state.modalItems.map((item) => {
             if (item.productId === productId) {
                 const currentQty = Number(item.quantity || 0) || 0;
@@ -470,7 +491,7 @@ class AdminOnlineOrdersPage extends React.Component {
 
     handleAddProductToOrder = async () => {
         const { selectedOrder, addProductId, addProductQty, products, modalItems } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+        if (!selectedOrder || selectedOrder.status !== 'Accepted') return;
 
         const productId = parseInt(addProductId, 10);
         if (!productId) {
@@ -544,8 +565,37 @@ class AdminOnlineOrdersPage extends React.Component {
     handleVerifyCheckbox = async (isChecked) => {
         if (!isChecked) return; // Verification is irreversible
         const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+        if (!selectedOrder || selectedOrder.status !== 'Accepted') return;
         await this.handleVerify(selectedOrder.id);
+    };
+
+    handleAcceptOrder = async (orderId) => {
+        this.setState({ actionLoading: true });
+        try {
+            const resp = await orderService.acceptOrder(orderId);
+            const nextOrder = resp?.order || resp?.data?.order || { id: orderId, status: 'Accepted' };
+
+            const patch = (list) =>
+                (Array.isArray(list) ? list.map((o) => (o.id === orderId ? { ...o, ...nextOrder } : o)) : list);
+
+            this.setState((prev) => ({
+                orders: patch(prev.orders),
+                onlineOrders: patch(prev.onlineOrders),
+                selectedOrder:
+                    prev.selectedOrder && prev.selectedOrder.id === orderId
+                        ? { ...prev.selectedOrder, ...nextOrder }
+                        : prev.selectedOrder,
+            }));
+
+            await this.fetchOrders();
+
+            toast.success(t('orderAccepted'));
+        } catch (err) {
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToUpdateOrderStatus'));
+        } finally {
+            this.setState({ actionLoading: false });
+        }
     };
 
     // ─── Status Actions ────────────────────────────────────────────────────────
@@ -555,64 +605,69 @@ class AdminOnlineOrdersPage extends React.Component {
         try {
             const { selectedOrder, modalItems, selectedProducts } = this.state;
             if (!selectedOrder || selectedOrder.id !== orderId) return;
-            if (selectedOrder.status !== 'Pending') return;
+            if (selectedOrder.status !== 'Accepted') {
+                toast.warning(t('verifyAfterAcceptOnly'));
+                return;
+            }
 
             if (!Array.isArray(selectedProducts) || selectedProducts.length === 0) {
                 toast.warning(t('selectAtLeastOneItemBeforeVerifying'));
                 return;
             }
 
-            // Allow quantity = 0 in UI before verification.
-            // On verify, drop any checked items with qty <= 0 (backend requires qty >= 1).
-            const finalItems = modalItems
-                .filter((i) => selectedProducts.includes(i.productId))
-                .map((i) => {
-                    const qty = parseInt(i.quantity, 10);
-                    const quantity = Number.isFinite(qty) ? qty : 0;
-                    const price = Number(i.price || 0) || 0;
-                    return {
-                        ...i,
-                        // Backend expects productName
-                        productName: i?.productName ?? i?.name,
-                        quantity,
-                        total: price * quantity,
-                    };
-                })
-                .filter((i) => (Number(i.quantity || 0) || 0) > 0);
+            // Build a full item list with `isSelected` flags.
+            // Keep unchecked items in the UI and DB, but mark them unselected.
+            const updatedItems = (Array.isArray(modalItems) ? modalItems : []).map((i) => {
+                const qty = parseInt(i.quantity, 10);
+                const quantity = Number.isFinite(qty) ? qty : 0;
+                const price = Number(i.price || 0) || 0;
 
-            if (finalItems.length === 0) {
+                // If checked but qty <= 0, treat it as not selected.
+                const initiallySelected = selectedProducts.includes(i.productId);
+                const isSelected = initiallySelected && (Number(quantity || 0) || 0) > 0;
+
+                return {
+                    ...i,
+                    productName: i?.productName ?? i?.name,
+                    quantity,
+                    price,
+                    isSelected,
+                    total: price * quantity,
+                };
+            });
+
+            const selectedForVerify = updatedItems.filter((i) => Boolean(i.isSelected));
+            if (selectedForVerify.length === 0) {
                 toast.warning(t('selectedItemsQtyGreaterThanZero'));
                 return;
             }
 
-            const finalTotal = finalItems.reduce((sum, i) => sum + (Number(i.total || 0) || 0), 0);
+            const finalTotal = selectedForVerify.reduce((sum, i) => sum + (Number(i.total || 0) || 0), 0);
 
-            // Persist final items + total BEFORE verifying (backend will lock afterwards)
-            await orderService.updateOrderBeforeVerify(orderId, finalItems, finalTotal);
-            await orderService.verifyOrder(orderId);
+            // Persist selection state + totals BEFORE verifying (backend will lock afterwards)
+            await orderService.updateOrderBeforeVerify(orderId, updatedItems, finalTotal);
+            const verifyResp = await orderService.verifyOrder(orderId);
+            const verifiedOrder = verifyResp?.order || verifyResp?.data?.order || verifyResp?.data || null;
 
-            const orders = (this.state.onlineOrders || this.state.orders).map((o) =>
-                o.id === orderId
-                    ? { ...o, status: 'Verified', isVerified: true, items: finalItems, grandTotal: finalTotal }
-                    : o
-            );
+            const patch = (list) =>
+                (Array.isArray(list) ? list.map((o) => (o.id === orderId ? { ...o, ...(verifiedOrder || {}), status: 'Verified', isVerified: true } : o)) : list);
 
-            const nextSelectedOrder = this.state.selectedOrder
-                ? {
-                      ...this.state.selectedOrder,
-                      status: 'Verified',
-                                            isVerified: true,
-                      items: finalItems,
-                      grandTotal: finalTotal,
-                  }
-                : null;
+            const nextSelectedOrder = this.state.selectedOrder && this.state.selectedOrder.id === orderId
+                ? { ...this.state.selectedOrder, ...(verifiedOrder || {}), status: 'Verified', isVerified: true }
+                : this.state.selectedOrder;
 
-            this.setState({
-                orders,
-                onlineOrders: orders,
-                selectedOrder: nextSelectedOrder,
-                modalItems: finalItems,
-                selectedProducts: finalItems.map((i) => i.productId),
+            const nextItems = Array.isArray(nextSelectedOrder?.items) ? nextSelectedOrder.items : updatedItems;
+            const nextSelectedProducts = nextItems.filter((it) => Boolean(it?.isSelected)).map((it) => it.productId);
+
+            this.setState((prev) => {
+                const nextOrders = patch(prev.onlineOrders || prev.orders);
+                return {
+                    orders: nextOrders,
+                    onlineOrders: nextOrders,
+                    selectedOrder: nextSelectedOrder,
+                    modalItems: nextItems,
+                    selectedProducts: nextSelectedProducts,
+                };
             });
 
             toast.success(t('orderVerifiedSynced'));
@@ -700,10 +755,11 @@ class AdminOnlineOrdersPage extends React.Component {
         }
     };
 
-    // Reject Order (Pending Only)
+    // Reject Order (Pending Acceptance or Accepted)
     handleReject = async (orderId) => {
         const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+        if (!selectedOrder) return;
+        if (!['Pending Acceptance', 'Accepted'].includes(String(selectedOrder.status || ''))) return;
 
         // Keep confirm minimal; no extra UX beyond a standard prompt.
         const ok = window.confirm(t('rejectOrderConfirm'));
@@ -726,6 +782,8 @@ class AdminOnlineOrdersPage extends React.Component {
 
     getStatusBadgeClass = (status) => {
         const map = {
+            'Pending Acceptance': 'badge-warning',
+            Accepted: 'badge-info',
             Pending: 'badge-warning',
             Verified: 'badge-info',
             Paid: 'badge-primary',
@@ -737,6 +795,8 @@ class AdminOnlineOrdersPage extends React.Component {
     };
 
     getStatusIcon = (status) => {
+        if (status === 'Pending Acceptance') return '🕒';
+        if (status === 'Accepted') return '👍';
         if (status === 'Pending') return '⏳';
         if (status === 'Verified') return '✅';
         if (status === 'Paid') return '💰';
@@ -830,12 +890,11 @@ class AdminOnlineOrdersPage extends React.Component {
                             ? langCtx.getText('paymentApproved')
                             : langCtx.getText('pendingPayment');
                     };
-                    const isRejected =
-                        selectedOrder && selectedOrder.status === 'Rejected';
-                    // Lock editing once order moves past Pending
-                    const isLocked =
-                        selectedOrder && selectedOrder.status !== 'Pending';
-                    const isPending = selectedOrder && selectedOrder.status === 'Pending';
+                    const isRejected = selectedOrder && selectedOrder.status === 'Rejected';
+                    const isPendingAcceptance =
+                        selectedOrder && ['Pending Acceptance', 'Pending'].includes(String(selectedOrder.status || ''));
+                    const isAcceptedEditable = selectedOrder && selectedOrder.status === 'Accepted';
+                    const isLocked = selectedOrder && !isAcceptedEditable;
 
                     const totalForPayment = Number(selectedOrder?.totalAmount ?? selectedOrder?.grandTotal ?? checkedTotal ?? 0) || 0;
                     const advanceForPayment = Number(selectedOrder?.advanceAmount ?? 0) || 0;
@@ -1090,8 +1149,8 @@ class AdminOnlineOrdersPage extends React.Component {
                                                 </div>
                                             </div>
 
-                                            {/* ── NEW: Add Product to Order (Pending Only) ── */}
-                                            {isPending && (
+                                            {/* ── NEW: Add Product to Order (Accepted Only) ── */}
+                                            {isAcceptedEditable && (
                                                 <div
                                                     style={{
                                                         background: '#f8f9fa',
@@ -1162,7 +1221,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                 className="text-muted d-block mb-2"
                                                 style={{ fontSize: '0.78rem' }}
                                             >
-                                                ℹ️ {langCtx.getText('editQtyNote')}
+                                                ℹ️ {isAcceptedEditable ? langCtx.getText('editQtyNote') : langCtx.getText('editAfterAcceptOnly')}
                                             </small>
 
                                             {/* Lock Banner */}
@@ -1361,14 +1420,14 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     >
                                                         <div className="d-flex flex-column" style={{ gap: '0.1rem' }}>
                                                             <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
-                                                                {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{advance.toFixed(2)}</span>
+                                                                {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{(Number(advance) || 0).toFixed(2)}</span>
                                                             </span>
                                                             <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
-                                                                {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{remaining.toFixed(2)}</span>
+                                                                {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{(Number(remaining) || 0).toFixed(2)}</span>
                                                             </span>
                                                         </div>
                                                         <span className="text-muted" style={{ fontSize: '0.78rem' }}>
-                                                            ({langCtx.getText('billAmount')}: ₹{total.toFixed(2)})
+                                                            ({langCtx.getText('billAmount')}: ₹{(Number(total) || 0).toFixed(2)})
                                                         </span>
                                                     </div>
                                                 );
@@ -1462,7 +1521,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     id="verifyOrderCheck"
                                                     checked={isVerified || false}
                                                     disabled={
-                                                        isVerified || isPaymentPaid || isDelivered || isRejected || actionLoading
+                                                        isVerified || isPaymentPaid || isDelivered || isRejected || actionLoading || !isAcceptedEditable
                                                     }
                                                     onChange={(e) =>
                                                         this.handleVerifyCheckbox(e.target.checked)
@@ -1474,8 +1533,18 @@ class AdminOnlineOrdersPage extends React.Component {
                                             </VerifyCheckWrapper>
 
                                             <div className="ms-auto d-flex gap-2 flex-wrap">
-                                                {/* Reject (Pending Only) */}
-                                                {isPending && !isRejected && (
+                                                {isPendingAcceptance && !isRejected && (
+                                                    <ActionButton
+                                                        className="btn-accept"
+                                                        onClick={() => this.handleAcceptOrder(selectedOrder.id)}
+                                                        disabled={actionLoading}
+                                                    >
+                                                        👍 {langCtx.getText('acceptOrder')}
+                                                    </ActionButton>
+                                                )}
+
+                                                {/* Reject (Pending Acceptance or Accepted) */}
+                                                {(['Pending Acceptance', 'Pending', 'Accepted'].includes(String(selectedOrder?.status || ''))) && !isRejected && (
                                                     <button
                                                         type="button"
                                                         className="btn btn-outline-danger btn-sm"

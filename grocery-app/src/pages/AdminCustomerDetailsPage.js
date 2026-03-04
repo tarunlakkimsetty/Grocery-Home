@@ -7,6 +7,7 @@ import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { TableWrapper, EmptyState } from '../styledComponents/FormStyles';
 import { t } from '../utils/i18n';
+import feedbackService from '../services/feedbackService';
 
 class AdminCustomerDetailsPage extends React.Component {
     constructor(props) {
@@ -17,6 +18,8 @@ class AdminCustomerDetailsPage extends React.Component {
             fetching: false,
             error: null,
             search: '',
+            overallRating: null,
+            overallCount: 0,
         };
 
         this._debounceTimer = null;
@@ -25,7 +28,20 @@ class AdminCustomerDetailsPage extends React.Component {
 
     componentDidMount() {
         this.fetchCustomers('', { isInitial: true });
+        this.fetchOverallRating();
     }
+
+    fetchOverallRating = async () => {
+        try {
+            const summary = await feedbackService.getAdminSummary();
+            this.setState({
+                overallRating: summary?.overall_rating === null || summary?.overall_rating === undefined ? null : Number(summary.overall_rating),
+                overallCount: Number(summary?.rating_count || 0),
+            });
+        } catch (err) {
+            // Non-blocking for the page.
+        }
+    };
 
     componentWillUnmount() {
         if (this._debounceTimer) {
@@ -115,6 +131,7 @@ class AdminCustomerDetailsPage extends React.Component {
                             <th>{langCtx.getText('name')}</th>
                             <th>{langCtx.getText('phone')}</th>
                             <th>{langCtx.getText('place')}</th>
+                            <th className="text-center">Avg Rating</th>
                             <th className="text-center">{langCtx.getText('completed')}</th>
                             <th className="text-center">{langCtx.getText('rejected')}</th>
                             <th className="text-end">{langCtx.getText('totalSpent')}</th>
@@ -129,6 +146,11 @@ class AdminCustomerDetailsPage extends React.Component {
                                 <td className="fw-semibold">{c.name || '-'}</td>
                                 <td>{c.phone || '-'}</td>
                                 <td>{c.place || '-'}</td>
+                                <td className="text-center">
+                                    {c.avg_rating === null || c.avg_rating === undefined
+                                        ? '-'
+                                        : `${Number(c.avg_rating).toFixed(1)} ★`}
+                                </td>
                                 <td className="text-center">{Number(c.completed_orders || 0)}</td>
                                 <td className="text-center">{Number(c.rejected_orders || 0)}</td>
                                 <td className="text-end fw-bold">₹{Number(c.total_spent || 0).toFixed(2)}</td>
@@ -148,7 +170,7 @@ class AdminCustomerDetailsPage extends React.Component {
     };
 
     render() {
-        const { loading, error, search } = this.state;
+        const { loading, error, search, overallRating, overallCount } = this.state;
         if (loading) return <Spinner fullPage text={t('loadingCustomers')} />;
 
         return (
@@ -159,6 +181,20 @@ class AdminCustomerDetailsPage extends React.Component {
                             <h1>🧾 {langCtx.getText('customerDetails')}</h1>
                             <p>{langCtx.getText('customerAnalyticsSubtitle')}</p>
                         </PageHeader>
+
+                        <div className="alert alert-light" style={{ border: '1px solid #e9ecef' }}>
+                            <div className="d-flex justify-content-between align-items-center" style={{ gap: '1rem', flexWrap: 'wrap' }}>
+                                <div className="fw-semibold">Overall Store Rating</div>
+                                <div className="fw-bold">
+                                    {overallRating === null || overallRating === undefined
+                                        ? '—'
+                                        : `${Number(overallRating).toFixed(1)} ★`}
+                                    <span className="text-muted" style={{ marginLeft: '0.5rem', fontWeight: 500 }}>
+                                        ({Number(overallCount || 0)} ratings)
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
 
                         <div className="mb-3">
                             <input

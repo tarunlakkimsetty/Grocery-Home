@@ -14,6 +14,7 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const billRoutes = require('./routes/billRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const userRoutes = require('./routes/userRoutes');
+const feedbackRoutes = require('./routes/feedbackRoutes');
 
 const app = express();
 
@@ -86,6 +87,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/admin/analytics', analyticsRoutes);
 app.use('/api/admin/customers', customerRoutes);
 app.use('/api/bills', billRoutes);
+app.use('/api/feedback', feedbackRoutes);
 
 // Error handling middleware (must be last)
 app.use(notFound);

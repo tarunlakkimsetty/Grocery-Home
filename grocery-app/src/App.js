@@ -12,6 +12,7 @@ import { LanguageProvider } from './context/LanguageContext';
 import AuthContext from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
+import FeedbackManager from './components/FeedbackManager';
 import AppRoutes from './routes/AppRoutes';
 import { AppContainer, MainContent } from './styledComponents/LayoutStyles';
 
@@ -49,7 +50,7 @@ class AppContent extends React.Component {
   };
 
   render() {
-    const { isAuthenticated } = this.context;
+    const { isAuthenticated, role } = this.context;
     const { sidebarOpen, activeCategory } = this.state;
 
     return (
@@ -70,6 +71,8 @@ class AppContent extends React.Component {
         ) : (
           <AppRoutes activeCategory={activeCategory} />
         )}
+
+        {isAuthenticated && String(role || '').toLowerCase() === 'customer' && <FeedbackManager />}
         <ToastContainer
           position="top-right"
           autoClose={3000}

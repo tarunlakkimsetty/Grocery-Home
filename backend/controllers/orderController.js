@@ -3,6 +3,8 @@ const Product = require('../models/productModel');
 const User = require('../models/userModel');
 const { promisePool } = require('../config/db');
 
+const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
+
 const SHOP_INFO = {
     name: process.env.SHOP_NAME || 'Om Sri Satya Sai Rama Kirana And General Merchants',
     address:
@@ -107,7 +109,7 @@ const createOnlineOrder = async (req, res, next) => {
             if (product.stock < quantity) {
                 return res.status(400).json({
                     success: false,
-                    message: `Insufficient stock for ${product.name}. Available: ${product.stock}`
+                    message: STOCK_LIMIT_MESSAGE
                 });
             }
 
@@ -507,10 +509,47 @@ const updateOrderItems = async (req, res, next) => {
             order: updatedOrder
         });
     } catch (error) {
-        if (error.message.includes('locked') || error.message.includes('Cannot modify')) {
+        if (
+            error.message.includes('locked') ||
+            error.message.includes('Cannot modify') ||
+            error.message.includes(STOCK_LIMIT_MESSAGE)
+        ) {
             return res.status(400).json({
                 success: false,
                 message: error.message
+            });
+        }
+        next(error);
+    }
+};
+
+/**
+ * @desc    Accept online order (admin)
+ * @route   PUT /api/orders/:id/accept
+ * @access  Admin only
+ */
+const acceptOrder = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        await Order.acceptOnlineOrder(id);
+        const order = await Order.findById(id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Order accepted successfully',
+            order,
+        });
+    } catch (error) {
+        if (
+            error.message.includes('Only Pending/Pending Acceptance') ||
+            error.message.includes('Only online orders') ||
+            error.message.includes('already processed') ||
+            error.message.includes('not found')
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
             });
         }
         next(error);
@@ -536,10 +575,15 @@ const verifyOrder = async (req, res, next) => {
             order
         });
     } catch (error) {
-        if (error.message.includes('Insufficient stock') || error.message.includes('already verified')) {
+        if (
+            error.message.includes('Insufficient stock') ||
+            error.message.includes(STOCK_LIMIT_MESSAGE) ||
+            error.message.includes('already verified') ||
+            error.message.includes('must be accepted before verification')
+        ) {
             return res.status(400).json({
                 success: false,
-                message: error.message
+                message: error.message.includes('Insufficient stock') ? STOCK_LIMIT_MESSAGE : error.message
             });
         }
         next(error);
@@ -637,17 +681,19 @@ const updateOrderStatus = async (req, res, next) => {
             error.message.includes('Invalid status') ||
             error.message.includes('not found') ||
             error.message.includes('cannot be updated') ||
-            error.message.includes('Only Pending orders can be rejected') ||
+            error.message.includes('Only Pending offline orders can be rejected') ||
+            error.message.includes('Only Pending Acceptance/Accepted online orders can be rejected') ||
             error.message.includes('must be verified') ||
             error.message.includes('must be paid') ||
             error.message.includes('Remaining balance') ||
             error.message.includes('Approve payment') ||
             error.message.includes('Insufficient stock') ||
+            error.message.includes(STOCK_LIMIT_MESSAGE) ||
             error.message.includes('already verified')
         ) {
             return res.status(400).json({
                 success: false,
-                message: error.message,
+                message: error.message.includes('Insufficient stock') ? STOCK_LIMIT_MESSAGE : error.message,
             });
         }
         next(error);
@@ -674,7 +720,8 @@ const rejectOrder = async (req, res, next) => {
         });
     } catch (error) {
         if (
-            error.message.includes('Only Pending') ||
+            error.message.includes('Only Pending offline') ||
+            error.message.includes('Only Pending Acceptance/Accepted online') ||
             error.message.includes('not found')
         ) {
             return res.status(400).json({
@@ -712,11 +759,27 @@ const addItemToOrder = async (req, res, next) => {
             });
         }
 
+        const qtyInt = parseInt(quantity);
+        if (!Number.isInteger(qtyInt) || qtyInt <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide productId and quantity'
+            });
+        }
+
+        // Quick guard (model also enforces, including cumulative quantity).
+        if (Number(product.stock) < qtyInt) {
+            return res.status(400).json({
+                success: false,
+                message: STOCK_LIMIT_MESSAGE,
+            });
+        }
+
         await Order.addItemToOrder(id, {
             productId: product.id,
             productName: product.name,
             price: product.price,
-            quantity: parseInt(quantity)
+            quantity: qtyInt
         });
 
         const order = await Order.findById(id);
@@ -727,7 +790,11 @@ const addItemToOrder = async (req, res, next) => {
             order
         });
     } catch (error) {
-        if (error.message.includes('Cannot add') || error.message.includes('verified')) {
+        if (
+            error.message.includes('Cannot add') ||
+            error.message.includes('verified') ||
+            error.message.includes(STOCK_LIMIT_MESSAGE)
+        ) {
             return res.status(400).json({
                 success: false,
                 message: error.message
@@ -770,7 +837,7 @@ const createOfflineOrder = async (req, res, next) => {
             if (product.stock < item.quantity) {
                 return res.status(400).json({
                     success: false,
-                    message: `Insufficient stock for ${product.name}. Available: ${product.stock}`
+                    message: STOCK_LIMIT_MESSAGE
                 });
             }
 
@@ -868,6 +935,7 @@ module.exports = {
     getAdminOrders,
     getOrder,
     updateOrderItems,
+    acceptOrder,
     verifyOrder,
     markOrderPaid,
     markOrderDelivered,

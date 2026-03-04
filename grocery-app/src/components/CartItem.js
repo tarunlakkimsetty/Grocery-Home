@@ -3,6 +3,8 @@ import { DangerButton, GhostButton } from '../styledComponents/ButtonStyles';
 import LanguageContext from '../context/LanguageContext';
 import { toast } from 'react-toastify';
 
+const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
+
 class CartItem extends React.Component {
     static contextType = LanguageContext;
 
@@ -20,7 +22,7 @@ class CartItem extends React.Component {
 
         const handleIncrease = () => {
             if (item.quantity >= item.stock) {
-                toast.warning(langCtx.getText('stockLimitReached'));
+                toast.error(STOCK_LIMIT_MESSAGE);
                 return;
             }
             onUpdateQuantity(item.productId, item.quantity + 1);

@@ -2,7 +2,8 @@ const Order = require('../models/orderModel');
 
 /**
  * Middleware to prevent modification of locked orders
- * Order is locked when status !== 'Pending'
+ * Online orders are editable only after admin accepts them (status='Accepted').
+ * Offline orders keep legacy behavior (status='Pending').
  */
 const checkOrderNotLocked = async (req, res, next) => {
     try {
@@ -24,10 +25,17 @@ const checkOrderNotLocked = async (req, res, next) => {
             });
         }
 
-        if (order.status !== 'Pending') {
+        const orderType = String(order?.orderType || '').trim().toLowerCase();
+        const status = String(order?.status || '').trim().toLowerCase();
+
+        const isEditable = orderType === 'online'
+            ? status === 'accepted'
+            : status === 'pending' || status === 'accepted';
+
+        if (!isEditable) {
             return res.status(403).json({
                 success: false,
-                message: 'Order is locked and cannot be modified.'
+                message: 'Order is locked and cannot be modified before acceptance.'
             });
         }
 

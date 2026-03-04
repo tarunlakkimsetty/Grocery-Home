@@ -244,6 +244,8 @@ class AdminOfflineOrdersPage extends React.Component {
                 errorKey: null,
                 loading: false,
                 isLoading: false,
+                // Reset all checkbox selections after reloading data
+                checkedItems: {},
             });
         } catch (err) {
             this.setState({ errorKey: 'failedToLoadOfflineOrders', loading: false, isLoading: false });
@@ -335,7 +337,11 @@ class AdminOfflineOrdersPage extends React.Component {
             toast.success(t('advanceUpdated'));
         } catch (e) {
             const rawMsg = e?.response?.data?.errorKey || e?.response?.data?.message || e?.message;
-            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToUpdateAdvance'));
+            const normalized = rawMsg ? String(rawMsg).trim() : '';
+            if (normalized === 'Quantity exceeds stock limit') toast.error('Quantity exceeds stock limit');
+            else if (normalized && hasTranslation(normalized)) toast.error(t(normalized));
+            else if (normalized) toast.error(normalized);
+            else toast.error(t('failedToUpdateAdvance'));
         } finally {
             this.setState({
                 advanceSaving: {
@@ -459,6 +465,11 @@ class AdminOfflineOrdersPage extends React.Component {
         }
 
         const quantity = Math.max(1, parseInt(createAddQty, 10) || 1);
+        const stock = Number(product?.stock);
+        if (Number.isFinite(stock) && stock >= 0 && quantity > stock) {
+            toast.error('Quantity exceeds stock limit');
+            return;
+        }
         const existingIdx = createItems.findIndex((i) => i.productId === productId);
 
         let nextItems = [];
@@ -466,6 +477,10 @@ class AdminOfflineOrdersPage extends React.Component {
             nextItems = createItems.map((i) => {
                 if (i.productId !== productId) return i;
                 const nextQty = (i.quantity || 0) + quantity;
+                if (Number.isFinite(stock) && stock >= 0 && nextQty > stock) {
+                    toast.error('Quantity exceeds stock limit');
+                    return i;
+                }
                 return {
                     ...i,
                     quantity: nextQty,
@@ -487,6 +502,8 @@ class AdminOfflineOrdersPage extends React.Component {
 
         this.setState({
             createItems: nextItems,
+            // Reset all selections after product list updates
+            selectedProducts: [],
             createAddProductId: '',
             createAddQty: 1,
         });
@@ -503,18 +520,29 @@ class AdminOfflineOrdersPage extends React.Component {
     };
 
     updateCreateQuantity = (productId, delta) => {
+        const { products } = this.state;
+        const product = (products || []).find((p) => p.id === productId);
+        const stock = Number(product?.stock);
+
         const nextItems = this.state.createItems.map((i) => {
             if (i.productId !== productId) return i;
-            const nextQty = Math.max(0, (Number(i.quantity || 0) || 0) + delta);
+            const currentQty = Number(i.quantity || 0) || 0;
+            const nextQty = Math.max(0, currentQty + delta);
+
+            if (delta > 0 && Number.isFinite(stock) && stock >= 0 && nextQty > stock) {
+                toast.error('Quantity exceeds stock limit');
+                return i;
+            }
+
             return { ...i, quantity: nextQty, total: (Number(i.price || 0) || 0) * (Number(nextQty || 0) || 0) };
         });
-        this.setState({ createItems: nextItems });
+        this.setState({ createItems: nextItems, selectedProducts: [] });
     };
 
     removeCreateItem = (productId) => {
         const nextItems = this.state.createItems.filter((i) => i.productId !== productId);
-        const nextSelectedProducts = this.state.selectedProducts.filter((id) => id !== productId);
-        this.setState({ createItems: nextItems, selectedProducts: nextSelectedProducts });
+        // Reset all selections after product list updates
+        this.setState({ createItems: nextItems, selectedProducts: [] });
     };
 
     getCreateSelectedTotal = () => {
@@ -538,6 +566,7 @@ class AdminOfflineOrdersPage extends React.Component {
             orderDate,
             createItems,
             selectedProducts,
+            products,
         } = this.state;
 
         if (!customerName.trim()) {
@@ -583,6 +612,17 @@ class AdminOfflineOrdersPage extends React.Component {
             return;
         }
 
+        // Frontend enforcement: block saving if any quantity exceeds stock.
+        for (const it of finalItems) {
+            const p = (products || []).find((x) => x.id === it.productId);
+            const stock = Number(p?.stock);
+            const qty = Number(it?.quantity || 0) || 0;
+            if (Number.isFinite(stock) && stock >= 0 && qty > stock) {
+                toast.error('Quantity exceeds stock limit');
+                return;
+            }
+        }
+
         const totalAmount = finalItems.reduce((sum, i) => sum + (i.total || 0), 0);
         const orderDateIso = orderDate ? new Date(orderDate).toISOString() : new Date().toISOString();
 
@@ -599,12 +639,18 @@ class AdminOfflineOrdersPage extends React.Component {
                 orderType: 'Offline',
                 orderDate: orderDateIso,
             });
+            // Reset all checkboxes after successful save
+            this.setState({ selectedProducts: [] });
             toast.success(t('offlineOrderCreatedSuccessfully'));
             this.closeCreateModal();
             await this.fetchOfflineOrders();
         } catch (err) {
             const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
-            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToCreateOfflineOrder'));
+            const normalized = rawMsg ? String(rawMsg).trim() : '';
+            if (normalized === 'Quantity exceeds stock limit') toast.error('Quantity exceeds stock limit');
+            else if (normalized && hasTranslation(normalized)) toast.error(t(normalized));
+            else if (normalized) toast.error(normalized);
+            else toast.error(t('failedToCreateOfflineOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -614,10 +660,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
     openModal = (order) => {
         const orderId = order.id;
-        const hasTracked = Object.prototype.hasOwnProperty.call(this.state.checkedItems, orderId);
-        const existingChecked = hasTracked
-            ? this.state.checkedItems[orderId]
-            : new Set((order.items || []).map((item) => item.productId));
+        const isLocked = String(order?.status || '').trim() !== 'Pending';
 
         const normalizedItems = (order.items || []).map((i) => {
             const qty = Math.max(0, parseInt(i.quantity, 10) || 0);
@@ -631,6 +674,17 @@ class AdminOfflineOrdersPage extends React.Component {
                 total: typeof i.total === 'number' ? i.total : (Number(price || 0) || 0) * (Number(qty || 0) || 0),
             };
         });
+
+        // Persisted selection: after verification (locked orders), restore checkbox state from DB.
+        // `isSelected` is stored on `order_items` and returned by the backend.
+        const existingChecked = new Set();
+        if (isLocked) {
+            for (const item of normalizedItems) {
+                const hasFlag = !(item?.isSelected === undefined || item?.isSelected === null);
+                const selected = hasFlag ? Boolean(item.isSelected) : true;
+                if (selected) existingChecked.add(item.productId);
+            }
+        }
 
         this.setState({
             selectedOrder: order,
@@ -646,7 +700,8 @@ class AdminOfflineOrdersPage extends React.Component {
     };
 
     closeModal = () => {
-        this.setState({ selectedOrder: null, modalOpen: false, modalItems: [] });
+        // Reset all checkbox selections when closing
+        this.setState({ selectedOrder: null, modalOpen: false, modalItems: [], checkedItems: {} });
     };
 
     handlePrintBill = async (orderId) => {
@@ -664,7 +719,10 @@ class AdminOfflineOrdersPage extends React.Component {
             openBillPrintWindow(billPayload);
         } catch (err) {
             const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
-            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : 'Failed to open printable bill');
+            const normalized = rawMsg ? String(rawMsg).trim() : '';
+            if (normalized && hasTranslation(normalized)) toast.error(t(normalized));
+            else if (normalized) toast.error(normalized);
+            else toast.error('Failed to open printable bill');
         } finally {
             this.setState((prev) => ({
                 printLoadingByOrder: {
@@ -696,9 +754,19 @@ class AdminOfflineOrdersPage extends React.Component {
         const { selectedOrder } = this.state;
         if (selectedOrder && selectedOrder.status !== 'Pending') return;
 
+        const product = (this.state.products || []).find((p) => p.id === productId);
+        const stock = Number(product?.stock);
+
         const updated = this.state.modalItems.map((i) => {
             if (i.productId !== productId) return i;
-            const nextQty = Math.max(0, (Number(i.quantity || 0) || 0) + delta);
+            const currentQty = Number(i.quantity || 0) || 0;
+            const nextQty = Math.max(0, currentQty + delta);
+
+            if (delta > 0 && Number.isFinite(stock) && stock >= 0 && nextQty > stock) {
+                toast.error('Quantity exceeds stock limit');
+                return i;
+            }
+
             return {
                 ...i,
                 quantity: nextQty,
@@ -706,7 +774,18 @@ class AdminOfflineOrdersPage extends React.Component {
             };
         });
 
-        this.setState({ modalItems: updated });
+        // Reset all selections after product list updates
+        this.setState((prev) => {
+            const orderId = prev?.selectedOrder?.id;
+            if (!orderId) return { modalItems: updated };
+            return {
+                modalItems: updated,
+                checkedItems: {
+                    ...prev.checkedItems,
+                    [orderId]: new Set(),
+                },
+            };
+        });
     };
 
     removeModalItem = (productId) => {
@@ -714,14 +793,13 @@ class AdminOfflineOrdersPage extends React.Component {
         if (!selectedOrder || selectedOrder.status !== 'Pending') return;
 
         const updated = this.state.modalItems.filter((i) => i.productId !== productId);
-        const currentSet = new Set(this.state.checkedItems[selectedOrder.id] || []);
-        currentSet.delete(productId);
 
         this.setState({
             modalItems: updated,
             checkedItems: {
                 ...this.state.checkedItems,
-                [selectedOrder.id]: currentSet,
+                // Reset all selections after product list updates
+                [selectedOrder.id]: new Set(),
             },
         });
     };
@@ -762,12 +840,19 @@ class AdminOfflineOrdersPage extends React.Component {
         }
 
         const quantity = Math.max(1, parseInt(addProductQty, 10) || 1);
+        const stock = Number(product?.stock);
+        const existingIdx = modalItems.findIndex((i) => i.productId === productId);
+        const existingQty = existingIdx !== -1 ? (Number(modalItems[existingIdx]?.quantity || 0) || 0) : 0;
+        const nextQty = existingQty + quantity;
+        if (Number.isFinite(stock) && stock >= 0 && nextQty > stock) {
+            toast.error('Quantity exceeds stock limit');
+            return;
+        }
 
         this.setState({ actionLoading: true });
         try {
             await orderService.addItemToOrder(selectedOrder.id, productId, quantity);
 
-            const existingIdx = modalItems.findIndex((i) => i.productId === productId);
             let nextModalItems = [];
             if (existingIdx !== -1) {
                 nextModalItems = modalItems.map((i) => {
@@ -788,21 +873,23 @@ class AdminOfflineOrdersPage extends React.Component {
                 ];
             }
 
-            const currentSet = new Set(checkedItems[selectedOrder.id] || []);
-            currentSet.add(productId);
-
             this.setState({
                 modalItems: nextModalItems,
                 checkedItems: {
                     ...checkedItems,
-                    [selectedOrder.id]: currentSet,
+                    // Reset all selections after product list updates
+                    [selectedOrder.id]: new Set(),
                 },
                 addProductId: '',
                 addProductQty: 1,
             });
         } catch (err) {
             const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
-            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToAddProductToOrder'));
+            const normalized = rawMsg ? String(rawMsg).trim() : '';
+            if (normalized === 'Quantity exceeds stock limit') toast.error('Quantity exceeds stock limit');
+            else if (normalized && hasTranslation(normalized)) toast.error(t(normalized));
+            else if (normalized) toast.error(normalized);
+            else toast.error(t('failedToAddProductToOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -821,58 +908,72 @@ class AdminOfflineOrdersPage extends React.Component {
             const { selectedOrder, modalItems, checkedItems } = this.state;
             if (!selectedOrder || selectedOrder.id !== orderId) return;
 
-            const checkedSet = checkedItems[orderId] || new Set(modalItems.map((i) => i.productId));
+            const checkedSet = new Set(checkedItems[orderId] || []);
             if (!checkedSet || checkedSet.size === 0) {
                 toast.warning(t('selectAtLeastOneItemBeforeVerifying'));
                 return;
             }
 
-            const finalItems = modalItems
-                .filter((i) => checkedSet.has(i.productId))
-                .map((i) => {
-                    const qtyRaw = parseInt(i.quantity, 10);
-                    const qty = Number.isFinite(qtyRaw) ? Math.max(0, qtyRaw) : 0;
-                    const price = parseFloat(i.price) || 0;
-                    return {
-                        ...i,
-                        productName: i.productName || i.name || '',
-                        name: i.name || i.productName || '',
-                        quantity: qty,
-                        price: price,
-                        total: (Number(price || 0) || 0) * (Number(qty || 0) || 0),
-                    };
-                })
-                .filter((i) => (Number(i.quantity || 0) || 0) > 0);
+            const updatedItems = (Array.isArray(modalItems) ? modalItems : []).map((i) => {
+                const qtyRaw = parseInt(i.quantity, 10);
+                const quantity = Number.isFinite(qtyRaw) ? Math.max(0, qtyRaw) : 0;
+                const price = parseFloat(i.price) || 0;
 
-            if (finalItems.length === 0) {
+                // If checked but qty <= 0, treat it as not selected.
+                const initiallySelected = checkedSet.has(i.productId);
+                const isSelected = initiallySelected && (Number(quantity || 0) || 0) > 0;
+
+                return {
+                    ...i,
+                    productName: i.productName || i.name || '',
+                    name: i.name || i.productName || '',
+                    quantity,
+                    price,
+                    isSelected,
+                    total: (Number(price || 0) || 0) * (Number(quantity || 0) || 0),
+                };
+            });
+
+            const selectedForVerify = updatedItems.filter((i) => Boolean(i.isSelected));
+            if (selectedForVerify.length === 0) {
                 toast.warning(t('selectedItemsQtyGreaterThanZero'));
                 return;
             }
 
-            const finalTotal = finalItems.reduce((sum, i) => sum + (i.total || 0), 0);
+            const finalTotal = selectedForVerify.reduce((sum, i) => sum + (i.total || 0), 0);
 
-            await orderService.updateOrderBeforeVerify(orderId, finalItems, finalTotal);
-            await orderService.verifyOrder(orderId);
+            await orderService.updateOrderBeforeVerify(orderId, updatedItems, finalTotal);
+            const verifyResp = await orderService.verifyOrder(orderId);
+            const verifiedOrder = verifyResp?.order || verifyResp?.data?.order || verifyResp?.data || null;
 
-            const offlineOrders = this.state.offlineOrders.map((o) =>
-                o.id === orderId
-                    ? { ...o, status: 'Verified', isVerified: true, items: finalItems, grandTotal: finalTotal }
-                    : o
-            );
+            const patch = (list) =>
+                (Array.isArray(list) ? list.map((o) => (o.id === orderId ? { ...o, ...(verifiedOrder || {}), status: 'Verified', isVerified: true } : o)) : list);
 
-            this.setState({
-                offlineOrders,
-                selectedOrder: { ...this.state.selectedOrder, status: 'Verified', isVerified: true, items: finalItems, grandTotal: finalTotal },
-                modalItems: finalItems,
+            const nextSelectedOrder = this.state.selectedOrder && this.state.selectedOrder.id === orderId
+                ? { ...this.state.selectedOrder, ...(verifiedOrder || {}), status: 'Verified', isVerified: true }
+                : this.state.selectedOrder;
+
+            const nextItems = Array.isArray(nextSelectedOrder?.items) ? nextSelectedOrder.items : updatedItems;
+            const nextChecked = new Set(nextItems.filter((it) => Boolean(it?.isSelected)).map((it) => it.productId));
+
+            this.setState((prev) => ({
+                offlineOrders: patch(prev.offlineOrders),
+                selectedOrder: nextSelectedOrder,
+                modalItems: nextItems,
                 checkedItems: {
-                    ...checkedItems,
-                    [orderId]: new Set(finalItems.map((i) => i.productId)),
+                    ...prev.checkedItems,
+                    [orderId]: nextChecked,
                 },
-            });
+            }));
 
             toast.success(t('orderVerifiedAndLocked'));
         } catch (err) {
-            toast.error(t('failedToVerifyOrder'));
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            const normalized = rawMsg ? String(rawMsg).trim() : '';
+            if (normalized === 'Quantity exceeds stock limit') toast.error('Quantity exceeds stock limit');
+            else if (normalized && hasTranslation(normalized)) toast.error(t(normalized));
+            else if (normalized) toast.error(normalized);
+            else toast.error(t('failedToVerifyOrder'));
         } finally {
             this.setState({ actionLoading: false });
         }
@@ -1127,7 +1228,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             {this.formatDate(order.orderDate || order.date)}
                                                         </td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{total.toFixed(2)}
+                                                            ₹{(Number(total) || 0).toFixed(2)}
                                                         </td>
                                                         <td className="text-end" style={{ minWidth: '160px' }}>
                                                             <div className="d-flex flex-column align-items-end gap-1">
@@ -1164,7 +1265,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             </div>
                                                         </td>
                                                         <td className="text-end fw-bold" style={{ color: remaining < 0 ? '#c62828' : '#2E7D32' }}>
-                                                            ₹{remaining.toFixed(2)}
+                                                            ₹{(Number(remaining) || 0).toFixed(2)}
                                                         </td>
                                                         <td className="text-center">
                                                             <Badge className="badge-admin">{langCtx.getText('offline')}</Badge>
@@ -1395,7 +1496,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             </QtyControl>
                                                                         </td>
                                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                                            ₹{(item.total || 0).toFixed(2)}
+                                                                            ₹{(Number(item.total) || 0).toFixed(2)}
                                                                         </td>
                                                                         <td className="text-center">
                                                                             <button
@@ -1427,14 +1528,14 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 <div className="d-flex flex-column gap-2">
                                                     <TotalBar style={{ marginBottom: 0 }}>
                                                         <span className="total-label">✓ {langCtx.getText('selectedTotal')}</span>
-                                                        <span className="total-value">₹{createSelectedTotal.toFixed(2)}</span>
+                                                        <span className="total-value">₹{(Number(createSelectedTotal) || 0).toFixed(2)}</span>
                                                     </TotalBar>
                                                     <div className="d-flex justify-content-between align-items-center px-2">
                                                         <span className="text-muted fw-semibold" style={{ fontSize: '0.9rem' }}>
                                                             {langCtx.getText('grandTotalAllItems')}
                                                         </span>
                                                         <span className="fw-bold" style={{ color: '#2E7D32', fontSize: '1.05rem' }}>
-                                                            ₹{createGrandTotal.toFixed(2)}
+                                                            ₹{(Number(createGrandTotal) || 0).toFixed(2)}
                                                         </span>
                                                     </div>
                                                     <small className="text-muted" style={{ fontSize: '0.78rem' }}>
@@ -1698,7 +1799,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                     </td>
                                                                     <td className="text-center">₹{item.price}</td>
                                                                     <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                                        ₹{(item.total || 0).toFixed(2)}
+                                                                        ₹{(Number(item.total) || 0).toFixed(2)}
                                                                     </td>
                                                                     <td className="text-center">
                                                                         <button
@@ -1719,7 +1820,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
                                             <TotalBar style={{ marginTop: '0.6rem' }}>
                                                 <span className="total-label">✓ {langCtx.getText('selectedTotal')}</span>
-                                                <span className="total-value">₹{checkedTotal.toFixed(2)}</span>
+                                                <span className="total-value">₹{(Number(checkedTotal) || 0).toFixed(2)}</span>
                                             </TotalBar>
 
                                             {(() => {
@@ -1742,14 +1843,14 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     >
                                                         <div className="d-flex flex-column" style={{ gap: '0.1rem' }}>
                                                             <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
-                                                                {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{advance.toFixed(2)}</span>
+                                                                {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{(Number(advance) || 0).toFixed(2)}</span>
                                                             </span>
                                                             <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
-                                                                {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{remaining.toFixed(2)}</span>
+                                                                {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{(Number(remaining) || 0).toFixed(2)}</span>
                                                             </span>
                                                         </div>
                                                         <span className="text-muted" style={{ fontSize: '0.78rem' }}>
-                                                            ({langCtx.getText('billAmount')}: ₹{total.toFixed(2)})
+                                                            ({langCtx.getText('billAmount')}: ₹{(Number(total) || 0).toFixed(2)})
                                                         </span>
                                                     </div>
                                                 );

@@ -15,7 +15,7 @@ import {
     ModalOverlay,
     ModalContent,
 } from '../styledComponents/FormStyles';
-import { t } from '../utils/i18n';
+import { t, statusKey } from '../utils/i18n';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -148,6 +148,8 @@ class BillHistoryPage extends React.Component {
 
     getStatusBadge = (status) => {
         const map = {
+            'Pending Acceptance': 'badge-warning',
+            Accepted: 'badge-info',
             Pending: 'badge-warning',
             Verified: 'badge-info',
             Paid: 'badge-primary',
@@ -346,12 +348,14 @@ class BillHistoryPage extends React.Component {
                                                         </td>
                                                         <td>
                                                             <Badge className={this.getStatusBadge(order.status)}>
+                                                                {order.status === 'Pending Acceptance' && '🕒 '}
+                                                                {order.status === 'Accepted' && '👍 '}
                                                                 {order.status === 'Pending' && '⏳ '}
                                                                 {order.status === 'Verified' && '✅ '}
                                                                 {order.status === 'Paid' && '💰 '}
                                                                 {order.status === 'Delivered' && '📦 '}
                                                                 {order.status === 'Rejected' && '❌ '}
-                                                                {order.status}
+                                                                {langCtx.getText(statusKey(order.status))}
                                                             </Badge>
                                                         </td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
@@ -426,12 +430,14 @@ class BillHistoryPage extends React.Component {
                                                         </td>
                                                         <td>
                                                             <Badge className={this.getStatusBadge(order.status)}>
+                                                                {order.status === 'Pending Acceptance' && '🕒 '}
+                                                                {order.status === 'Accepted' && '👍 '}
                                                                 {order.status === 'Pending' && '⏳ '}
                                                                 {order.status === 'Verified' && '✅ '}
                                                                 {order.status === 'Paid' && '💰 '}
                                                                 {order.status === 'Delivered' && '📦 '}
                                                                 {order.status === 'Rejected' && '❌ '}
-                                                                {order.status}
+                                                                {langCtx.getText(statusKey(order.status))}
                                                             </Badge>
                                                         </td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
@@ -465,12 +471,14 @@ class BillHistoryPage extends React.Component {
                                                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                                                     {(selectedOrder.orderType === 'Offline' ? '🧾' : '🛵')} {langCtx.getText('orderDetails')} — #{selectedOrder.id}
                                                     <Badge className={this.getStatusBadge(selectedOrder.status)}>
+                                                        {selectedOrder.status === 'Pending Acceptance' && '🕒 '}
+                                                        {selectedOrder.status === 'Accepted' && '👍 '}
                                                         {selectedOrder.status === 'Pending' && '⏳ '}
                                                         {selectedOrder.status === 'Verified' && '✅ '}
                                                         {selectedOrder.status === 'Paid' && '💰 '}
                                                         {selectedOrder.status === 'Delivered' && '📦 '}
                                                         {selectedOrder.status === 'Rejected' && '❌ '}
-                                                        {selectedOrder.status}
+                                                        {langCtx.getText(statusKey(selectedOrder.status))}
                                                     </Badge>
                                                     {selectedOrder.status !== 'Pending' && (
                                                         <span

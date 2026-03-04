@@ -1,4 +1,7 @@
 import React from 'react';
+import { toast } from 'react-toastify';
+
+const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
 const CART_STORAGE_KEY = 'grocery_cart_items_v1';
 
@@ -96,19 +99,40 @@ class CartProvider extends React.Component {
     }
 
     addToCart(product, quantity) {
-        const qty = parseInt(quantity) || 1;
+        const qty = Math.max(1, parseInt(quantity, 10) || 1);
         this.setState((prevState) => {
             const existingIndex = prevState.items.findIndex(
                 (item) => item.productId === product.id
             );
             if (existingIndex >= 0) {
                 const updatedItems = [...prevState.items];
+                const existing = updatedItems[existingIndex];
+                const stockFromProduct = Number(product?.stock);
+                const stockFromItem = Number(existing?.stock);
+                const availableStock = Number.isFinite(stockFromProduct)
+                    ? stockFromProduct
+                    : (Number.isFinite(stockFromItem) ? stockFromItem : null);
+
+                const nextQty = (Number(existing.quantity) || 0) + qty;
+                if (availableStock !== null && availableStock >= 0 && nextQty > availableStock) {
+                    toast.error(STOCK_LIMIT_MESSAGE);
+                    return prevState;
+                }
+
                 updatedItems[existingIndex] = {
-                    ...updatedItems[existingIndex],
-                    quantity: updatedItems[existingIndex].quantity + qty,
-                    total: (updatedItems[existingIndex].quantity + qty) * updatedItems[existingIndex].price,
+                    ...existing,
+                    quantity: nextQty,
+                    total: nextQty * existing.price,
+                    stock: availableStock !== null ? availableStock : (existing.stock || 0),
                 };
                 return { items: updatedItems };
+            }
+
+            const stockFromProduct = Number(product?.stock);
+            const availableStock = Number.isFinite(stockFromProduct) ? stockFromProduct : null;
+            if (availableStock !== null && availableStock >= 0 && qty > availableStock) {
+                toast.error(STOCK_LIMIT_MESSAGE);
+                return prevState;
             }
             return {
                 items: [
@@ -122,7 +146,7 @@ class CartProvider extends React.Component {
                         emoji: product.emoji || '📦',
                         delivered: false, // Default: not yet delivered
                         selected: false, // Default: not selected
-                        stock: product.stock || 0, // Product stock quantity
+                        stock: availableStock !== null ? availableStock : (product.stock || 0), // Product stock quantity
                     },
                 ],
             };
@@ -136,18 +160,30 @@ class CartProvider extends React.Component {
     }
 
     updateQuantity(productId, quantity) {
-        const qty = parseInt(quantity);
+        const qty = parseInt(quantity, 10);
         if (qty <= 0) {
             this.removeFromCart(productId);
             return;
         }
-        this.setState((prevState) => ({
-            items: prevState.items.map((item) =>
-                item.productId === productId
-                    ? { ...item, quantity: qty, total: item.price * qty }
-                    : item
-            ),
-        }));
+        this.setState((prevState) => {
+            const existing = (prevState.items || []).find((i) => i.productId === productId);
+            if (!existing) return prevState;
+
+            const rawStock = Number(existing?.stock);
+            const availableStock = Number.isFinite(rawStock) ? rawStock : null;
+            if (availableStock !== null && availableStock >= 0 && qty > availableStock) {
+                toast.error(STOCK_LIMIT_MESSAGE);
+                return prevState;
+            }
+
+            return {
+                items: prevState.items.map((item) =>
+                    item.productId === productId
+                        ? { ...item, quantity: qty, total: item.price * qty }
+                        : item
+                ),
+            };
+        });
     }
 
     toggleItemDelivered(productId) {

@@ -25,6 +25,8 @@ export const hasTranslation = (key) => {
 export const statusKey = (status) => {
     const s = String(status || '').trim();
     const map = {
+        'Pending Acceptance': 'pendingAcceptance',
+        Accepted: 'accepted',
         Pending: 'pending',
         Verified: 'verified',
         Paid: 'paid',

@@ -1,19 +1,70 @@
 const { promisePool } = require('./config/db');
 
-const ensureCascadeFk = async ({ tableName, columnName, referencedTable, referencedColumn }) => {
-    // Best-effort: if FK exists but isn't CASCADE, replace it.
+const tableExists = async (tableName) => {
+    const [rows] = await promisePool.query(
+        `SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
+        [tableName]
+    );
+    return rows.length > 0;
+};
+
+const addColumnBestEffort = async (tableName, columnSql, columnNameForLogs) => {
     try {
-        const [tables] = await promisePool.query(
-            `SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
-            [tableName]
-        );
-        if (tables.length === 0) {
+        await promisePool.query(`ALTER TABLE \`${tableName}\` ADD COLUMN ${columnSql}`);
+        console.log(`✓ ${tableName}.${columnNameForLogs} column added`);
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (msg.includes('Duplicate column')) {
+            console.log(`✓ ${tableName}.${columnNameForLogs} already exists`);
             return;
         }
+        if (msg.includes("doesn't exist")) {
+            console.log(`! ${tableName} table missing (skipping ${columnNameForLogs})`);
+            return;
+        }
+        console.log(`! Could not add ${tableName}.${columnNameForLogs} column:`, msg);
+    }
+};
+
+const ensureIndex = async (tableName, indexName, indexColumnsSql) => {
+    try {
+        const [rows] = await promisePool.query(
+            `SELECT 1
+             FROM information_schema.STATISTICS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = ?
+               AND INDEX_NAME = ?
+             LIMIT 1`,
+            [tableName, indexName]
+        );
+
+        if (rows.length === 0) {
+            await promisePool.query(`CREATE INDEX \`${indexName}\` ON \`${tableName}\` (${indexColumnsSql})`);
+            console.log(`✓ index ${indexName} created`);
+        }
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        console.log(`! Could not ensure index ${indexName}:`, msg);
+    }
+};
+
+const ensureForeignKey = async ({
+    tableName,
+    columnName,
+    referencedTable,
+    referencedColumn,
+    deleteRule = 'CASCADE',
+    updateRule = 'RESTRICT'
+}) => {
+    try {
+        if (!(await tableExists(tableName))) return;
 
         const [rows] = await promisePool.query(
             `
-            SELECT rc.CONSTRAINT_NAME AS constraintName, rc.DELETE_RULE AS deleteRule
+            SELECT
+                rc.CONSTRAINT_NAME AS constraintName,
+                rc.DELETE_RULE AS deleteRule,
+                rc.UPDATE_RULE AS updateRule
             FROM information_schema.REFERENTIAL_CONSTRAINTS rc
             JOIN information_schema.KEY_COLUMN_USAGE kcu
               ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
@@ -22,172 +73,378 @@ const ensureCascadeFk = async ({ tableName, columnName, referencedTable, referen
               AND kcu.TABLE_NAME = ?
               AND kcu.COLUMN_NAME = ?
               AND kcu.REFERENCED_TABLE_NAME = ?
+              AND kcu.REFERENCED_COLUMN_NAME = ?
             LIMIT 1
             `,
-            [tableName, columnName, referencedTable]
+            [tableName, columnName, referencedTable, referencedColumn]
         );
 
-        if (rows.length === 0) {
-            return;
+        if (rows.length > 0) {
+            const existing = rows[0];
+            const hasDeleteRule = String(existing.deleteRule || '').toUpperCase() === String(deleteRule).toUpperCase();
+            const hasUpdateRule = String(existing.updateRule || '').toUpperCase() === String(updateRule).toUpperCase();
+            if (hasDeleteRule && hasUpdateRule) {
+                return;
+            }
+
+            await promisePool.query(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${existing.constraintName}\``);
         }
 
-        const { constraintName, deleteRule } = rows[0];
-        if (String(deleteRule).toUpperCase() === 'CASCADE') {
-            return;
-        }
+        const baseName = `fk_${tableName}_${columnName}_${String(deleteRule).toLowerCase()}`;
+        const sql = `ALTER TABLE \`${tableName}\`
+                     ADD CONSTRAINT \`${baseName}\`
+                     FOREIGN KEY (\`${columnName}\`)
+                     REFERENCES \`${referencedTable}\`(\`${referencedColumn}\`)
+                     ON DELETE ${deleteRule}
+                     ON UPDATE ${updateRule}`;
 
-        await promisePool.query(`ALTER TABLE \`${tableName}\` DROP FOREIGN KEY \`${constraintName}\``);
-
-        const newConstraintName = `fk_${tableName}_${columnName}_cascade`;
         try {
+            await promisePool.query(sql);
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (!msg.includes('Duplicate key name') && !msg.includes('errno: 121')) throw err;
+            const altName = `${baseName}_2`;
             await promisePool.query(
-                `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`${newConstraintName}\` FOREIGN KEY (\`${columnName}\`) REFERENCES \`${referencedTable}\`(\`${referencedColumn}\`) ON DELETE CASCADE`
-            );
-        } catch (e) {
-            // If constraint name collides, retry with a different name.
-            const fallbackName = `fk_${tableName}_${columnName}_cascade_2`;
-            await promisePool.query(
-                `ALTER TABLE \`${tableName}\` ADD CONSTRAINT \`${fallbackName}\` FOREIGN KEY (\`${columnName}\`) REFERENCES \`${referencedTable}\`(\`${referencedColumn}\`) ON DELETE CASCADE`
+                `ALTER TABLE \`${tableName}\`
+                 ADD CONSTRAINT \`${altName}\`
+                 FOREIGN KEY (\`${columnName}\`)
+                 REFERENCES \`${referencedTable}\`(\`${referencedColumn}\`)
+                 ON DELETE ${deleteRule}
+                 ON UPDATE ${updateRule}`
             );
         }
 
-        console.log(`✓ ${tableName}.${columnName} foreign key updated to ON DELETE CASCADE`);
+        console.log(`✓ foreign key ensured: ${tableName}.${columnName} -> ${referencedTable}.${referencedColumn}`);
     } catch (err) {
         const msg = String(err && err.message ? err.message : err);
-        console.log(`! Could not ensure CASCADE FK for ${tableName}.${columnName}:`, msg);
+        console.log(`! Could not ensure FK for ${tableName}.${columnName}:`, msg);
+    }
+};
+
+const createCoreTables = async () => {
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            fullName VARCHAR(100) NOT NULL,
+            phone VARCHAR(15) UNIQUE NOT NULL,
+            place VARCHAR(100),
+            password VARCHAR(255) NOT NULL,
+            role ENUM('admin', 'customer') DEFAULT 'customer',
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS products (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(150) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            price DECIMAL(10,2) NOT NULL,
+            stock INT DEFAULT 0,
+            unit VARCHAR(50) DEFAULT 'pack',
+            emoji VARCHAR(10) DEFAULT '📦',
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS orders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            customerId INT NULL,
+            customerName VARCHAR(100),
+            phone VARCHAR(15),
+            place VARCHAR(100),
+            address TEXT,
+            orderType ENUM('Online', 'Offline') NOT NULL,
+            isVerified BOOLEAN DEFAULT FALSE,
+            isPaid BOOLEAN DEFAULT FALSE,
+            isDelivered BOOLEAN DEFAULT FALSE,
+            isArchived BOOLEAN DEFAULT FALSE,
+            status VARCHAR(50) DEFAULT 'Pending',
+            paymentStatus ENUM('Unpaid', 'Paid') DEFAULT 'Unpaid',
+            totalAmount DECIMAL(12,2) DEFAULT 0.00,
+            advanceAmount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            orderDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            acceptedAt TIMESTAMP NULL,
+            verifiedAt TIMESTAMP NULL,
+            deliveredAt TIMESTAMP NULL,
+            INDEX idx_orders_customerId (customerId),
+            CONSTRAINT fk_orders_customerId_users
+                FOREIGN KEY (customerId) REFERENCES users(id) ON DELETE SET NULL ON UPDATE RESTRICT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            orderId INT NOT NULL,
+            productId INT NOT NULL,
+            productName VARCHAR(150),
+            price DECIMAL(10,2),
+            quantity INT,
+            isSelected BOOLEAN DEFAULT TRUE,
+            total DECIMAL(12,2),
+            INDEX idx_order_items_orderId (orderId),
+            INDEX idx_order_items_productId (productId),
+            CONSTRAINT fk_order_items_orderId_orders
+                FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE ON UPDATE RESTRICT,
+            CONSTRAINT fk_order_items_productId_products
+                FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE ON UPDATE RESTRICT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            order_id INT NOT NULL,
+            customer_id INT NOT NULL,
+            rating TINYINT NOT NULL,
+            comment TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_feedback_order_id (order_id),
+            INDEX idx_feedback_order_id (order_id),
+            INDEX idx_feedback_customer_id (customer_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS bills (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            userId INT NOT NULL,
+            grandTotal DECIMAL(12,2) NOT NULL,
+            paymentMethod ENUM('Cash', 'Card', 'UPI', 'Other') DEFAULT 'Cash',
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_bills_userId_users
+                FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE ON UPDATE RESTRICT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS bill_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            billId INT NOT NULL,
+            productId INT NOT NULL,
+            productName VARCHAR(150),
+            price DECIMAL(10,2),
+            quantity INT,
+            total DECIMAL(12,2),
+            CONSTRAINT fk_bill_items_billId_bills
+                FOREIGN KEY (billId) REFERENCES bills(id) ON DELETE CASCADE ON UPDATE RESTRICT,
+            CONSTRAINT fk_bill_items_productId_products
+                FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE ON UPDATE RESTRICT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    console.log('✓ core tables ensured');
+};
+
+const ensureCompatibilityViews = async () => {
+    try {
+        await promisePool.query('DROP VIEW IF EXISTS customers');
+        await promisePool.query(`
+            CREATE VIEW customers AS
+            SELECT
+                id,
+                fullName AS name,
+                phone,
+                place,
+                createdAt AS created_at
+            FROM users
+            WHERE role = 'customer'
+        `);
+
+        await promisePool.query('DROP VIEW IF EXISTS online_orders');
+        await promisePool.query(`
+            CREATE VIEW online_orders AS
+            SELECT
+                id,
+                customerId AS customer_id,
+                totalAmount AS total_amount,
+                advanceAmount AS advance_amount,
+                status AS order_status,
+                createdAt AS created_at
+            FROM orders
+            WHERE orderType = 'Online'
+        `);
+
+        await promisePool.query('DROP VIEW IF EXISTS offline_orders');
+        await promisePool.query(`
+            CREATE VIEW offline_orders AS
+            SELECT
+                id,
+                customerName AS customer_name,
+                phone,
+                totalAmount AS total_amount,
+                advanceAmount AS advance_amount,
+                status AS order_status,
+                createdAt AS created_at
+            FROM orders
+            WHERE orderType = 'Offline'
+        `);
+
+        await promisePool.query('DROP VIEW IF EXISTS order_products');
+        await promisePool.query(`
+            CREATE VIEW order_products AS
+            SELECT
+                id,
+                orderId AS order_id,
+                productId AS product_id,
+                quantity,
+                price
+            FROM order_items
+        `);
+
+        await promisePool.query('DROP VIEW IF EXISTS categories');
+        await promisePool.query(`
+            CREATE VIEW categories AS
+            SELECT
+                ROW_NUMBER() OVER (ORDER BY category) AS id,
+                category AS category_name
+            FROM (
+                SELECT DISTINCT category
+                FROM products
+                WHERE category IS NOT NULL AND category <> ''
+            ) c
+        `);
+
+        await promisePool.query('DROP VIEW IF EXISTS admin_users');
+        await promisePool.query(`
+            CREATE VIEW admin_users AS
+            SELECT
+                id,
+                fullName AS name,
+                phone,
+                place,
+                createdAt AS created_at
+            FROM users
+            WHERE role = 'admin'
+        `);
+
+        console.log('✓ compatibility views ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        console.log('! Could not ensure compatibility views:', msg);
     }
 };
 
 const runMigration = async () => {
     try {
-        console.log('Running database migrations...');
+        console.log('Running database schema verification and migration...');
 
-        const addColumnBestEffort = async (tableName, columnSql, columnNameForLogs) => {
-            try {
-                await promisePool.query(`ALTER TABLE \`${tableName}\` ADD COLUMN ${columnSql}`);
-                console.log(`✓ ${tableName}.${columnNameForLogs} column added`);
-            } catch (err) {
-                const msg = String(err && err.message ? err.message : err);
-                if (msg.includes('Duplicate column')) {
-                    console.log(`✓ ${tableName}.${columnNameForLogs} already exists`);
-                    return;
-                }
-                if (msg.includes("doesn't exist")) {
-                    console.log(`✓ ${tableName} table missing (skipping ${columnNameForLogs})`);
-                    return;
-                }
-                console.log(`! Could not add ${tableName}.${columnNameForLogs} column:`, msg);
-            }
-        };
+        await createCoreTables();
 
-        // Add unit and emoji columns to products table if they don't exist
-        try {
-            await promisePool.query(`
-                ALTER TABLE products 
-                ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT 'pack',
-                ADD COLUMN IF NOT EXISTS emoji VARCHAR(10) DEFAULT '📦'
-            `);
-            console.log('✓ products table updated with unit and emoji columns');
-        } catch (err) {
-            // Columns might already exist or MySQL version doesn't support IF NOT EXISTS
-            if (!err.message.includes('Duplicate column')) {
-                // Try adding columns individually
-                try {
-                    await promisePool.query(`ALTER TABLE products ADD COLUMN unit VARCHAR(50) DEFAULT 'pack'`);
-                    console.log('✓ unit column added to products');
-                } catch (e) {
-                    if (e.message.includes('Duplicate column')) {
-                        console.log('✓ unit column already exists');
-                    }
-                }
-                try {
-                    await promisePool.query(`ALTER TABLE products ADD COLUMN emoji VARCHAR(10) DEFAULT '📦'`);
-                    console.log('✓ emoji column added to products');
-                } catch (e) {
-                    if (e.message.includes('Duplicate column')) {
-                        console.log('✓ emoji column already exists');
-                    }
-                }
-            }
-        }
+        await addColumnBestEffort('products', "unit VARCHAR(50) DEFAULT 'pack'", 'unit');
+        await addColumnBestEffort('products', "emoji VARCHAR(10) DEFAULT '📦'", 'emoji');
 
-        // Create bills table
-        await promisePool.query(`
-            CREATE TABLE IF NOT EXISTS bills (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                userId INT NOT NULL,
-                grandTotal DECIMAL(12,2) NOT NULL,
-                paymentMethod ENUM('Cash', 'Card', 'UPI', 'Other') DEFAULT 'Cash',
-                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('✓ bills table created');
-
-        // Create bill_items table
-        await promisePool.query(`
-            CREATE TABLE IF NOT EXISTS bill_items (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                billId INT NOT NULL,
-                productId INT NOT NULL,
-                productName VARCHAR(150),
-                price DECIMAL(10,2),
-                quantity INT,
-                total DECIMAL(12,2),
-                FOREIGN KEY (billId) REFERENCES bills(id) ON DELETE CASCADE,
-                FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        console.log('✓ bill_items table created');
-
-        // Ensure product foreign keys cascade deletes (prevents 500 on DELETE /api/products/:id)
-        await ensureCascadeFk({
-            tableName: 'order_items',
-            columnName: 'productId',
-            referencedTable: 'products',
-            referencedColumn: 'id'
-        });
-        await ensureCascadeFk({
-            tableName: 'bill_items',
-            columnName: 'productId',
-            referencedTable: 'products',
-            referencedColumn: 'id'
-        });
-
-        // Ensure orders.status is VARCHAR(50) (allows dynamic workflow values like 'Completed')
-        try {
-            await promisePool.query(`
-                ALTER TABLE orders
-                MODIFY COLUMN status VARCHAR(50) DEFAULT 'Pending'
-            `);
-            console.log("✓ orders.status set to VARCHAR(50)");
-        } catch (err) {
-            const msg = String(err && err.message ? err.message : err);
-            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
-                console.log('✓ orders table missing (skipping status type update)');
-            } else {
-                console.log('! Could not update orders.status type:', msg);
-            }
-        }
-
-        // Add verification workflow columns
-        // Note: MySQL versions vary on ADD COLUMN IF NOT EXISTS, so do per-column best-effort.
         await addColumnBestEffort('orders', 'isVerified BOOLEAN DEFAULT FALSE', 'isVerified');
         await addColumnBestEffort('orders', 'isPaid BOOLEAN DEFAULT FALSE', 'isPaid');
         await addColumnBestEffort('orders', 'isDelivered BOOLEAN DEFAULT FALSE', 'isDelivered');
         await addColumnBestEffort('orders', 'isArchived BOOLEAN DEFAULT FALSE', 'isArchived');
-
-        // Ensure orders.createdAt exists (customer history + stable sorting)
-        // Prefer DATETIME for display purposes, but keep best-effort behavior across MySQL versions.
         await addColumnBestEffort('orders', 'createdAt DATETIME DEFAULT CURRENT_TIMESTAMP', 'createdAt');
-
-        // Ensure orders.totalAmount exists (older DBs may be missing it)
         await addColumnBestEffort('orders', 'totalAmount DECIMAL(12,2) DEFAULT 0.00', 'totalAmount');
-
-        // Ensure orders.advanceAmount exists (advance payment feature)
         await addColumnBestEffort('orders', 'advanceAmount DECIMAL(12,2) NOT NULL DEFAULT 0.00', 'advanceAmount');
+        await addColumnBestEffort('orders', 'updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', 'updatedAt');
+        await addColumnBestEffort('orders', 'acceptedAt TIMESTAMP NULL', 'acceptedAt');
+        await addColumnBestEffort('orders', 'verifiedAt TIMESTAMP NULL', 'verifiedAt');
+        await addColumnBestEffort('orders', 'deliveredAt TIMESTAMP NULL', 'deliveredAt');
 
-        // Backfill boolean flags for existing data (best-effort)
+        await addColumnBestEffort('order_items', 'isSelected BOOLEAN DEFAULT TRUE', 'isSelected');
+        await addColumnBestEffort('order_items', 'total DECIMAL(12,2)', 'total');
+        await addColumnBestEffort('bill_items', 'total DECIMAL(12,2)', 'total');
+
+        try {
+            await promisePool.query(`ALTER TABLE orders MODIFY COLUMN status VARCHAR(50) DEFAULT 'Pending'`);
+            await promisePool.query(`ALTER TABLE orders MODIFY COLUMN advanceAmount DECIMAL(12,2) NOT NULL DEFAULT 0.00`);
+            await promisePool.query(`ALTER TABLE orders MODIFY COLUMN totalAmount DECIMAL(12,2) DEFAULT 0.00`);
+            console.log('✓ key order column data types/defaults normalized');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            console.log('! Could not fully normalize order column types/defaults:', msg);
+        }
+
+        await ensureForeignKey({
+            tableName: 'orders',
+            columnName: 'customerId',
+            referencedTable: 'users',
+            referencedColumn: 'id',
+            deleteRule: 'SET NULL',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'order_items',
+            columnName: 'orderId',
+            referencedTable: 'orders',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'order_items',
+            columnName: 'productId',
+            referencedTable: 'products',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'bills',
+            columnName: 'userId',
+            referencedTable: 'users',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'bill_items',
+            columnName: 'billId',
+            referencedTable: 'bills',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'bill_items',
+            columnName: 'productId',
+            referencedTable: 'products',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+
+        await ensureForeignKey({
+            tableName: 'feedback',
+            columnName: 'order_id',
+            referencedTable: 'orders',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'feedback',
+            columnName: 'customer_id',
+            referencedTable: 'users',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+
+        await ensureIndex('users', 'idx_users_phone', '`phone`');
+        await ensureIndex('users', 'idx_users_role', '`role`');
+        await ensureIndex('products', 'idx_products_category', '`category`');
+        await ensureIndex('orders', 'idx_orders_customerId', '`customerId`');
+        await ensureIndex('orders', 'idx_orders_status', '`status`');
+        await ensureIndex('orders', 'idx_orders_orderType', '`orderType`');
+        await ensureIndex('order_items', 'idx_order_items_orderId', '`orderId`');
+        await ensureIndex('order_items', 'idx_order_items_productId', '`productId`');
+        await ensureIndex('feedback', 'idx_feedback_order_id', '`order_id`');
+        await ensureIndex('feedback', 'idx_feedback_customer_id', '`customer_id`');
+        await ensureIndex('bills', 'idx_bills_userId', '`userId`');
+        await ensureIndex('bills', 'idx_bills_createdAt', '`createdAt`');
+        await ensureIndex('bill_items', 'idx_bill_items_billId', '`billId`');
+        await ensureIndex('bill_items', 'idx_bill_items_productId', '`productId`');
+
         try {
             await promisePool.query(`
                 UPDATE orders
@@ -196,63 +453,14 @@ const runMigration = async () => {
                     isPaid = CASE WHEN paymentStatus = 'Paid' OR status IN ('Paid','Completed') THEN TRUE ELSE FALSE END,
                     isDelivered = CASE WHEN status IN ('Delivered','Completed') THEN TRUE ELSE FALSE END
             `);
-            // If both done, normalize status to Completed
             await promisePool.query(`
                 UPDATE orders
-                SET status = 'Completed'
-                WHERE isPaid = TRUE AND isDelivered = TRUE AND status <> 'Rejected'
+                SET isArchived = CASE WHEN status IN ('Completed','Rejected') THEN TRUE ELSE FALSE END
             `);
-            console.log('✓ orders workflow flags backfilled');
-        } catch (err) {
-            const msg = String(err && err.message ? err.message : err);
-            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
-                console.log('✓ orders table/columns missing (skipping backfill)');
-            } else {
-                console.log('! Could not backfill orders workflow flags:', msg);
-            }
-        }
-
-        // Normalize archive flag from status (Completed/Rejected only)
-        try {
-            await promisePool.query(`
-                UPDATE orders
-                SET isArchived = TRUE
-                WHERE status IN ('Completed', 'Rejected')
-            `);
-            await promisePool.query(`
-                UPDATE orders
-                SET isArchived = FALSE
-                WHERE status NOT IN ('Completed', 'Rejected')
-            `);
-            console.log('✓ orders.isArchived normalized from status');
-        } catch (err) {
-            const msg = String(err && err.message ? err.message : err);
-            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
-                console.log('✓ orders table/columns missing (skipping archive normalization)');
-            } else {
-                console.log('! Could not normalize orders.isArchived:', msg);
-            }
-        }
-
-        // Backfill createdAt for existing rows (best-effort)
-        try {
             await promisePool.query(`
                 UPDATE orders
                 SET createdAt = COALESCE(createdAt, orderDate, updatedAt, NOW())
             `);
-            console.log('✓ orders.createdAt backfilled from orderDate/updatedAt');
-        } catch (err) {
-            const msg = String(err && err.message ? err.message : err);
-            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
-                console.log('✓ orders table/columns missing (skipping createdAt backfill)');
-            } else {
-                console.log('! Could not backfill orders.createdAt:', msg);
-            }
-        }
-
-        // Backfill totalAmount from order_items for existing rows (best-effort)
-        // This fixes Orders/Bills UI showing ₹0.00 when items exist.
-        try {
             await promisePool.query(`
                 UPDATE orders o
                 SET totalAmount = (
@@ -260,33 +468,17 @@ const runMigration = async () => {
                     FROM order_items oi
                     WHERE oi.orderId = o.id
                 )
+                WHERE COALESCE(o.totalAmount, 0) = 0
             `);
-            console.log('✓ orders.totalAmount backfilled from order_items');
+            console.log('✓ existing orders backfilled/normalized');
         } catch (err) {
             const msg = String(err && err.message ? err.message : err);
-            if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
-                console.log('✓ orders/order_items missing (skipping totalAmount backfill)');
-            } else {
-                console.log('! Could not backfill orders.totalAmount:', msg);
-            }
+            console.log('! Could not backfill/normalize some order data:', msg);
         }
 
-        // Ensure orders.updatedAt exists (used for bills ordering)
-        try {
-            await promisePool.query(
-                `ALTER TABLE orders ADD COLUMN updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`
-            );
-            console.log('✓ orders.updatedAt column added');
-        } catch (err) {
-            const msg = String(err && err.message ? err.message : err);
-            if (msg.includes('Duplicate column')) {
-                console.log('✓ orders.updatedAt already exists');
-            } else {
-                console.log('! Could not add orders.updatedAt column:', msg);
-            }
-        }
+        await ensureCompatibilityViews();
 
-        console.log('Migration completed successfully!');
+        console.log('Schema verification completed successfully!');
         process.exit(0);
     } catch (error) {
         console.error('Migration failed:', error.message);

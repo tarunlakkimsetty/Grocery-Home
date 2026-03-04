@@ -10,7 +10,7 @@ import { toast } from 'react-toastify';
 import { Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { PageHeader } from '../styledComponents/LayoutStyles';
-import { TableWrapper, EmptyState } from '../styledComponents/FormStyles';
+import { TableWrapper, EmptyState, ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
 import { PrimaryButton, DangerButton } from '../styledComponents/ButtonStyles';
 
 const ItemRow = styled.tr`
@@ -30,6 +30,8 @@ class CartPage extends React.Component {
             loading: false,
             redirectTo: null,
             searchQuery: '',
+            showOrderPlacedPopup: false,
+            orderPlacedAdminPhone: process.env.REACT_APP_ADMIN_PHONE || '9441754505',
         };
         this.languageContext = null;
     }
@@ -118,9 +120,13 @@ class CartPage extends React.Component {
             cartCtx.clearCart();
 
             toast.success(this.languageContext.getText('orderPlaced') + ' 🛵');
-            this.setState({ redirectTo: '/history' });
+            this.setState({ showOrderPlacedPopup: true });
         } catch (err) {
-            toast.error(this.languageContext.getText('orderPlacedFailed'));
+            const msg = err?.response?.data?.message || err?.response?.data?.error || err?.message;
+            const normalized = msg ? String(msg).trim() : '';
+            if (normalized === 'Quantity exceeds stock limit') toast.error('Quantity exceeds stock limit');
+            else if (normalized) toast.error(normalized);
+            else toast.error(this.languageContext.getText('orderPlacedFailed'));
         } finally {
             this.setState({ loading: false });
         }
@@ -327,6 +333,35 @@ class CartPage extends React.Component {
                                                         </div>
                                                     </div>
                                                 </>
+                                            )}
+
+                                            {this.state.showOrderPlacedPopup && (
+                                                <ModalOverlay>
+                                                    <ModalContent style={{ maxWidth: '560px', width: '100%' }}>
+                                                        <div className="modal-header">
+                                                            <h3>✅ {langCtx.getText('orderPlaced')}</h3>
+                                                        </div>
+                                                        <div className="modal-body">
+                                                            <p style={{ marginBottom: '0.6rem' }}>
+                                                                {langCtx.getText('orderPlacedAcceptanceInfoLine1')}
+                                                            </p>
+                                                            <p style={{ marginBottom: '0.75rem' }}>
+                                                                {langCtx.getText('orderPlacedAcceptanceInfoLine2')}
+                                                            </p>
+                                                            <p style={{ marginBottom: 0, fontWeight: 700 }}>
+                                                                {langCtx.getText('adminPhoneNumberLabel')}: {this.state.orderPlacedAdminPhone}
+                                                            </p>
+                                                        </div>
+                                                        <div className="modal-footer">
+                                                            <PrimaryButton
+                                                                onClick={() => this.setState({ showOrderPlacedPopup: false, redirectTo: '/history' })}
+                                                                style={{ minWidth: '110px' }}
+                                                            >
+                                                                {langCtx.getText('ok')}
+                                                            </PrimaryButton>
+                                                        </div>
+                                                    </ModalContent>
+                                                </ModalOverlay>
                                             )}
                                         </div>
                                         );

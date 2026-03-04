@@ -22,6 +22,9 @@ const Customer = {
                 u.phone,
                 u.place,
 
+                fr.avg_rating AS avg_rating,
+                fr.rating_count AS rating_count,
+
                 SUM(CASE WHEN o.status = 'Completed' THEN 1 ELSE 0 END) AS completed_orders,
                 SUM(CASE WHEN o.status = 'Rejected' THEN 1 ELSE 0 END) AS rejected_orders,
 
@@ -31,6 +34,12 @@ const Customer = {
                 MAX(CASE WHEN o.status = 'Rejected' THEN COALESCE(o.createdAt, o.orderDate, o.updatedAt) END) AS last_rejected_date
 
             FROM users u
+                        LEFT JOIN (
+                                SELECT customer_id, AVG(rating) AS avg_rating, COUNT(*) AS rating_count
+                                FROM feedback
+                                GROUP BY customer_id
+                        ) fr
+                            ON fr.customer_id = u.id
             LEFT JOIN orders o
               ON (
                     (o.orderType = 'Online' AND o.customerId = u.id)
@@ -54,6 +63,8 @@ const Customer = {
 
         return rows.map((r) => ({
             ...r,
+            avg_rating: r.avg_rating === null || r.avg_rating === undefined ? null : Number(r.avg_rating),
+            rating_count: Number(r.rating_count || 0),
             completed_orders: Number(r.completed_orders || 0),
             rejected_orders: Number(r.rejected_orders || 0),
             total_spent: Number(r.total_spent || 0),
@@ -72,6 +83,9 @@ const Customer = {
                 u.phone,
                 u.place,
 
+                fr.avg_rating AS avg_rating,
+                fr.rating_count AS rating_count,
+
                 COUNT(o.id) AS total_orders,
                 SUM(CASE WHEN o.status = 'Completed' THEN 1 ELSE 0 END) AS completed_orders,
                 SUM(CASE WHEN o.status = 'Rejected' THEN 1 ELSE 0 END) AS rejected_orders,
@@ -82,6 +96,12 @@ const Customer = {
                 MAX(CASE WHEN o.status = 'Rejected' THEN COALESCE(o.createdAt, o.orderDate, o.updatedAt) END) AS last_rejected_date
 
             FROM users u
+                        LEFT JOIN (
+                                SELECT customer_id, AVG(rating) AS avg_rating, COUNT(*) AS rating_count
+                                FROM feedback
+                                GROUP BY customer_id
+                        ) fr
+                            ON fr.customer_id = u.id
             LEFT JOIN orders o
               ON (
                     (o.orderType = 'Online' AND o.customerId = u.id)
@@ -96,12 +116,25 @@ const Customer = {
 
         if (!rows || rows.length === 0) return null;
         const r = rows[0];
+
+        const [feedbackRows] = await promisePool.query(
+            `SELECT order_id, rating, comment, created_at
+             FROM feedback
+             WHERE customer_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 5`,
+            [customerId]
+        );
+
         return {
             ...r,
+            avg_rating: r.avg_rating === null || r.avg_rating === undefined ? null : Number(r.avg_rating),
+            rating_count: Number(r.rating_count || 0),
             total_orders: Number(r.total_orders || 0),
             completed_orders: Number(r.completed_orders || 0),
             rejected_orders: Number(r.rejected_orders || 0),
             total_spent: Number(r.total_spent || 0),
+            recent_feedback: Array.isArray(feedbackRows) ? feedbackRows : [],
         };
     },
 };
