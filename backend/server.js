@@ -40,6 +40,25 @@ const ensureAdvanceAmountColumn = async () => {
     }
 };
 
+const ensurePaymentMethodColumn = async () => {
+    try {
+        // Best-effort add; ignore if already exists.
+        await promisePool.query(
+            "ALTER TABLE orders ADD COLUMN paymentMethod ENUM('Cash','Card','UPI','Other') NULL DEFAULT NULL"
+        );
+        console.log('✓ orders.paymentMethod ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (msg.includes('Duplicate column')) {
+            return;
+        }
+        if (msg.includes("doesn't exist") || msg.includes('Unknown table')) {
+            return;
+        }
+        console.log('! Could not ensure orders.paymentMethod column:', msg);
+    }
+};
+
 // Start server after testing database connection
 const startServer = async () => {
     // Test database connection
@@ -55,6 +74,9 @@ const startServer = async () => {
 
     // Best-effort: advance payment support
     await ensureAdvanceAmountColumn();
+
+    // Best-effort: store payment method for analytics
+    await ensurePaymentMethodColumn();
 
     // Start Express server
     app.listen(config.port, () => {

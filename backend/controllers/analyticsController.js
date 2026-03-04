@@ -61,8 +61,26 @@ const getTotalAnalytics = async (req, res, next) => {
     }
 };
 
+/**
+ * @desc    Get Sales Analytics dashboard data (cards + tables)
+ * @route   GET /api/admin/analytics/dashboard
+ * @access  Private/Admin
+ */
+const getDashboardAnalytics = async (req, res, next) => {
+    try {
+        const analytics = await Analytics.getDashboardAnalytics();
+        res.status(200).json({
+            success: true,
+            data: analytics,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     getDailyAnalytics,
     getMonthlyAnalytics,
-    getTotalAnalytics
+    getTotalAnalytics,
+    getDashboardAnalytics,
 };

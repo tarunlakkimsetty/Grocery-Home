@@ -1,6 +1,5 @@
 import React from 'react';
-import billService from '../services/billService';
-import productService from '../services/productService';
+import analyticsService from '../services/analyticsService';
 import LanguageContext from '../context/LanguageContext';
 import Spinner from '../components/Spinner';
 import { PageHeader } from '../styledComponents/LayoutStyles';
@@ -10,8 +9,7 @@ class AnalyticsPage extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            bills: [],
-            products: [],
+            dashboard: null,
             loading: true,
         };
     }
@@ -22,62 +20,26 @@ class AnalyticsPage extends React.Component {
 
     fetchData = async () => {
         try {
-            const [billsResponse, productsResponse] = await Promise.all([
-                billService.getAllBills(),
-                productService.getProducts(),
-            ]);
-            // Handle both { success, data: [...] } and direct array responses
-            const bills = Array.isArray(billsResponse) 
-                ? billsResponse 
-                : (billsResponse?.data || billsResponse?.bills || []);
-            const products = Array.isArray(productsResponse) 
-                ? productsResponse 
-                : (productsResponse?.data || productsResponse?.products || []);
-            this.setState({ bills, products, loading: false });
+            const dashboard = await analyticsService.getDashboard();
+            this.setState({ dashboard, loading: false });
         } catch {
             this.setState({ loading: false });
         }
     };
 
-    getTopProducts = (safeBills) => {
-        const productSales = {};
-        safeBills.forEach((bill) => {
-            const items = Array.isArray(bill.items) ? bill.items : [];
-            items.forEach((item) => {
-                if (!productSales[item.name]) {
-                    productSales[item.name] = { name: item.name, quantity: 0, revenue: 0 };
-                }
-                productSales[item.name].quantity += item.quantity || 0;
-                productSales[item.name].revenue += item.total || 0;
-            });
-        });
-        return Object.values(productSales)
-            .sort((a, b) => b.revenue - a.revenue)
-            .slice(0, 5);
-    };
-
-    getCategorySales = (safeProducts) => {
-        const catMap = {};
-        safeProducts.forEach((p) => {
-            if (!catMap[p.category]) catMap[p.category] = { count: 0, totalStock: 0 };
-            catMap[p.category].count++;
-            catMap[p.category].totalStock += p.stock || 0;
-        });
-        return catMap;
-    };
-
     render() {
-        const { bills, products, loading } = this.state;
+        const { dashboard, loading } = this.state;
         if (loading) return <Spinner fullPage text="Loading analytics..." />;
 
-        // Safety fallback: ensure bills and products are always arrays
-        const safeBills = Array.isArray(bills) ? bills : [];
-        const safeProducts = Array.isArray(products) ? products : [];
-        
-        const totalRevenue = safeBills.reduce((s, b) => s + (b.grandTotal || 0), 0);
-        const avgOrderValue = safeBills.length > 0 ? totalRevenue / safeBills.length : 0;
-        const topProducts = this.getTopProducts(safeBills);
-        const categorySales = this.getCategorySales(safeProducts);
+        const totals = dashboard?.totals || {};
+        const totalRevenue = Number(totals.totalSales || 0) || 0;
+        const totalBillsGenerated = Number(totals.totalBillsGenerated || 0) || 0;
+        const totalStockQty = Number(totals.totalStockQty || 0) || 0;
+        const salesAnalyticsValue = Number(totals.salesAnalytics || totals.totalSales || 0) || 0;
+        const topProducts = Array.isArray(dashboard?.topSellingProducts) ? dashboard.topSellingProducts : [];
+        const categoryRows = Array.isArray(dashboard?.categoryAnalytics) ? dashboard.categoryAnalytics : [];
+        const paymentMethods = Array.isArray(dashboard?.paymentMethods) ? dashboard.paymentMethods : [];
+        const lowStockProducts = Array.isArray(dashboard?.lowStockProducts) ? dashboard.lowStockProducts : [];
 
         const CATEGORY_NAMES = {
             grains: 'Grains & Pulses',
@@ -111,21 +73,21 @@ class AnalyticsPage extends React.Component {
                             <div className="col-6 col-lg-3">
                                 <StatsCard $gradient="linear-gradient(135deg, #1565C0, #42A5F5)">
                                     <div className="stats-icon">🧾</div>
-                                    <div className="stats-value">{safeBills.length}</div>
+                                    <div className="stats-value">{totalBillsGenerated}</div>
                                     <div className="stats-label">{langCtx.getText('totalBills')}</div>
                                 </StatsCard>
                             </div>
                             <div className="col-6 col-lg-3">
                                 <StatsCard $gradient="linear-gradient(135deg, #E65100, #FF9800)">
                                     <div className="stats-icon">📦</div>
-                                    <div className="stats-value">{safeProducts.length}</div>
+                                    <div className="stats-value">{totalStockQty}</div>
                                     <div className="stats-label">{langCtx.getText('stock')}</div>
                                 </StatsCard>
                             </div>
                             <div className="col-6 col-lg-3">
                                 <StatsCard $gradient="linear-gradient(135deg, #7B1FA2, #BA68C8)">
                                     <div className="stats-icon">📈</div>
-                                    <div className="stats-value">₹{avgOrderValue.toFixed(0)}</div>
+                                    <div className="stats-value">₹{salesAnalyticsValue.toFixed(0)}</div>
                                     <div className="stats-label">{langCtx.getText('salesAnalytics')}</div>
                                 </StatsCard>
                             </div>
@@ -154,10 +116,10 @@ class AnalyticsPage extends React.Component {
                                                 {topProducts.map((p, i) => (
                                                     <tr key={i}>
                                                         <td className="fw-bold">{i + 1}</td>
-                                                        <td>{p.name}</td>
-                                                        <td className="text-center">{p.quantity}</td>
+                                                        <td>{p.emoji ? `${p.emoji} ` : ''}{p.name}</td>
+                                                        <td className="text-center">{Number(p.quantitySold || 0)}</td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{p.revenue.toFixed(2)}
+                                                            ₹{Number(p.revenue || 0).toFixed(2)}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -182,11 +144,11 @@ class AnalyticsPage extends React.Component {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {Object.entries(categorySales).map(([cat, data]) => (
-                                                <tr key={cat}>
-                                                    <td>{CATEGORY_NAMES[cat] || cat}</td>
-                                                    <td className="text-center">{data.count}</td>
-                                                    <td className="text-center">{data.totalStock}</td>
+                                            {categoryRows.map((row) => (
+                                                <tr key={String(row.category)}>
+                                                    <td>{CATEGORY_NAMES[row.category] || row.category}</td>
+                                                    <td className="text-center">{Number(row.stockQty || 0)}</td>
+                                                    <td className="text-center">{Number(row.itemsSold || 0)}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -200,14 +162,9 @@ class AnalyticsPage extends React.Component {
                                     <h5 className="fw-bold mb-3" style={{ fontFamily: "'Outfit', sans-serif" }}>
                                         💳 {langCtx.getText('paymentMethod')}
                                     </h5>
-                                    {(() => {
-                                        const methods = {};
-                                        safeBills.forEach((b) => {
-                                            if (!methods[b.paymentMethod]) methods[b.paymentMethod] = { count: 0, total: 0 };
-                                            methods[b.paymentMethod].count++;
-                                            methods[b.paymentMethod].total += b.grandTotal || 0;
-                                        });
-                                        return (
+                                    {paymentMethods.length === 0 ? (
+                                        <p className="text-muted">{langCtx.getText('noAnalyticsData')}</p>
+                                    ) : (
                                             <table className="table table-sm">
                                                 <thead>
                                                     <tr>
@@ -217,21 +174,20 @@ class AnalyticsPage extends React.Component {
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {Object.entries(methods).map(([method, data]) => (
-                                                        <tr key={method}>
+                                                    {paymentMethods.map((pm) => (
+                                                        <tr key={String(pm.method)}>
                                                             <td>
-                                                                {method === 'Cash' ? '💵' : method === 'Card' ? '💳' : '📱'} {method}
+                                                                {pm.method === 'Cash' ? '💵' : pm.method === 'Card' ? '💳' : pm.method === 'UPI' ? '📱' : '🧾'} {pm.method}
                                                             </td>
-                                                            <td className="text-center">{data.count}</td>
+                                                            <td className="text-center">{Number(pm.orders || 0)}</td>
                                                             <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                                ₹{data.total.toFixed(2)}
+                                                                ₹{Number(pm.totalSales || 0).toFixed(2)}
                                                             </td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
                                             </table>
-                                        );
-                                    })()}
+                                    )}
                                 </div>
                             </div>
 
@@ -242,8 +198,8 @@ class AnalyticsPage extends React.Component {
                                         ⚠️ {langCtx.getText('stock')}
                                     </h5>
                                     {(() => {
-                                        const lowStock = safeProducts.filter((p) => (p.stock || 0) < 30).sort((a, b) => (a.stock || 0) - (b.stock || 0));
-                                        if (lowStock.length === 0) {
+                                        const lowStock = lowStockProducts;
+                                        if (!Array.isArray(lowStock) || lowStock.length === 0) {
                                             return <p className="text-muted">{langCtx.getText('noAnalyticsData')}</p>;
                                         }
                                         return (
@@ -267,7 +223,7 @@ class AnalyticsPage extends React.Component {
                                                                     {p.stock}
                                                                 </span>
                                                             </td>
-                                                            <td className="text-end">₹{p.price}</td>
+                                                            <td className="text-end">₹{Number(p.price || 0).toFixed(2)}</td>
                                                         </tr>
                                                     ))}
                                                 </tbody>

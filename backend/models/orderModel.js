@@ -97,15 +97,16 @@ const Order = {
                 phone,
                 place,
                 address,
-                totalAmount
+                totalAmount,
+                paymentMethod
             } = orderData;
 
             // Insert order
             const [orderResult] = await connection.query(
                 `INSERT INTO orders 
-                (customerId, customerName, phone, place, address, orderType, status, paymentStatus, totalAmount) 
-                VALUES (?, ?, ?, ?, ?, 'Online', 'Pending Acceptance', 'Unpaid', ?)`,
-                [customerId, customerName, phone, place, address, totalAmount]
+                (customerId, customerName, phone, place, address, orderType, status, paymentStatus, totalAmount, paymentMethod) 
+                VALUES (?, ?, ?, ?, ?, 'Online', 'Pending Acceptance', 'Unpaid', ?, ?)`,
+                [customerId, customerName, phone, place, address, totalAmount, paymentMethod || null]
             );
 
             const orderId = orderResult.insertId;
@@ -846,15 +847,16 @@ const Order = {
                 phone,
                 place,
                 address,
-                totalAmount
+                totalAmount,
+                paymentMethod
             } = orderData;
 
             // Insert order (customerId is NULL for offline orders)
             const [orderResult] = await connection.query(
                 `INSERT INTO orders 
-                (customerId, customerName, phone, place, address, orderType, status, paymentStatus, totalAmount) 
-                VALUES (NULL, ?, ?, ?, ?, 'Offline', 'Pending', 'Unpaid', ?)`,
-                [customerName, phone, place, address, totalAmount]
+                (customerId, customerName, phone, place, address, orderType, status, paymentStatus, totalAmount, paymentMethod) 
+                VALUES (NULL, ?, ?, ?, ?, 'Offline', 'Pending', 'Unpaid', ?, ?)`,
+                [customerName, phone, place, address, totalAmount, paymentMethod || 'Cash']
             );
 
             const orderId = orderResult.insertId;

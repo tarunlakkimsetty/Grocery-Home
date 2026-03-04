@@ -5,6 +5,16 @@ const { promisePool } = require('../config/db');
 
 const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
+const normalizePaymentMethod = (raw) => {
+    const v = String(raw || '').trim().toLowerCase();
+    if (!v) return null;
+    if (v === 'cod' || v === 'cash on delivery' || v.includes('cash')) return 'Cash';
+    if (v.includes('upi')) return 'UPI';
+    if (v.includes('card')) return 'Card';
+    if (v.includes('other')) return 'Other';
+    return 'Other';
+};
+
 const SHOP_INFO = {
     name: process.env.SHOP_NAME || 'Om Sri Satya Sai Rama Kirana And General Merchants',
     address:
@@ -82,6 +92,8 @@ const createOnlineOrder = async (req, res, next) => {
             });
         }
 
+        const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
+
         // Validate and calculate totals
         let totalAmount = 0;
         const orderItems = [];
@@ -132,7 +144,8 @@ const createOnlineOrder = async (req, res, next) => {
                 phone,
                 place,
                 address,
-                totalAmount
+                totalAmount,
+                paymentMethod: normalizedPaymentMethod,
             },
             orderItems
         );
@@ -811,7 +824,9 @@ const addItemToOrder = async (req, res, next) => {
  */
 const createOfflineOrder = async (req, res, next) => {
     try {
-        const { customerName, phone, place, address, items } = req.body;
+        const { customerName, phone, place, address, items, paymentMethod } = req.body;
+
+        const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod) || 'Cash';
 
         // Validate required fields
         if (!customerName || !phone || !items || items.length === 0) {
@@ -859,7 +874,8 @@ const createOfflineOrder = async (req, res, next) => {
                 phone,
                 place,
                 address,
-                totalAmount
+                totalAmount,
+                paymentMethod: normalizedPaymentMethod,
             },
             orderItems
         );

@@ -4,7 +4,8 @@ const { protect, isAdmin } = require('../middleware');
 const {
     getDailyAnalytics,
     getMonthlyAnalytics,
-    getTotalAnalytics
+    getTotalAnalytics,
+    getDashboardAnalytics,
 } = require('../controllers/analyticsController');
 const { analyticsValidators } = require('../middleware/validationMiddleware');
 
@@ -20,5 +21,8 @@ router.get('/monthly', analyticsValidators.monthly, getMonthlyAnalytics);
 
 // GET /api/admin/analytics/total - Get total (all-time) analytics
 router.get('/total', getTotalAnalytics);
+
+// GET /api/admin/analytics/dashboard - Sales Analytics page payload
+router.get('/dashboard', getDashboardAnalytics);
 
 module.exports = router;
