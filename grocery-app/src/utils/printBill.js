@@ -9,8 +9,19 @@ const escapeHtml = (value) => {
         .replace(/'/g, '&#39;');
 };
 
-const escapeHtmlWithBreaks = (value) => {
-    return escapeHtml(value).replace(/\n/g, '<br/>');
+const toSingleLineAddress = (value) => {
+    const raw = String(value ?? '');
+    const parts = raw
+        .split(/\r?\n/)
+        .map((p) => String(p).trim())
+        .filter(Boolean)
+        .map((p) => (p.endsWith(',') ? p.slice(0, -1).trim() : p));
+
+    const joined = parts.join(', ');
+    return joined
+        .replace(/\s*,\s*/g, ', ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
 };
 
 const formatCurrency = (value) => {
@@ -43,6 +54,7 @@ const formatPaymentMethod = (raw) => {
     if (normalized === 'cash') return tr('cash', 'Cash');
     if (normalized === 'card') return tr('card', 'Card');
     if (normalized === 'upi') return tr('upi', 'UPI');
+    if (normalized === 'cod' || normalized === 'cash on delivery') return tr('cashOnDelivery', 'Cash on Delivery');
     return v;
 };
 
@@ -55,7 +67,7 @@ export const openBillPrintWindow = (billPayload) => {
 
     // Ensure shop header is fully localized (shop name/address are static app strings).
     const headerShopName = tr('shopName', shop?.name || 'Shop');
-    const headerShopAddress = tr('address', shop?.address || '');
+    const headerShopAddress = toSingleLineAddress(tr('address', shop?.address || ''));
     const headerShopPhone = shop?.phone || tr('phone', '—');
     const headerShopGst = shop?.gst || null;
 
@@ -138,7 +150,7 @@ export const openBillPrintWindow = (billPayload) => {
 
                 <div class="header">
                     <p class="shop-name">${escapeHtml(headerShopName)}</p>
-                    <div class="muted">${escapeHtmlWithBreaks(headerShopAddress)}</div>
+                    <div class="muted">${escapeHtml(headerShopAddress)}</div>
                     <div class="muted">${escapeHtml(tr('phoneNumber', 'Phone Number'))}: ${escapeHtml(headerShopPhone)}</div>
                     ${headerShopGst ? `<div class="muted">${escapeHtml(tr('gst', 'GST'))}: ${escapeHtml(headerShopGst)}</div>` : ''}
                 </div>

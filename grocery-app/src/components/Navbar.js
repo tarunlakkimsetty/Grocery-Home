@@ -8,6 +8,8 @@ import {
     NavbarWrapper,
     NavBrand,
     NavActions,
+    CartLink,
+    CartBadge,
     UserInfo,
     LogoutButton,
     HamburgerButton,
@@ -76,17 +78,15 @@ class Navbar extends React.Component {
 
                                         <CartContext.Consumer>
                                             {(cartCtx) => (
-                                                <Link to="/cart" className="text-decoration-none position-relative">
-                                                    <span style={{ fontSize: '1.5rem', color: 'white', cursor: 'pointer' }}>🛒</span>
-                                                    {cartCtx.getItemCount() > 0 && (
-                                                        <span
-                                                            className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
-                                                            style={{ fontSize: '0.7rem' }}
-                                                        >
-                                                            {cartCtx.getItemCount()}
-                                                        </span>
-                                                    )}
-                                                </Link>
+                                                (() => {
+                                                    const count = cartCtx.getItemCount();
+                                                    return (
+                                                        <CartLink to="/cart" aria-label="Cart">
+                                                            <span style={{ fontSize: '1.5rem', color: 'white', cursor: 'pointer' }}>🛒</span>
+                                                            {count > 0 && <CartBadge>{count}</CartBadge>}
+                                                        </CartLink>
+                                                    );
+                                                })()
                                             )}
                                         </CartContext.Consumer>
 

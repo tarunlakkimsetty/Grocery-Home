@@ -1,9 +1,17 @@
 import React from 'react';
 import { toast } from 'react-toastify';
+import AuthContext from './AuthContext';
 
 const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
-const CART_STORAGE_KEY = 'grocery_cart_items_v1';
+const CART_STORAGE_KEY_BASE = 'grocery_cart_items_v1';
+
+const getCartStorageKey = (user) => {
+    const rawSuffix = user?.id ?? user?.phone;
+    const suffix = rawSuffix !== undefined && rawSuffix !== null ? String(rawSuffix).trim() : '';
+    if (!suffix) return CART_STORAGE_KEY_BASE;
+    return `${CART_STORAGE_KEY_BASE}_${suffix}`;
+};
 
 const safeParseJson = (raw) => {
     try {
@@ -56,11 +64,16 @@ const CartContext = React.createContext({
 });
 
 class CartProvider extends React.Component {
+    static contextType = AuthContext;
+
     constructor(props) {
         super(props);
         this.state = {
             items: [],
         };
+
+        this.activeStorageKey = getCartStorageKey(null);
+
         this.addToCart = this.addToCart.bind(this);
         this.removeFromCart = this.removeFromCart.bind(this);
         this.updateQuantity = this.updateQuantity.bind(this);
@@ -75,26 +88,51 @@ class CartProvider extends React.Component {
 
     componentDidMount() {
         // Restore cart from persistent storage (navigation and refresh safe)
-        try {
-            const raw = window?.localStorage?.getItem(CART_STORAGE_KEY);
-            const parsed = safeParseJson(raw);
-            const restored = normalizeStoredItems(parsed);
-            if (restored.length > 0) {
-                this.setState({ items: restored });
-            }
-        } catch {
-            // Ignore storage errors (privacy mode, disabled storage, etc.)
-        }
+        this.activeStorageKey = getCartStorageKey(this.context?.user);
+        this.restoreFromStorage(this.activeStorageKey);
     }
 
     componentDidUpdate(prevProps, prevState) {
+        const nextStorageKey = getCartStorageKey(this.context?.user);
+        if (nextStorageKey !== this.activeStorageKey) {
+            this.activeStorageKey = nextStorageKey;
+            this.restoreFromStorage(this.activeStorageKey);
+        }
+
         // Persist cart whenever items change.
         if (prevState.items !== this.state.items) {
             try {
-                window?.localStorage?.setItem(CART_STORAGE_KEY, JSON.stringify(this.state.items || []));
+                window?.localStorage?.setItem(this.activeStorageKey, JSON.stringify(this.state.items || []));
             } catch {
                 // Ignore storage errors
             }
+        }
+    }
+
+    restoreFromStorage(storageKey) {
+        try {
+            const raw = window?.localStorage?.getItem(storageKey);
+            const parsed = safeParseJson(raw);
+            const restored = normalizeStoredItems(parsed);
+
+            // Safe migration: if user-scoped key is empty but legacy key has items,
+            // migrate legacy items into the user-scoped key once.
+            if (storageKey !== CART_STORAGE_KEY_BASE && restored.length === 0) {
+                const legacyRaw = window?.localStorage?.getItem(CART_STORAGE_KEY_BASE);
+                const legacyParsed = safeParseJson(legacyRaw);
+                const legacyRestored = normalizeStoredItems(legacyParsed);
+                if (legacyRestored.length > 0) {
+                    window?.localStorage?.setItem(storageKey, JSON.stringify(legacyRestored));
+                    window?.localStorage?.removeItem(CART_STORAGE_KEY_BASE);
+                    this.setState({ items: legacyRestored });
+                    return;
+                }
+            }
+
+            this.setState({ items: restored });
+        } catch {
+            // Ignore storage errors (privacy mode, disabled storage, etc.)
+            this.setState({ items: [] });
         }
     }
 

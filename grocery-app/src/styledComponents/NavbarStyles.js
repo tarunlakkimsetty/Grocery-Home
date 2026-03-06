@@ -1,4 +1,5 @@
 import styled from 'styled-components';
+import { Link } from 'react-router-dom';
 
 export const NavbarWrapper = styled.nav`
   position: fixed;
@@ -70,6 +71,37 @@ export const NavActions = styled.div`
   display: flex;
   align-items: center;
   gap: 1rem;
+`;
+
+export const CartLink = styled(Link)`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+`;
+
+export const CartBadge = styled.span`
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translate(50%, -50%);
+  z-index: 1;
+
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: ${({ theme }) => theme.borderRadius.pill};
+  background: ${({ theme }) => theme.colors.danger};
+  color: ${({ theme }) => theme.colors.white};
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  font-weight: 700;
+  line-height: 1;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
 `;
 
 export const UserInfo = styled.div`

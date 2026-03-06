@@ -198,7 +198,8 @@ class AdminOnlineOrdersPage extends React.Component {
             modalItems: [],
             // Add Product section state (Pending only)
             addProductId: '',
-            addProductQty: 1,
+            addProductQty: '1',
+            addProductQtyError: '',
 
             // Search
             searchQuery: '',
@@ -381,6 +382,49 @@ class AdminOnlineOrdersPage extends React.Component {
 
     openModal = (order) => {
         const orderItems = Array.isArray(order?.items) ? order.items : [];
+
+        // Normalize items so the UI always maintains one row per product.
+        // Backend payloads sometimes carry productId as string; normalize to number and merge duplicates.
+        const mergedItems = orderItems.reduce((acc, raw) => {
+            const productIdNum = parseInt(raw?.productId, 10);
+            if (!Number.isFinite(productIdNum) || productIdNum <= 0) return acc;
+
+            const priceNum = Number(raw?.price || 0) || 0;
+            const qtyNum = Number.isFinite(Number(raw?.quantity)) ? Number(raw.quantity) : 0;
+            const existingIdx = acc.findIndex((x) => x.productId === productIdNum);
+
+            if (existingIdx === -1) {
+                acc.push({
+                    ...raw,
+                    productId: productIdNum,
+                    name: raw?.name ?? raw?.productName,
+                    price: priceNum,
+                    quantity: qtyNum,
+                    total:
+                        Number(raw?.total || 0) ||
+                        (priceNum * (Number(qtyNum || 0) || 0)),
+                });
+                return acc;
+            }
+
+            const prev = acc[existingIdx];
+            const nextQty = (Number(prev?.quantity || 0) || 0) + (Number(qtyNum || 0) || 0);
+            const nextPrice = Number(prev?.price || 0) || priceNum;
+            const nextTotal = nextPrice * nextQty;
+
+            acc[existingIdx] = {
+                ...prev,
+                // Prefer any explicit name/productName already present.
+                name: prev?.name ?? (raw?.name ?? raw?.productName),
+                price: nextPrice,
+                quantity: nextQty,
+                total: nextTotal,
+                // Keep selection if any duplicate row is selected.
+                isSelected: Boolean(prev?.isSelected) || Boolean(raw?.isSelected),
+            };
+
+            return acc;
+        }, []);
         const shouldRestoreSelection =
             !!(
                 order &&
@@ -388,12 +432,12 @@ class AdminOnlineOrdersPage extends React.Component {
             );
 
         const selectedFromDb = shouldRestoreSelection
-            ? orderItems
+            ? mergedItems
                 .filter((item) => {
                     const hasFlag = !(item?.isSelected === undefined || item?.isSelected === null);
                     return hasFlag ? Boolean(item.isSelected) : true;
                 })
-                .map((item) => item.productId)
+                .map((item) => Number(item.productId))
             : [];
 
         this.setState({
@@ -401,16 +445,20 @@ class AdminOnlineOrdersPage extends React.Component {
             modalOpen: true,
             selectedProducts: selectedFromDb,
             // Deep copy items so quantity edits don't mutate source
-            modalItems: orderItems.map((item) => ({
+            modalItems: mergedItems.map((item) => ({
                 ...item,
+                productId: Number(item.productId),
                 // Normalize display field
                 name: item?.name ?? item?.productName,
                 price: Number(item?.price || 0) || 0,
                 quantity: Number.isFinite(Number(item?.quantity)) ? Number(item.quantity) : 0,
-                total: Number(item?.total || 0) || (Number(item?.price || 0) || 0) * (Number(item?.quantity || 0) || 0),
+                total:
+                    Number(item?.total || 0) ||
+                    (Number(item?.price || 0) || 0) * (Number(item?.quantity || 0) || 0),
             })),
             addProductId: '',
-            addProductQty: 1,
+            addProductQty: '1',
+            addProductQtyError: '',
         });
     };
 
@@ -465,8 +513,9 @@ class AdminOnlineOrdersPage extends React.Component {
         const { selectedOrder } = this.state;
         // Lock: online order changes are allowed only after acceptance.
         if (selectedOrder && selectedOrder.status !== 'Accepted') return;
+        const pid = parseInt(productId, 10);
         const updatedItems = this.state.modalItems.map((item) => {
-            if (item.productId === productId) {
+            if (Number(item.productId) === pid) {
                 const currentQty = Number(item.quantity || 0) || 0;
                 const newQty = Math.max(0, currentQty + delta);
                 const price = Number(item.price || 0) || 0;
@@ -477,6 +526,82 @@ class AdminOnlineOrdersPage extends React.Component {
         this.setState({ modalItems: updatedItems });
     };
 
+    removeItemFromOrder = async (productId) => {
+        const { selectedOrder } = this.state;
+        if (!selectedOrder || selectedOrder.status !== 'Accepted') return;
+
+        const pid = parseInt(productId, 10);
+        if (!Number.isFinite(pid) || pid <= 0) return;
+
+        this.setState({ actionLoading: true });
+        try {
+            const nextModalItems = (Array.isArray(this.state.modalItems) ? this.state.modalItems : [])
+                .filter((it) => Number(it.productId) !== pid);
+
+            const nextSelectedProducts = (Array.isArray(this.state.selectedProducts) ? this.state.selectedProducts : [])
+                .map((x) => parseInt(x, 10))
+                .filter((x) => Number.isFinite(x) && x > 0 && x !== pid);
+
+            // Keep unchecked items in DB, but item removal should fully delete the row.
+            const updatedItemsForSave = nextModalItems.map((i) => {
+                const qty = parseInt(i.quantity, 10);
+                const quantity = Number.isFinite(qty) ? qty : 0;
+                const price = Number(i.price || 0) || 0;
+                const isSelected = nextSelectedProducts.includes(Number(i.productId)) && (Number(quantity || 0) || 0) > 0;
+
+                return {
+                    ...i,
+                    productId: Number(i.productId),
+                    productName: i?.productName ?? i?.name,
+                    quantity,
+                    price,
+                    isSelected,
+                    total: price * quantity,
+                };
+            });
+
+            const finalTotal = updatedItemsForSave
+                .filter((i) => Boolean(i.isSelected))
+                .reduce((sum, i) => sum + (Number(i.total || 0) || 0), 0);
+
+            const resp = await orderService.updateOrderBeforeVerify(selectedOrder.id, updatedItemsForSave, finalTotal);
+            const nextOrder = resp?.order || resp?.data?.order || resp?.data || null;
+
+            this.setState((prev) => {
+                const baseOrder = prev.selectedOrder || {};
+                const patchedOrder = {
+                    ...baseOrder,
+                    ...(nextOrder || {}),
+                    // Ensure UI totals refresh even if backend doesn't echo them back.
+                    totalAmount: Number(nextOrder?.totalAmount ?? nextOrder?.grandTotal ?? finalTotal),
+                    grandTotal: Number(nextOrder?.grandTotal ?? nextOrder?.totalAmount ?? finalTotal),
+                    remainingBalance:
+                        Number.isFinite(Number(nextOrder?.remainingBalance))
+                            ? Number(nextOrder.remainingBalance)
+                            : (Number(finalTotal) - (Number(baseOrder?.advanceAmount ?? 0) || 0)),
+                };
+
+                const patch = (list) =>
+                    (Array.isArray(list)
+                        ? list.map((o) => (o.id === baseOrder.id ? { ...o, ...patchedOrder } : o))
+                        : list);
+
+                return {
+                    modalItems: nextModalItems,
+                    selectedProducts: nextSelectedProducts,
+                    selectedOrder: patchedOrder,
+                    orders: patch(prev.orders),
+                    onlineOrders: patch(prev.onlineOrders),
+                };
+            });
+        } catch (err) {
+            const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
+            toast.error(rawMsg && hasTranslation(rawMsg) ? t(rawMsg) : t('failedToUpdateOrderStatus'));
+        } finally {
+            this.setState({ actionLoading: false });
+        }
+    };
+
     // ─── Add Product to Order (Pending Only) ─────────────────────────────────
 
     onChangeAddProductId = (e) => {
@@ -484,9 +609,16 @@ class AdminOnlineOrdersPage extends React.Component {
     };
 
     onChangeAddProductQty = (e) => {
-        const raw = e.target.value;
-        const qty = Math.max(1, parseInt(raw, 10) || 1);
-        this.setState({ addProductQty: qty });
+        const raw = String(e?.target?.value ?? '');
+        if (raw === '') {
+            this.setState({ addProductQty: '', addProductQtyError: '' });
+            return;
+        }
+
+        // Allow only digits (prevents -, e, ., and other non-numeric chars)
+        if (!/^\d+$/.test(raw)) return;
+
+        this.setState({ addProductQty: raw, addProductQtyError: '' });
     };
 
     handleAddProductToOrder = async () => {
@@ -499,7 +631,15 @@ class AdminOnlineOrdersPage extends React.Component {
             return;
         }
 
-        const quantity = Math.max(1, parseInt(addProductQty, 10) || 1);
+        const qtyNum = parseInt(String(addProductQty || ''), 10);
+        if (!Number.isFinite(qtyNum) || qtyNum < 1) {
+            const msg = 'Quantity must be greater than or equal to 1';
+            this.setState({ addProductQtyError: msg });
+            toast.error(msg);
+            return;
+        }
+
+        const quantity = qtyNum;
         const product = products.find((p) => p.id === productId);
         if (!product) {
             toast.error(t('selectedProductNotFound'));
@@ -511,11 +651,11 @@ class AdminOnlineOrdersPage extends React.Component {
             // Backend integration: add item before verification
             await orderService.addItemToOrder(selectedOrder.id, productId, quantity);
 
-            const existingIdx = modalItems.findIndex((i) => i.productId === productId);
+            const existingIdx = modalItems.findIndex((i) => Number(i.productId) === productId);
             let nextModalItems = [];
             if (existingIdx !== -1) {
                 nextModalItems = modalItems.map((i) => {
-                    if (i.productId !== productId) return i;
+                    if (Number(i.productId) !== productId) return i;
                     const nextQty = (i.quantity || 0) + quantity;
                     return {
                         ...i,
@@ -539,7 +679,8 @@ class AdminOnlineOrdersPage extends React.Component {
             this.setState({
                 modalItems: nextModalItems,
                 addProductId: '',
-                addProductQty: 1,
+                addProductQty: '1',
+                addProductQtyError: '',
             });
         } catch (err) {
             const rawMsg = err?.response?.data?.errorKey || err?.response?.data?.message || err?.message;
@@ -1185,13 +1326,17 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                 {langCtx.getText('quantity')}
                                                             </label>
                                                             <input
-                                                                type="number"
-                                                                className="form-control"
-                                                                min="1"
+                                                                type="text"
+                                                                inputMode="numeric"
+                                                                pattern="[0-9]*"
+                                                                className={`form-control ${this.state.addProductQtyError ? 'is-invalid' : ''}`}
                                                                 value={addProductQty}
                                                                 onChange={this.onChangeAddProductQty}
                                                                 disabled={actionLoading}
                                                             />
+                                                            {this.state.addProductQtyError && (
+                                                                <div className="invalid-feedback">{this.state.addProductQtyError}</div>
+                                                            )}
                                                         </div>
                                                         <div className="col-6 col-md-2 d-grid">
                                                             <button
@@ -1281,6 +1426,15 @@ class AdminOnlineOrdersPage extends React.Component {
                                                             >
                                                                 {langCtx.getText('total')}
                                                             </th>
+
+                                                            {isAcceptedEditable && (
+                                                                <th
+                                                                    className="text-center"
+                                                                    style={{ width: '72px', padding: '0.55rem 0.5rem' }}
+                                                                >
+                                                                    {langCtx.getText('remove')}
+                                                                </th>
+                                                            )}
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -1381,6 +1535,24 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                     >
                                                                         ₹{Number(item.total || 0).toFixed(2)}
                                                                     </td>
+
+                                                                    {isAcceptedEditable && (
+                                                                        <td
+                                                                            className="text-center"
+                                                                            style={{ padding: '0.55rem 0.5rem' }}
+                                                                        >
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn btn-outline-danger btn-sm"
+                                                                                onClick={() => this.removeItemFromOrder(item.productId)}
+                                                                                disabled={actionLoading}
+                                                                                title={langCtx.getText('remove')}
+                                                                                style={{ lineHeight: 1, fontWeight: 800 }}
+                                                                            >
+                                                                                ❌
+                                                                            </button>
+                                                                        </td>
+                                                                    )}
                                                                 </tr>
                                                             );
                                                         })}

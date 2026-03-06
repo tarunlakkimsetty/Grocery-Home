@@ -27,6 +27,7 @@ class CartPage extends React.Component {
         super(props);
         this.state = {
             paymentMethod: 'Cash',
+            isCOD: false,
             loading: false,
             redirectTo: null,
             searchQuery: '',
@@ -137,7 +138,7 @@ class CartPage extends React.Component {
             return <Navigate to={this.state.redirectTo} replace />;
         }
 
-        const isCOD = this.state.paymentMethod === 'Cash on Delivery';
+        const isCOD = !!this.state.isCOD;
 
         return (
             <LanguageContext.Consumer>
@@ -282,13 +283,20 @@ class CartPage extends React.Component {
                                                                     <select
                                                                         className="form-select"
                                                                         value={this.state.paymentMethod}
-                                                                        onChange={(e) => this.setState({ paymentMethod: e.target.value })}
+                                                                        onChange={(e) => this.setState({ paymentMethod: e.target.value, isCOD: false })}
                                                                     >
                                                                         <option value="Cash">💵 {langCtx.getText('cash')}</option>
                                                                         <option value="Card">💳 {langCtx.getText('card')}</option>
                                                                         <option value="UPI">📱 {langCtx.getText('upi')}</option>
-                                                                        <option value="Cash on Delivery">🛵 {langCtx.getText('cashOnDelivery')}</option>
                                                                     </select>
+
+                                                                    <PrimaryButton
+                                                                        onClick={() => this.setState({ isCOD: true })}
+                                                                        disabled={this.state.loading || isCOD}
+                                                                        style={{ width: '100%', marginTop: '0.75rem', padding: '0.65rem' }}
+                                                                    >
+                                                                        🛵 {langCtx.getText('cashOnDelivery')}
+                                                                    </PrimaryButton>
                                                                 </div>
 
                                                                 {isCOD ? (

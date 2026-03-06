@@ -184,7 +184,8 @@ class AdminOfflineOrdersPage extends React.Component {
             createItems: [],
             selectedProducts: [],
             createAddProductId: '',
-            createAddQty: 1,
+            createAddQty: '1',
+            createAddQtyError: '',
 
             // View Order Details Modal
             modalOpen: false,
@@ -433,7 +434,8 @@ class AdminOfflineOrdersPage extends React.Component {
             createItems: [],
             selectedProducts: [],
             createAddProductId: '',
-            createAddQty: 1,
+            createAddQty: '1',
+            createAddQtyError: '',
         });
     };
 
@@ -446,8 +448,16 @@ class AdminOfflineOrdersPage extends React.Component {
     };
 
     onCreateAddQtyChange = (e) => {
-        const qty = Math.max(1, parseInt(e.target.value, 10) || 1);
-        this.setState({ createAddQty: qty });
+        const raw = String(e?.target?.value ?? '');
+        if (raw === '') {
+            this.setState({ createAddQty: '', createAddQtyError: '' });
+            return;
+        }
+
+        // Allow only digits (prevents -, e, ., and other non-numeric chars)
+        if (!/^\d+$/.test(raw)) return;
+
+        this.setState({ createAddQty: raw, createAddQtyError: '' });
     };
 
     addItemToCreate = () => {
@@ -464,7 +474,15 @@ class AdminOfflineOrdersPage extends React.Component {
             return;
         }
 
-        const quantity = Math.max(1, parseInt(createAddQty, 10) || 1);
+        const qtyNum = parseInt(String(createAddQty || ''), 10);
+        if (!Number.isFinite(qtyNum) || qtyNum < 1) {
+            const msg = 'Quantity must be greater than or equal to 1';
+            this.setState({ createAddQtyError: msg });
+            toast.error(msg);
+            return;
+        }
+
+        const quantity = qtyNum;
         const stock = Number(product?.stock);
         if (Number.isFinite(stock) && stock >= 0 && quantity > stock) {
             toast.error('Quantity exceeds stock limit');
@@ -505,7 +523,8 @@ class AdminOfflineOrdersPage extends React.Component {
             // Reset all selections after product list updates
             selectedProducts: [],
             createAddProductId: '',
-            createAddQty: 1,
+            createAddQty: '1',
+            createAddQtyError: '',
         });
     };
 
@@ -1419,12 +1438,16 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     <div className="col-6 col-md-3">
                                                         <label className="form-label small fw-semibold mb-1">{langCtx.getText('quantity')}</label>
                                                         <input
-                                                            type="number"
-                                                            className="form-control"
-                                                            min="1"
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            pattern="[0-9]*"
+                                                            className={`form-control ${this.state.createAddQtyError ? 'is-invalid' : ''}`}
                                                             value={createAddQty}
                                                             onChange={this.onCreateAddQtyChange}
                                                         />
+                                                        {this.state.createAddQtyError && (
+                                                            <div className="invalid-feedback">{this.state.createAddQtyError}</div>
+                                                        )}
                                                     </div>
                                                     <div className="col-6 col-md-2 d-grid">
                                                         <button
