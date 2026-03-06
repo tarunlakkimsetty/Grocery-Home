@@ -6,6 +6,7 @@ const {
     getMonthlyAnalytics,
     getTotalAnalytics,
     getDashboardAnalytics,
+    getSalesSummaryByDateRange,
 } = require('../controllers/analyticsController');
 const { analyticsValidators } = require('../middleware/validationMiddleware');
 
@@ -24,5 +25,8 @@ router.get('/total', getTotalAnalytics);
 
 // GET /api/admin/analytics/dashboard - Sales Analytics page payload
 router.get('/dashboard', getDashboardAnalytics);
+
+// GET /api/admin/analytics/sales-summary - Date-range summary (online + offline)
+router.get('/sales-summary', analyticsValidators.salesSummary, getSalesSummaryByDateRange);
 
 module.exports = router;

@@ -385,10 +385,10 @@ const orderService = {
             const status = String(order.status || '').trim().toLowerCase();
             const paymentStatus = String(order.paymentStatus || '').trim().toLowerCase();
             const isLocked = Boolean(order.isPaid) || paymentStatus === 'paid' || status === 'paid' || status === 'completed' || status === 'mark paid';
-            if (isLocked) throw new Error('Advance amount cannot be updated after Paid/Completed');
+            if (isLocked) throw new Error('Amount paid cannot be updated after Paid/Completed');
 
             const num = Number(advanceAmount);
-            if (!Number.isFinite(num) || num < 0) throw new Error('Invalid advance amount');
+            if (!Number.isFinite(num) || num < 0) throw new Error('Invalid amount paid');
 
             order.advanceAmount = num;
             return { success: true, order };

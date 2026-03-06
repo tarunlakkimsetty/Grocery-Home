@@ -2,6 +2,7 @@ import React from 'react';
 import analyticsService from '../services/analyticsService';
 import LanguageContext from '../context/LanguageContext';
 import Spinner from '../components/Spinner';
+import DateSalesSummary from '../components/DateSalesSummary';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { StatsCard } from '../styledComponents/CardStyles';
 
@@ -60,6 +61,9 @@ class AnalyticsPage extends React.Component {
                             <h1>📊 {langCtx.getText('salesAnalytics')}</h1>
                             <p>{langCtx.getText('dashboardStats')}</p>
                         </PageHeader>
+
+                        {/* Date-based Sales Summary (added feature; existing analytics remain unchanged below) */}
+                        <DateSalesSummary />
 
                         {/* Stats Cards */}
                         <div className="row g-3 mb-4">

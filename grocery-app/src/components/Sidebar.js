@@ -104,10 +104,16 @@ class Sidebar extends React.Component {
                                                 <span className="item-label">{langCtx.getText('addProduct')}</span>
                                             </SidebarItem>
                                         </Link>
-                                        <Link to="/admin/bills" style={{ textDecoration: 'none' }}>
+                                        <Link to="/admin/online-bills" style={{ textDecoration: 'none' }}>
                                             <SidebarItem>
                                                 <span className="item-icon">🧾</span>
-                                                <span className="item-label">{langCtx.getText('bills')}</span>
+                                                <span className="item-label">Online Bills</span>
+                                            </SidebarItem>
+                                        </Link>
+                                        <Link to="/admin/offline-bills" style={{ textDecoration: 'none' }}>
+                                            <SidebarItem>
+                                                <span className="item-icon">🧾</span>
+                                                <span className="item-label">Offline Bills</span>
                                             </SidebarItem>
                                         </Link>
                                         <Link to="/admin/analytics" style={{ textDecoration: 'none' }}>

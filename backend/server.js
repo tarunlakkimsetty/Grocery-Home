@@ -59,6 +59,31 @@ const ensurePaymentMethodColumn = async () => {
     }
 };
 
+const ensureOrderPaymentHistoryTable = async () => {
+    try {
+        await promisePool.query(`
+            CREATE TABLE IF NOT EXISTS order_payment_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                orderId INT NOT NULL,
+                deltaAmount DECIMAL(12,2) NOT NULL,
+                updatedByUserId INT NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_order_payment_history_orderId (orderId),
+                INDEX idx_order_payment_history_createdAt (createdAt),
+                CONSTRAINT fk_order_payment_history_orderId_orders
+                    FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE ON UPDATE RESTRICT,
+                CONSTRAINT fk_order_payment_history_updatedBy_users
+                    FOREIGN KEY (updatedByUserId) REFERENCES users(id) ON DELETE SET NULL ON UPDATE RESTRICT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✓ order_payment_history table ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        // Don’t fail server start; log and continue.
+        console.log('! Could not ensure order_payment_history table:', msg);
+    }
+};
+
 // Start server after testing database connection
 const startServer = async () => {
     // Test database connection
@@ -77,6 +102,9 @@ const startServer = async () => {
 
     // Best-effort: store payment method for analytics
     await ensurePaymentMethodColumn();
+
+    // Best-effort: track advance payment updates
+    await ensureOrderPaymentHistoryTable();
 
     // Start Express server
     app.listen(config.port, () => {

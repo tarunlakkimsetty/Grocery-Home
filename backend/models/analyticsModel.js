@@ -421,7 +421,62 @@ const Analytics = {
                 orders: m.orders
             }))
         };
-    }
+    },
+
+    /**
+     * Get sales summary for a given date range (inclusive).
+     * This is designed for the Admin Sales Analytics dashboard date filter.
+     *
+     * Totals include BOTH online and offline orders.
+     * - totalSalesAmount + totalProductsSold are computed from completed/paid orders
+     *   and sum only selected items (order_items.isSelected).
+     * - totalBillsGenerated counts ALL orders created in the given range.
+     */
+    getSalesSummaryByDateRange: async ({ startDate, endDate }) => {
+        const completedWhere = `(LOWER(o.status) = 'completed' OR o.isPaid = TRUE OR o.paymentStatus = 'Paid')`;
+
+        // Use a consistent date source for filtering.
+        const dateExpr = `DATE(COALESCE(o.orderDate, o.createdAt, o.updatedAt))`;
+
+        const [billsRows] = await promisePool.query(
+            `SELECT
+                COUNT(*) AS totalBillsGenerated
+             FROM orders o
+             WHERE ${dateExpr} BETWEEN ? AND ?`,
+            [startDate, endDate]
+        );
+
+        const [salesRows] = await promisePool.query(
+            `SELECT
+                COALESCE(SUM(
+                    CASE
+                        WHEN (oi.isSelected IS NULL OR oi.isSelected = TRUE)
+                        THEN COALESCE(oi.total, (COALESCE(oi.quantity, 0) * COALESCE(oi.price, 0)), 0)
+                        ELSE 0
+                    END
+                ), 0) AS totalSalesAmount,
+                COALESCE(SUM(
+                    CASE
+                        WHEN (oi.isSelected IS NULL OR oi.isSelected = TRUE)
+                        THEN COALESCE(oi.quantity, 0)
+                        ELSE 0
+                    END
+                ), 0) AS totalProductsSold
+             FROM orders o
+             LEFT JOIN order_items oi ON oi.orderId = o.id
+             WHERE ${completedWhere}
+               AND ${dateExpr} BETWEEN ? AND ?`,
+            [startDate, endDate]
+        );
+
+        return {
+            startDate,
+            endDate,
+            totalSalesAmount: Number(salesRows?.[0]?.totalSalesAmount || 0) || 0,
+            totalBillsGenerated: Number(billsRows?.[0]?.totalBillsGenerated || 0) || 0,
+            totalProductsSold: Number(salesRows?.[0]?.totalProductsSold || 0) || 0,
+        };
+    },
 };
 
 module.exports = Analytics;

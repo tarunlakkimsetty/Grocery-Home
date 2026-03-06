@@ -89,29 +89,25 @@ class BillHistoryPage extends React.Component {
     };
 
     openOrderModal = async (order) => {
-        const { user } = this.context;
-        const userId = user ? user.id : 2;
         this.setState({ orderModalOpen: true, selectedOrder: order, orderModalLoading: true });
         try {
             const { activeTab } = this.state;
 
+            // Offline orders are phone-linked and can 403 on /orders/:id (customerId mismatch).
             if (activeTab === 'offlineOrders') {
                 const resp = await orderService.getUserOfflineOrders();
                 const offlineOrders = Array.isArray(resp)
                     ? resp
-                    : (resp?.data || resp?.orders || []);
-                const fresh = offlineOrders.find((o) => o.id === order.id);
+                    : (resp?.data?.orders || resp?.orders || resp?.data || []);
+                const fresh = (Array.isArray(offlineOrders) ? offlineOrders : []).find((o) => o.id === order.id);
                 this.setState({ selectedOrder: fresh || order, orderModalLoading: false, offlineOrders });
                 return;
             }
 
-            // Online Orders tab: re-fetch from customer endpoint to reflect latest status
-            const ordersResponse = await orderService.getCustomerOrders(userId);
-            const orders = Array.isArray(ordersResponse) 
-                ? ordersResponse 
-                : (ordersResponse?.data || ordersResponse?.orders || []);
-            const fresh = orders.find((o) => o.id === order.id);
-            this.setState({ selectedOrder: fresh || order, orderModalLoading: false, orders });
+            // Online orders: safe to fetch by id (authorization checks customerId)
+            const resp = await orderService.getOrderById(order.id);
+            const fresh = resp?.order || resp?.data?.order || resp?.data || resp;
+            this.setState({ selectedOrder: fresh || order, orderModalLoading: false });
         } catch (err) {
             this.setState({ orderModalLoading: false });
         }
@@ -579,36 +575,111 @@ class BillHistoryPage extends React.Component {
                                                                 padding: '0.65rem 0.85rem',
                                                             }}
                                                         >
-                                                            <span className="fw-semibold text-muted">
-                                                                {langCtx.getText('advance')}:
-                                                            </span>
-                                                            <span className="fw-bold" style={{ color: '#495057', fontSize: '1.02rem' }}>
-                                                                ₹{this.getAdvanceAmount(selectedOrder).toFixed(2)}
-                                                            </span>
+                                                            {(() => {
+                                                                const total = this.getOrderTotal(selectedOrder);
+                                                                const remaining = this.getRemainingBalance(selectedOrder);
+                                                                const isFullyPaid = Number(remaining || 0) === 0;
+                                                                return isFullyPaid ? (
+                                                                    <>
+                                                                        <span className="fw-semibold text-muted">Total Amount Paid:</span>
+                                                                        <span className="fw-bold" style={{ color: '#2E7D32', fontSize: '1.02rem' }}>
+                                                                            ₹{Number(total || 0).toFixed(2)}
+                                                                        </span>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <span className="fw-semibold text-muted">{langCtx.getText('advance')}:</span>
+                                                                        <span className="fw-bold" style={{ color: '#495057', fontSize: '1.02rem' }}>
+                                                                            ₹{this.getAdvanceAmount(selectedOrder).toFixed(2)}
+                                                                        </span>
+                                                                    </>
+                                                                );
+                                                            })()}
                                                         </div>
 
-                                                        <div
-                                                            className="d-flex justify-content-between align-items-center mt-2"
-                                                            style={{
-                                                                background: '#f8f9fa',
-                                                                border: '1px solid #e9ecef',
-                                                                borderRadius: '8px',
-                                                                padding: '0.65rem 0.85rem',
-                                                            }}
-                                                        >
-                                                            <span className="fw-semibold text-muted">
-                                                                {langCtx.getText('remaining')}:
-                                                            </span>
-                                                            <span
-                                                                className="fw-bold"
-                                                                style={{
-                                                                    color: this.getRemainingBalance(selectedOrder) < 0 ? '#c62828' : '#2E7D32',
-                                                                    fontSize: '1.02rem',
-                                                                }}
-                                                            >
-                                                                ₹{this.getRemainingBalance(selectedOrder).toFixed(2)}
-                                                            </span>
-                                                        </div>
+                                                        {(() => {
+                                                            const remaining = this.getRemainingBalance(selectedOrder);
+                                                            const isFullyPaid = Number(remaining || 0) === 0;
+                                                            if (isFullyPaid) return null;
+                                                            return (
+                                                                <div
+                                                                    className="d-flex justify-content-between align-items-center mt-2"
+                                                                    style={{
+                                                                        background: '#f8f9fa',
+                                                                        border: '1px solid #e9ecef',
+                                                                        borderRadius: '8px',
+                                                                        padding: '0.65rem 0.85rem',
+                                                                    }}
+                                                                >
+                                                                    <span className="fw-semibold text-muted">{langCtx.getText('remaining')}:</span>
+                                                                    <span
+                                                                        className="fw-bold"
+                                                                        style={{
+                                                                            color: remaining < 0 ? '#c62828' : '#2E7D32',
+                                                                            fontSize: '1.02rem',
+                                                                        }}
+                                                                    >
+                                                                        ₹{Number(remaining || 0).toFixed(2)}
+                                                                    </span>
+                                                                </div>
+                                                            );
+                                                        })()}
+
+                                                        {(() => {
+                                                            const history = Array.isArray(selectedOrder?.paymentHistory)
+                                                                ? selectedOrder.paymentHistory
+                                                                : [];
+                                                            if (history.length === 0) return null;
+                                                            const totalAdvance = this.getAdvanceAmount(selectedOrder);
+                                                            return (
+                                                                <div
+                                                                    style={{
+                                                                        background: '#fff',
+                                                                        border: '1px solid #e9ecef',
+                                                                        borderRadius: '8px',
+                                                                        padding: '0.9rem 1rem',
+                                                                        marginTop: '1rem',
+                                                                    }}
+                                                                >
+                                                                    <div className="fw-bold mb-2" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                                                                        🧾 Payment Update History
+                                                                    </div>
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                                        {history.map((h, idx) => {
+                                                                            const delta = Number(h?.deltaAmount || 0) || 0;
+                                                                            const label = delta >= 0 ? 'Amount Paid Added' : 'Amount Paid Reduced';
+                                                                            const amount = Math.abs(delta);
+                                                                            const when = this.formatDate(h?.createdAt);
+                                                                            return (
+                                                                                <div
+                                                                                    key={String(h?.id ?? idx)}
+                                                                                    style={{
+                                                                                        border: '1px solid #f1f3f5',
+                                                                                        background: '#f8f9fa',
+                                                                                        borderRadius: '8px',
+                                                                                        padding: '0.65rem 0.8rem',
+                                                                                    }}
+                                                                                >
+                                                                                    <div className="d-flex justify-content-between align-items-center" style={{ gap: '0.75rem' }}>
+                                                                                        <div className="fw-semibold" style={{ fontSize: '0.92rem' }}>
+                                                                                            {label}: ₹{amount.toFixed(2)}
+                                                                                        </div>
+                                                                                        <div className="text-muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                                                                            {when}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+
+                                                                    <div className="d-flex justify-content-between align-items-center mt-3" style={{ fontSize: '0.9rem' }}>
+                                                                        <span className="text-muted fw-semibold">Total Amount Paid</span>
+                                                                        <span className="fw-bold">₹{Number(totalAdvance || 0).toFixed(2)}</span>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </>
                                                 )}
                                             </div>

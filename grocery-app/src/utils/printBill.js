@@ -188,7 +188,7 @@ export const openBillPrintWindow = (billPayload) => {
 
                 <div class="totals">
                     <div class="totals-row"><span>${escapeHtml(tr('billAmount', 'Bill Amount'))}</span><strong>${formatCurrency(totals?.totalAmount)}</strong></div>
-                    <div class="totals-row"><span>${escapeHtml(tr('advance', 'Advance'))}</span><strong>${formatCurrency(totals?.advanceAmount)}</strong></div>
+                    <div class="totals-row"><span>${escapeHtml(tr('advance', 'Amount Paid'))}</span><strong>${formatCurrency(totals?.advanceAmount)}</strong></div>
                     <div class="totals-row total"><span>${escapeHtml(tr('remaining', 'Remaining Amount'))}</span><strong>${formatCurrency(totals?.remainingBalance)}</strong></div>
                 </div>
 

@@ -232,6 +232,15 @@ const analyticsValidators = {
             .optional()
             .isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
         validate
+    ],
+    salesSummary: [
+        query('startDate')
+            .notEmpty().withMessage('startDate is required')
+            .isDate().withMessage('startDate must be in YYYY-MM-DD format'),
+        query('endDate')
+            .notEmpty().withMessage('endDate is required')
+            .isDate().withMessage('endDate must be in YYYY-MM-DD format'),
+        validate
     ]
 };
 

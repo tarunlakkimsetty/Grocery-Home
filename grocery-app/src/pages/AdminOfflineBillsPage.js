@@ -6,16 +6,14 @@ import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { TableWrapper, Badge, EmptyState } from '../styledComponents/FormStyles';
 
-class AdminBillsPage extends React.Component {
+class AdminOfflineBillsPage extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            onlineBills: [],
-            offlineBills: [],
+            bills: [],
             loading: true,
             error: null,
 
-            // Search + View modal
             searchQuery: '',
             selectedOrder: null,
             showModal: false,
@@ -29,25 +27,16 @@ class AdminBillsPage extends React.Component {
     fetchBills = async () => {
         this.setState({ loading: true });
         try {
-            const { searchQuery } = this.state;
-            const [onlineBills, offlineBills] = await Promise.all([
-                orderService.getBillsOrders('Online', searchQuery),
-                orderService.getBillsOrders('Offline', searchQuery),
-            ]);
-
-            this.setState({
-                onlineBills: Array.isArray(onlineBills) ? onlineBills : [],
-                offlineBills: Array.isArray(offlineBills) ? offlineBills : [],
-                loading: false,
-            });
+            const bills = await orderService.getBillsOrders('Offline');
+            this.setState({ bills: Array.isArray(bills) ? bills : [], loading: false });
         } catch (err) {
-            this.setState({ error: 'Failed to load bills', loading: false });
-            toast.error('Failed to load bills');
+            this.setState({ error: 'Failed to load offline bills', loading: false });
+            toast.error('Failed to load offline bills');
         }
     };
 
     handleSearchChange = (e) => {
-        this.setState({ searchQuery: e.target.value }, () => this.fetchBills());
+        this.setState({ searchQuery: e.target.value });
     };
 
     handleViewOrder = async (orderId) => {
@@ -95,14 +84,36 @@ class AdminBillsPage extends React.Component {
         return 'badge-warning';
     };
 
-    renderBillsTable = (orders, emptyLabel) => {
+    normalizeForSearch = (val) => String(val ?? '').toLowerCase();
+
+    filterBills = (orders) => {
+        const qRaw = String(this.state.searchQuery || '').trim();
+        if (!qRaw) return orders;
+
+        const q = qRaw.toLowerCase();
+        const qDigits = qRaw.replace(/\D/g, '');
+
+        return (Array.isArray(orders) ? orders : []).filter((order) => {
+            const idStr = String(order?.id ?? '');
+            const nameStr = this.normalizeForSearch(order?.customerName);
+            const phoneStr = String(order?.phone || order?.customerPhone || '').replace(/\D/g, '');
+
+            const idMatch = idStr.includes(qRaw) || idStr.toLowerCase().includes(q);
+            const nameMatch = nameStr.includes(q);
+            const phoneMatch = qDigits ? phoneStr.includes(qDigits) : false;
+
+            return idMatch || nameMatch || phoneMatch;
+        });
+    };
+
+    renderBillsTable = (orders) => {
         const safeOrders = Array.isArray(orders) ? orders : [];
         if (safeOrders.length === 0) {
             return (
                 <EmptyState>
                     <div className="empty-icon">🧾</div>
-                    <h3>{emptyLabel}</h3>
-                    <p>No Completed/Rejected orders yet.</p>
+                    <h3>No offline bills</h3>
+                    <p>No Completed/Rejected offline orders yet.</p>
                 </EmptyState>
             );
         }
@@ -114,9 +125,9 @@ class AdminBillsPage extends React.Component {
                         <tr>
                             <th>Order ID</th>
                             <th>Customer Name</th>
-                            <th className="text-end">Total Amount</th>
-                            <th>Status</th>
+                            <th>Phone Number</th>
                             <th>Date</th>
+                            <th>Status</th>
                             <th className="text-center">Actions</th>
                         </tr>
                     </thead>
@@ -125,13 +136,13 @@ class AdminBillsPage extends React.Component {
                             <tr key={order.id}>
                                 <td className="fw-bold">#{order.id}</td>
                                 <td>{order.customerName || '-'}</td>
-                                <td className="text-end fw-bold">₹{Number(order.totalAmount || 0).toFixed(2)}</td>
+                                <td>{order.phone || '-'}</td>
+                                <td>{this.formatDate(this.getBillDate(order))}</td>
                                 <td>
                                     <Badge className={this.getStatusBadgeClass(order.status)}>
                                         {order.status}
                                     </Badge>
                                 </td>
-                                <td>{this.formatDate(this.getBillDate(order))}</td>
                                 <td className="text-center">
                                     <button
                                         type="button"
@@ -150,41 +161,33 @@ class AdminBillsPage extends React.Component {
     };
 
     render() {
-        const { onlineBills, offlineBills, loading, error } = this.state;
-        const onlineCount = Array.isArray(onlineBills) ? onlineBills.length : 0;
-        const offlineCount = Array.isArray(offlineBills) ? offlineBills.length : 0;
+        const { bills, loading, error } = this.state;
+        const safeBills = Array.isArray(bills) ? bills : [];
+        const filtered = this.filterBills(safeBills);
 
         return (
             <LanguageContext.Consumer>
                 {(langCtx) => (
                     <div>
                         <PageHeader>
-                            <h1>🧾 Bills</h1>
-                            <p>{onlineCount + offlineCount} orders • Completed / Rejected</p>
+                            <h1>🧾 Offline Bills</h1>
+                            <p>{filtered.length} orders • Completed / Rejected</p>
                         </PageHeader>
 
-                        <div className="mb-3" style={{ maxWidth: '420px' }}>
+                        <div className="mb-3" style={{ maxWidth: '520px' }}>
                             <input
                                 type="text"
                                 className="form-control"
-                                placeholder="Search by Customer Name"
+                                placeholder="Search by Order ID / Customer Name / Phone Number"
                                 value={this.state.searchQuery}
                                 onChange={this.handleSearchChange}
                             />
                         </div>
 
-                        {loading && <Spinner fullPage text="Loading bills..." />}
+                        {loading && <Spinner fullPage text="Loading offline bills..." />}
                         {error && <div className="alert alert-danger">{error}</div>}
 
-                        {!loading && !error && (
-                            <>
-                                <h3 style={{ marginTop: '1rem' }}>Online Bills</h3>
-                                {this.renderBillsTable(onlineBills, 'No online bills')}
-
-                                <h3 style={{ marginTop: '1.5rem' }}>Offline Bills</h3>
-                                {this.renderBillsTable(offlineBills, 'No offline bills')}
-                            </>
-                        )}
+                        {!loading && !error && this.renderBillsTable(filtered)}
 
                         {this.state.showModal && this.state.selectedOrder && (
                             <div
@@ -321,4 +324,4 @@ class AdminBillsPage extends React.Component {
     }
 }
 
-export default AdminBillsPage;
+export default AdminOfflineBillsPage;

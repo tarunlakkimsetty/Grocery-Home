@@ -215,7 +215,7 @@ const updateOrderAdvance = async (req, res, next) => {
             });
         }
 
-        await Order.updateAdvanceAmount(id, num);
+        await Order.updateAdvanceAmount(id, num, req.user?.id || null);
         const order = await Order.findById(id);
 
         res.status(200).json({
@@ -382,12 +382,49 @@ const getOrder = async (req, res, next) => {
         const computedTotalAmount = normalizedItems.reduce((sum, it) => sum + (Number(it?.subtotal || 0) || 0), 0);
         const totalAmountSafe = (existingTotalAmount > 0 ? existingTotalAmount : computedTotalAmount);
 
+        // Payment update history (delta-based)
+        let paymentHistory = [];
+        try {
+            const [historyRows] = await promisePool.query(
+                `SELECT id, deltaAmount, updatedByUserId, createdAt
+                 FROM order_payment_history
+                 WHERE orderId = ?
+                 ORDER BY createdAt ASC, id ASC`,
+                [orderId]
+            );
+            paymentHistory = (Array.isArray(historyRows) ? historyRows : []).map((r) => ({
+                id: Number(r.id || 0),
+                deltaAmount: Number(r.deltaAmount || 0) || 0,
+                updatedByUserId: r.updatedByUserId === null || r.updatedByUserId === undefined ? null : Number(r.updatedByUserId),
+                createdAt: r.createdAt,
+            }));
+        } catch (e) {
+            paymentHistory = [];
+        }
+
+        const advanceAmount = Number(order?.advanceAmount || 0) || 0;
+        const remainingBalance = (Number(totalAmountSafe || 0) || 0) - (Number(advanceAmount || 0) || 0);
+
+        if (paymentHistory.length === 0 && advanceAmount > 0) {
+            paymentHistory = [
+                {
+                    id: 0,
+                    deltaAmount: advanceAmount,
+                    updatedByUserId: null,
+                    createdAt: order?.updatedAt || order?.createdAt || order?.orderDate || null,
+                    synthetic: true,
+                },
+            ];
+        }
+
         res.json({
             success: true,
             order: {
                 ...order,
                 totalAmount: totalAmountSafe,
+                remainingBalance,
                 items: normalizedItems,
+                paymentHistory,
             }
         });
     } catch (error) {

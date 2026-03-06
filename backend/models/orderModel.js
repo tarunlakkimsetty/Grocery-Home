@@ -181,6 +181,39 @@ const Order = {
         const advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
         const remainingBalance = (Number(totalAmountSafe || 0) || 0) - (Number(advanceAmount || 0) || 0);
 
+        // Payment update history (delta-based)
+        let paymentHistory = [];
+        try {
+            const [historyRows] = await promisePool.query(
+                `SELECT id, deltaAmount, updatedByUserId, createdAt
+                 FROM order_payment_history
+                 WHERE orderId = ?
+                 ORDER BY createdAt ASC, id ASC`,
+                [id]
+            );
+            paymentHistory = (Array.isArray(historyRows) ? historyRows : []).map((r) => ({
+                id: Number(r.id || 0),
+                deltaAmount: Number(r.deltaAmount || 0) || 0,
+                updatedByUserId: r.updatedByUserId === null || r.updatedByUserId === undefined ? null : Number(r.updatedByUserId),
+                createdAt: r.createdAt,
+            }));
+        } catch (e) {
+            paymentHistory = [];
+        }
+
+        // Backward compatibility for older orders: if advance exists but no history rows, synthesize one entry.
+        if (paymentHistory.length === 0 && (Number(advanceAmount || 0) || 0) > 0) {
+            paymentHistory = [
+                {
+                    id: 0,
+                    deltaAmount: Number(advanceAmount || 0) || 0,
+                    updatedByUserId: null,
+                    createdAt: order?.updatedAt || order?.createdAt || order?.orderDate || null,
+                    synthetic: true,
+                },
+            ];
+        }
+
         return {
             ...order,
             totalAmount: totalAmountSafe,
@@ -189,7 +222,8 @@ const Order = {
             items: itemRows.map((it) => ({
                 ...it,
                 name: it.productName
-            }))
+            })),
+            paymentHistory,
         };
     },
 
@@ -199,7 +233,7 @@ const Order = {
      * - advanceAmount must be numeric and >= 0
      * - Not allowed once order is Paid or Completed
      */
-    updateAdvanceAmount: async (orderId, advanceAmount) => {
+    updateAdvanceAmount: async (orderId, advanceAmount, updatedByUserId = null) => {
         const connection = await promisePool.getConnection();
         try {
             await connection.beginTransaction();
@@ -226,10 +260,28 @@ const Order = {
             if (!Number.isFinite(num)) throw new Error('Advance amount must be a valid number');
             if (num < 0) throw new Error('Advance amount cannot be negative');
 
+            const prevAdvanceRaw = Number(order?.advanceAmount || 0);
+            const prevAdvance = Number.isFinite(prevAdvanceRaw) ? prevAdvanceRaw : 0;
+            const delta = (Number(num || 0) || 0) - (Number(prevAdvance || 0) || 0);
+
             await connection.query(
                 'UPDATE orders SET advanceAmount = ? WHERE id = ?',
                 [num, orderId]
             );
+
+            // Track incremental change (delta). This enables a clear step-by-step payment history.
+            // If delta is 0, nothing changed.
+            if (Number.isFinite(delta) && delta !== 0) {
+                try {
+                    await connection.query(
+                        'INSERT INTO order_payment_history (orderId, deltaAmount, updatedByUserId) VALUES (?, ?, ?)',
+                        [orderId, delta, updatedByUserId ? Number(updatedByUserId) : null]
+                    );
+                } catch (e) {
+                    // If the history table doesn't exist yet, don't fail the update.
+                    // Server start best-effort should create it.
+                }
+            }
 
             await connection.commit();
             return true;
@@ -384,6 +436,44 @@ const Order = {
             const advanceAmountSafe = Number(order?.advanceAmount || 0);
             order.advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
             order.remainingBalance = totalAmountSafe - (Number(order.advanceAmount || 0) || 0);
+
+            // Payment update history (delta-based)
+            // Best-effort: don't fail the whole endpoint if table isn't present yet.
+            let paymentHistory = [];
+            try {
+                const [historyRows] = await promisePool.query(
+                    `SELECT id, deltaAmount, updatedByUserId, createdAt
+                     FROM order_payment_history
+                     WHERE orderId = ?
+                     ORDER BY createdAt ASC, id ASC`,
+                    [order.id]
+                );
+                paymentHistory = (Array.isArray(historyRows) ? historyRows : []).map((r) => ({
+                    id: Number(r.id || 0),
+                    deltaAmount: Number(r.deltaAmount || 0) || 0,
+                    updatedByUserId:
+                        r.updatedByUserId === null || r.updatedByUserId === undefined
+                            ? null
+                            : Number(r.updatedByUserId),
+                    createdAt: r.createdAt,
+                }));
+            } catch (e) {
+                paymentHistory = [];
+            }
+
+            if (paymentHistory.length === 0 && order.advanceAmount > 0) {
+                paymentHistory = [
+                    {
+                        id: 0,
+                        deltaAmount: order.advanceAmount,
+                        updatedByUserId: null,
+                        createdAt: order?.updatedAt || order?.createdAt || order?.orderDate || null,
+                        synthetic: true,
+                    },
+                ];
+            }
+
+            order.paymentHistory = paymentHistory;
         }
 
         return orders;

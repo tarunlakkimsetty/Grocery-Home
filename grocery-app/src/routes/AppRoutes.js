@@ -9,7 +9,8 @@ import CartPage from '../pages/CartPage';
 import BillHistoryPage from '../pages/BillHistoryPage';
 import BillDetailsPage from '../pages/BillDetailsPage';
 import AddProductPage from '../pages/AddProductPage';
-import AdminBillsPage from '../pages/AdminBillsPage';
+import AdminOnlineBillsPage from '../pages/AdminOnlineBillsPage';
+import AdminOfflineBillsPage from '../pages/AdminOfflineBillsPage';
 import AnalyticsPage from '../pages/AnalyticsPage';
 import AdminOnlineOrdersPage from '../pages/AdminOnlineOrdersPage';
 import AdminOfflineOrdersPage from '../pages/AdminOfflineOrdersPage';
@@ -100,7 +101,23 @@ class AppRoutes extends React.Component {
                     path="/admin/bills"
                     element={
                         <RoleBasedRoute allowedRoles={['admin']}>
-                            <AdminBillsPage />
+                            <Navigate to="/admin/online-bills" replace />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/online-bills"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminOnlineBillsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/offline-bills"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminOfflineBillsPage />
                         </RoleBasedRoute>
                     }
                 />

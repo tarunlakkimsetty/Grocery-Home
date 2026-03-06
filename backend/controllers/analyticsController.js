@@ -78,9 +78,30 @@ const getDashboardAnalytics = async (req, res, next) => {
     }
 };
 
+/**
+ * @desc    Get sales summary by date range (for Sales Analytics dashboard filter)
+ * @route   GET /api/admin/analytics/sales-summary
+ * @access  Private/Admin
+ * @query   startDate (required) - YYYY-MM-DD
+ * @query   endDate (required) - YYYY-MM-DD
+ */
+const getSalesSummaryByDateRange = async (req, res, next) => {
+    try {
+        const { startDate, endDate } = req.query || {};
+        const data = await Analytics.getSalesSummaryByDateRange({ startDate, endDate });
+        res.status(200).json({
+            success: true,
+            data,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     getDailyAnalytics,
     getMonthlyAnalytics,
     getTotalAnalytics,
     getDashboardAnalytics,
+    getSalesSummaryByDateRange,
 };

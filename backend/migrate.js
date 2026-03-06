@@ -237,6 +237,18 @@ const createCoreTables = async () => {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS order_payment_history (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            orderId INT NOT NULL,
+            deltaAmount DECIMAL(12,2) NOT NULL,
+            updatedByUserId INT NULL,
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_order_payment_history_orderId (orderId),
+            INDEX idx_order_payment_history_createdAt (createdAt)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     console.log('✓ core tables ensured');
 };
 

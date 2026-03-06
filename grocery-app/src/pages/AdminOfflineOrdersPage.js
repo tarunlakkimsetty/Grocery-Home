@@ -677,11 +677,21 @@ class AdminOfflineOrdersPage extends React.Component {
 
     // ─── View Order Details Modal ────────────────────────────────────────────
 
-    openModal = (order) => {
-        const orderId = order.id;
-        const isLocked = String(order?.status || '').trim() !== 'Pending';
+    openModal = async (order) => {
+        if (!order?.id) return;
 
-        const normalizedItems = (order.items || []).map((i) => {
+        let orderForModal = order;
+        try {
+            const resp = await orderService.getOrderById(order.id);
+            orderForModal = resp?.order || resp?.data?.order || resp?.data || resp || order;
+        } catch {
+            orderForModal = order;
+        }
+
+        const orderId = orderForModal.id;
+        const isLocked = String(orderForModal?.status || '').trim() !== 'Pending';
+
+        const normalizedItems = (orderForModal.items || []).map((i) => {
             const qty = Math.max(0, parseInt(i.quantity, 10) || 0);
             const price = parseFloat(i.price) || 0;
             return {
@@ -706,7 +716,7 @@ class AdminOfflineOrdersPage extends React.Component {
         }
 
         this.setState({
-            selectedOrder: order,
+            selectedOrder: orderForModal,
             modalOpen: true,
             modalItems: normalizedItems,
             checkedItems: {
@@ -1853,6 +1863,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     ? Number(selectedOrder.remainingBalance)
                                                     : (total - advance);
                                                 const remainingColor = remaining < 0 ? '#c62828' : '#2E7D32';
+                                                const isFullyPaid = Number(remaining || 0) === 0;
 
                                                 return (
                                                     <div
@@ -1865,16 +1876,85 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         }}
                                                     >
                                                         <div className="d-flex flex-column" style={{ gap: '0.1rem' }}>
-                                                            <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
-                                                                {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{(Number(advance) || 0).toFixed(2)}</span>
-                                                            </span>
-                                                            <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
-                                                                {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{(Number(remaining) || 0).toFixed(2)}</span>
-                                                            </span>
+                                                            {isFullyPaid ? (
+                                                                <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
+                                                                    Total Amount Paid:{' '}
+                                                                    <span className="fw-bold" style={{ color: '#2E7D32' }}>
+                                                                        ₹{(Number(total) || 0).toFixed(2)}
+                                                                    </span>
+                                                                </span>
+                                                            ) : (
+                                                                <>
+                                                                    <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
+                                                                        {langCtx.getText('advance')}: <span className="fw-bold" style={{ color: '#495057' }}>₹{(Number(advance) || 0).toFixed(2)}</span>
+                                                                    </span>
+                                                                    <span className="fw-semibold text-muted" style={{ fontSize: '0.82rem' }}>
+                                                                        {langCtx.getText('remaining')}: <span className="fw-bold" style={{ color: remainingColor }}>₹{(Number(remaining) || 0).toFixed(2)}</span>
+                                                                    </span>
+                                                                </>
+                                                            )}
                                                         </div>
                                                         <span className="text-muted" style={{ fontSize: '0.78rem' }}>
                                                             ({langCtx.getText('billAmount')}: ₹{(Number(total) || 0).toFixed(2)})
                                                         </span>
+                                                    </div>
+                                                );
+                                            })()}
+
+                                            {/* Payment Update History */}
+                                            {(() => {
+                                                const history = Array.isArray(selectedOrder?.paymentHistory)
+                                                    ? selectedOrder.paymentHistory
+                                                    : [];
+
+                                                if (history.length === 0) return null;
+
+                                                const totalAdvance = Number(selectedOrder?.advanceAmount || 0) || 0;
+
+                                                return (
+                                                    <div
+                                                        style={{
+                                                            background: '#fff',
+                                                            border: '1px solid #e9ecef',
+                                                            borderRadius: '8px',
+                                                            padding: '0.9rem 1rem',
+                                                            marginTop: '1rem',
+                                                        }}
+                                                    >
+                                                        <SectionTitle>🧾 Payment Update History</SectionTitle>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                                                            {history.map((h, idx) => {
+                                                                const delta = Number(h?.deltaAmount || 0) || 0;
+                                                                const label = delta >= 0 ? 'Amount Paid Added' : 'Amount Paid Reduced';
+                                                                const amount = Math.abs(delta);
+                                                                const when = this.formatDate(h?.createdAt);
+                                                                return (
+                                                                    <div
+                                                                        key={String(h?.id ?? idx)}
+                                                                        style={{
+                                                                            border: '1px solid #f1f3f5',
+                                                                            background: '#f8f9fa',
+                                                                            borderRadius: '8px',
+                                                                            padding: '0.65rem 0.8rem',
+                                                                        }}
+                                                                    >
+                                                                        <div className="d-flex justify-content-between align-items-center" style={{ gap: '0.75rem' }}>
+                                                                            <div className="fw-semibold" style={{ fontSize: '0.92rem' }}>
+                                                                                {label}: ₹{amount.toFixed(2)}
+                                                                            </div>
+                                                                            <div className="text-muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                                                                                {when}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+
+                                                        <div className="d-flex justify-content-between align-items-center mt-3" style={{ fontSize: '0.9rem' }}>
+                                                            <span className="text-muted fw-semibold">Total Amount Paid</span>
+                                                            <span className="fw-bold">₹{totalAdvance.toFixed(2)}</span>
+                                                        </div>
                                                     </div>
                                                 );
                                             })()}
