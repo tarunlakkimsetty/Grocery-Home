@@ -34,8 +34,26 @@ class ProductCard extends React.Component {
             editName: props.product.name,
             editPrice: props.product.price,
             editStock: props.product.stock,
+            editErrors: {},
         };
     }
+
+    validateEdit = () => {
+        const errors = {};
+
+        const priceNum = Number(this.state.editPrice);
+        if (!Number.isFinite(priceNum) || priceNum < 1) {
+            errors.price = 'Price must be greater than or equal to 1';
+        }
+
+        const stockNum = Number(this.state.editStock);
+        if (!Number.isFinite(stockNum) || stockNum < 0) {
+            errors.stock = 'Stock cannot be less than 0';
+        }
+
+        this.setState({ editErrors: errors });
+        return Object.keys(errors).length === 0;
+    };
 
     handleAddToCart = (cartCtx, langCtx) => {
         const { product } = this.props;
@@ -51,6 +69,8 @@ class ProductCard extends React.Component {
     };
 
     handleSaveEdit = (langCtx) => {
+        if (!this.validateEdit()) return;
+
         const { product, onUpdateProduct } = this.props;
         if (onUpdateProduct) {
             onUpdateProduct(product.id, {
@@ -59,7 +79,7 @@ class ProductCard extends React.Component {
                 stock: parseInt(this.state.editStock),
             });
         }
-        this.setState({ showEditModal: false });
+        this.setState({ showEditModal: false, editErrors: {} });
         toast.success(langCtx.getText('updateSuccess'));
     };
 
@@ -106,7 +126,15 @@ class ProductCard extends React.Component {
                                     {isAdmin ? (
                                         <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
                                             <WarningButton
-                                                onClick={() => this.setState({ showEditModal: true, editName: product.name, editPrice: product.price, editStock: product.stock })}
+                                                onClick={() =>
+                                                    this.setState({
+                                                        showEditModal: true,
+                                                        editName: product.name,
+                                                        editPrice: product.price,
+                                                        editStock: product.stock,
+                                                        editErrors: {},
+                                                    })
+                                                }
                                                 style={{ flex: 1 }}
                                             >
                                                 ✏️ {langCtx.getText('edit')}
@@ -167,22 +195,39 @@ class ProductCard extends React.Component {
                                                 <label className="form-label fw-semibold">{langCtx.getText('price')} (₹)</label>
                                                 <input
                                                     type="number"
-                                                    className="form-control"
+                                                    className={`form-control ${this.state.editErrors?.price ? 'is-invalid' : ''}`}
                                                     value={this.state.editPrice}
-                                                    onChange={(e) => this.setState({ editPrice: e.target.value })}
-                                                    min="0"
+                                                    onChange={(e) =>
+                                                        this.setState({
+                                                            editPrice: e.target.value,
+                                                            editErrors: { ...this.state.editErrors, price: undefined },
+                                                        })
+                                                    }
+                                                    min="1"
                                                     step="0.01"
                                                 />
+                                                {this.state.editErrors?.price && (
+                                                    <div className="invalid-feedback">{this.state.editErrors.price}</div>
+                                                )}
                                             </div>
                                             <div className="mb-3">
                                                 <label className="form-label fw-semibold">{langCtx.getText('stock')}</label>
                                                 <input
                                                     type="number"
-                                                    className="form-control"
+                                                    className={`form-control ${this.state.editErrors?.stock ? 'is-invalid' : ''}`}
                                                     value={this.state.editStock}
-                                                    onChange={(e) => this.setState({ editStock: e.target.value })}
+                                                    onChange={(e) =>
+                                                        this.setState({
+                                                            editStock: e.target.value,
+                                                            editErrors: { ...this.state.editErrors, stock: undefined },
+                                                        })
+                                                    }
                                                     min="0"
+                                                    step="1"
                                                 />
+                                                {this.state.editErrors?.stock && (
+                                                    <div className="invalid-feedback">{this.state.editErrors.stock}</div>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="modal-footer">

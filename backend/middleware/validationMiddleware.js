@@ -71,8 +71,11 @@ const productValidators = {
             .notEmpty().withMessage('Price is required')
             .custom((value) => {
                 const num = Number(value);
-                if (isNaN(num) || num < 0) {
-                    throw new Error('Price must be a positive number');
+                if (isNaN(num)) {
+                    throw new Error('Price must be a valid number');
+                }
+                if (num < 1) {
+                    throw new Error('Price must be greater than or equal to 1');
                 }
                 return true;
             }),
@@ -112,7 +115,7 @@ const productValidators = {
             .isLength({ max: 500 }).withMessage('Description cannot exceed 500 characters'),
         body('price')
             .optional()
-            .isFloat({ min: 0 }).withMessage('Price must be a positive number'),
+            .isFloat({ min: 1 }).withMessage('Price must be greater than or equal to 1'),
         body('stock')
             .optional()
             .isInt({ min: 0 }).withMessage('Stock must be a non-negative integer'),

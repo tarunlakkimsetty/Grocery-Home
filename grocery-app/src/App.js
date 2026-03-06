@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from 'styled-components';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -42,11 +42,14 @@ class AppContent extends React.Component {
   };
 
   handleSelectCategory = (category) => {
-    this.setState({ activeCategory: category, sidebarOpen: false });
-    // Navigate to products page
-    if (window.location.pathname !== '/products') {
-      window.location.href = '/products';
-    }
+    const { navigate, location } = this.props;
+
+    this.setState({ activeCategory: category, sidebarOpen: false }, () => {
+      // Navigate to products page (client-side) without losing selected category state.
+      if (location?.pathname !== '/products') {
+        navigate('/products');
+      }
+    });
   };
 
   render() {
@@ -98,7 +101,7 @@ class App extends React.Component {
           <LanguageProvider>
             <AuthProvider>
               <CartProvider>
-                <AppContent />
+                <AppContentWithRouter />
               </CartProvider>
             </AuthProvider>
           </LanguageProvider>
@@ -106,6 +109,12 @@ class App extends React.Component {
       </ThemeProvider>
     );
   }
+}
+
+function AppContentWithRouter() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return <AppContent navigate={navigate} location={location} />;
 }
 
 export default App;

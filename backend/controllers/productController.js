@@ -29,12 +29,12 @@ const createProduct = async (req, res, next) => {
             });
         }
 
-        // Validate price: must be positive number
+        // Validate price: must be >= 1
         const priceNum = Number(price);
-        if (price === undefined || isNaN(priceNum) || priceNum <= 0) {
+        if (price === undefined || isNaN(priceNum) || priceNum < 1) {
             return res.status(400).json({
                 success: false,
-                message: 'Price must be a positive number'
+                message: 'Price must be greater than or equal to 1'
             });
         }
 
@@ -161,11 +161,22 @@ const updateProduct = async (req, res, next) => {
         }
 
         // Validate price if provided
-        if (price !== undefined && (isNaN(price) || parseFloat(price) < 0)) {
+        if (price !== undefined && (isNaN(price) || parseFloat(price) < 1)) {
             return res.status(400).json({
                 success: false,
-                message: 'Price must be a valid positive number'
+                message: 'Price must be greater than or equal to 1'
             });
+        }
+
+        // Validate stock if provided
+        if (stock !== undefined) {
+            const stockNum = Number(stock);
+            if (!Number.isFinite(stockNum) || stockNum < 0 || !Number.isInteger(stockNum)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Stock must be a non-negative integer'
+                });
+            }
         }
 
         // Update product

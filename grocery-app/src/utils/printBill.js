@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 const escapeHtml = (value) => {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -5,6 +7,10 @@ const escapeHtml = (value) => {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+};
+
+const escapeHtmlWithBreaks = (value) => {
+    return escapeHtml(value).replace(/\n/g, '<br/>');
 };
 
 const formatCurrency = (value) => {
@@ -25,12 +31,33 @@ const formatDateTime = (value) => {
     });
 };
 
+const tr = (key, fallback) => {
+    const val = t(key);
+    return val && val !== key ? val : (fallback ?? key);
+};
+
+const formatPaymentMethod = (raw) => {
+    const v = String(raw || '').trim();
+    if (!v) return '—';
+    const normalized = v.toLowerCase();
+    if (normalized === 'cash') return tr('cash', 'Cash');
+    if (normalized === 'card') return tr('card', 'Card');
+    if (normalized === 'upi') return tr('upi', 'UPI');
+    return v;
+};
+
 export const openBillPrintWindow = (billPayload) => {
     const bill = billPayload?.bill || billPayload || {};
     const shop = bill.shop || {};
     const order = bill.order || {};
     const items = Array.isArray(bill.items) ? bill.items : [];
     const totals = bill.totals || {};
+
+    // Ensure shop header is fully localized (shop name/address are static app strings).
+    const headerShopName = tr('shopName', shop?.name || 'Shop');
+    const headerShopAddress = tr('address', shop?.address || '');
+    const headerShopPhone = shop?.phone || tr('phone', '—');
+    const headerShopGst = shop?.gst || null;
 
     const rows = items
         .map((item, index) => {
@@ -54,12 +81,12 @@ export const openBillPrintWindow = (billPayload) => {
         <html>
         <head>
             <meta charset="utf-8" />
-            <title>Invoice #${escapeHtml(order?.id || '')}</title>
+            <title>${escapeHtml(tr('bill', 'Bill'))} #${escapeHtml(order?.id || '')}</title>
             <style>
                 @page { size: A4; margin: 14mm; }
                 * { box-sizing: border-box; }
                 body {
-                    font-family: Arial, sans-serif;
+                    font-family: "Nirmala UI", "Noto Sans Telugu", Arial, sans-serif;
                     color: #222;
                     margin: 0;
                     font-size: 12px;
@@ -106,31 +133,29 @@ export const openBillPrintWindow = (billPayload) => {
         <body>
             <div class="invoice">
                 <div class="print-toolbar">
-                    <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+                    <button class="print-btn" onclick="window.print()">🖨️ ${escapeHtml(tr('printSavePdf', 'Print / Save as PDF'))}</button>
                 </div>
 
                 <div class="header">
-                    <p class="shop-name">${escapeHtml(shop?.name || 'Shop')}</p>
-                    <div class="muted">${escapeHtml(shop?.address || '')}</div>
-                    <div class="muted">Phone: ${escapeHtml(shop?.phone || '—')}</div>
-                    <div class="muted">GST: ${escapeHtml(shop?.gst || 'N/A')}</div>
+                    <p class="shop-name">${escapeHtml(headerShopName)}</p>
+                    <div class="muted">${escapeHtmlWithBreaks(headerShopAddress)}</div>
+                    <div class="muted">${escapeHtml(tr('phoneNumber', 'Phone Number'))}: ${escapeHtml(headerShopPhone)}</div>
+                    ${headerShopGst ? `<div class="muted">${escapeHtml(tr('gst', 'GST'))}: ${escapeHtml(headerShopGst)}</div>` : ''}
                 </div>
 
                 <div class="grid">
                     <div class="box">
-                        <h4>Order Details</h4>
-                        <div>Order ID: <strong>#${escapeHtml(order?.id || '')}</strong></div>
-                        <div>Order Date: ${escapeHtml(formatDateTime(order?.orderDate))}</div>
-                        <div>Order Type: ${escapeHtml(order?.orderType || '—')}</div>
-                        <div>Order Status: ${escapeHtml(order?.status || '—')}</div>
-                        <div>Payment Status: ${escapeHtml(order?.paymentStatus || '—')}</div>
+                        <h4>${escapeHtml(tr('orderDetails', 'Order Details'))}</h4>
+                        <div>${escapeHtml(tr('orderId', 'Order ID'))}: <strong>#${escapeHtml(order?.id || '')}</strong></div>
+                        <div>${escapeHtml(tr('orderDate', 'Order Date'))}: ${escapeHtml(formatDateTime(order?.orderDate))}</div>
+                        <div>${escapeHtml(tr('paymentMethod', 'Payment Method'))}: ${escapeHtml(formatPaymentMethod(order?.paymentMethod || 'Cash'))}</div>
                     </div>
                     <div class="box">
-                        <h4>Customer Details</h4>
-                        <div>Name: ${escapeHtml(order?.customerName || '—')}</div>
-                        <div>Phone: ${escapeHtml(order?.customerPhone || '—')}</div>
-                        <div>Place: ${escapeHtml(order?.place || '—')}</div>
-                        <div>Address: ${escapeHtml(order?.customerAddress || '—')}</div>
+                        <h4>${escapeHtml(tr('customerDetails', 'Customer Details'))}</h4>
+                        <div>${escapeHtml(tr('customerName', 'Customer Name'))}: ${escapeHtml(order?.customerName || '—')}</div>
+                        <div>${escapeHtml(tr('phoneNumber', 'Phone Number'))}: ${escapeHtml(order?.customerPhone || '—')}</div>
+                        <div>${escapeHtml(tr('placeCity', 'Place / City'))}: ${escapeHtml(order?.place || '—')}</div>
+                        <div>${escapeHtml(tr('addressLabel', 'Address'))}: ${escapeHtml(order?.customerAddress || '—')}</div>
                     </div>
                 </div>
 
@@ -138,24 +163,24 @@ export const openBillPrintWindow = (billPayload) => {
                     <thead>
                         <tr>
                             <th style="width: 50px;">#</th>
-                            <th>Product</th>
-                            <th style="width: 90px;" class="text-right">Qty</th>
-                            <th style="width: 120px;" class="text-right">Price</th>
-                            <th style="width: 120px;" class="text-right">Subtotal</th>
+                            <th>${escapeHtml(tr('productName', 'Product Name'))}</th>
+                            <th style="width: 90px;" class="text-right">${escapeHtml(tr('quantity', 'Quantity'))}</th>
+                            <th style="width: 120px;" class="text-right">${escapeHtml(tr('price', 'Price'))}</th>
+                            <th style="width: 120px;" class="text-right">${escapeHtml(tr('total', 'Total'))}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${rows || '<tr><td colspan="5" style="text-align:center;">No items</td></tr>'}
+                        ${rows || `<tr><td colspan="5" style="text-align:center;">${escapeHtml(tr('noItems', 'No items'))}</td></tr>`}
                     </tbody>
                 </table>
 
                 <div class="totals">
-                    <div class="totals-row"><span>Total Amount</span><strong>${formatCurrency(totals?.totalAmount)}</strong></div>
-                    <div class="totals-row"><span>Advance Amount</span><strong>${formatCurrency(totals?.advanceAmount)}</strong></div>
-                    <div class="totals-row total"><span>Remaining Balance</span><strong>${formatCurrency(totals?.remainingBalance)}</strong></div>
+                    <div class="totals-row"><span>${escapeHtml(tr('billAmount', 'Bill Amount'))}</span><strong>${formatCurrency(totals?.totalAmount)}</strong></div>
+                    <div class="totals-row"><span>${escapeHtml(tr('advance', 'Advance'))}</span><strong>${formatCurrency(totals?.advanceAmount)}</strong></div>
+                    <div class="totals-row total"><span>${escapeHtml(tr('remaining', 'Remaining Amount'))}</span><strong>${formatCurrency(totals?.remainingBalance)}</strong></div>
                 </div>
 
-                <div class="footer">Generated from Admin Portal. This is a print-friendly invoice copy.</div>
+                <div class="footer">${escapeHtml(tr('thankYou', 'Thank You'))}</div>
             </div>
         </body>
         </html>

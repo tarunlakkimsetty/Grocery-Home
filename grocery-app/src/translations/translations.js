@@ -13,6 +13,7 @@ export const translations = {
     phone: '9441754505',
     phoneLabel: 'Phone',
     phoneLink: '+91 9441754505',
+    phoneNumber: 'Phone Number',
 
     // Navigation & Layout
     home: 'Home',
@@ -111,6 +112,10 @@ export const translations = {
     advance: 'Advance',
     remaining: 'Remaining',
     paymentMethod: 'Payment Method',
+    bill: 'Bill',
+    placeCity: 'Place / City',
+    printSavePdf: 'Print / Save as PDF',
+    noItems: 'No items',
     cash: 'Cash',
     card: 'Card',
     upi: 'UPI',
@@ -428,6 +433,7 @@ export const translations = {
     phone: '9441754505',
     phoneLabel: 'ఫోన్',
     phoneLink: '+91 9441754505',
+    phoneNumber: 'ఫోన్ నంబర్',
 
     // Navigation & Layout
     home: 'హోమ్',
@@ -526,6 +532,10 @@ export const translations = {
     advance: 'ముందస్తు చెల్లింపు',
     remaining: 'మిగిలిన మొత్తం',
     paymentMethod: 'చెల్లింపు పద్ధతి',
+    bill: 'బిల్లు',
+    placeCity: 'స్థలం / నగరం',
+    printSavePdf: 'ప్రింట్ / PDF గా సేవ్ చేయండి',
+    noItems: 'అంశాలు లేవు',
     cash: 'నగదు',
     card: 'కార్డ్',
     upi: 'యూపిఐ',

@@ -51,16 +51,22 @@ class AddProductPage extends React.Component {
             errors.category = 'Category is required';
         }
 
-        // Price validation: must be > 0
+        // Price validation: must be >= 1
         const priceNum = Number(price);
-        if (price === '' || price === undefined || isNaN(priceNum) || priceNum <= 0) {
-            errors.price = 'Enter a valid price (greater than 0)';
+        if (price === '' || price === undefined || isNaN(priceNum)) {
+            errors.price = 'Enter a valid price';
+        } else if (priceNum < 1) {
+            errors.price = 'Price must be greater than or equal to 1';
         }
 
         // Stock validation: must be >= 0
         const stockNum = Number(stock);
-        if (stock === '' || stock === undefined || isNaN(stockNum) || stockNum < 0 || !Number.isInteger(stockNum)) {
-            errors.stock = 'Enter a valid stock quantity (0 or more)';
+        if (stock === '' || stock === undefined || isNaN(stockNum)) {
+            errors.stock = 'Enter a valid stock quantity';
+        } else if (stockNum < 0) {
+            errors.stock = 'Stock cannot be less than 0';
+        } else if (!Number.isInteger(stockNum)) {
+            errors.stock = 'Enter a valid stock quantity';
         }
 
         this.setState({ errors });
@@ -180,7 +186,7 @@ class AddProductPage extends React.Component {
                                                     className={`form-control ${errors.price ? 'is-invalid' : ''}`}
                                                     value={price}
                                                     onChange={this.handleChange('price')}
-                                                    min="0"
+                                                    min="1"
                                                     step="0.01"
                                                     placeholder={langCtx.getText('enterPrice')}
                                                 />

@@ -477,6 +477,7 @@ const getOrderPrintData = async (req, res, next) => {
                     orderDate: order.orderDate || order.createdAt || order.updatedAt || null,
                     status: order.status || 'Pending',
                     paymentStatus: order.paymentStatus || 'Unpaid',
+                    paymentMethod: order.paymentMethod || 'Cash',
                     customerName: order.customerName || '',
                     customerPhone: order.phone || order.customerPhone || '',
                     customerAddress: order.address || '',
