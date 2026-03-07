@@ -9,10 +9,12 @@ import theme from './styledComponents/theme';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { LanguageProvider } from './context/LanguageContext';
+import { LegalModalProvider } from './context/LegalModalContext';
 import AuthContext from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import FeedbackManager from './components/FeedbackManager';
+import CustomerFooter from './components/CustomerFooter';
 import AppRoutes from './routes/AppRoutes';
 import { AppContainer, MainContent } from './styledComponents/LayoutStyles';
 
@@ -52,9 +54,33 @@ class AppContent extends React.Component {
     });
   };
 
+  componentDidUpdate(prevProps) {
+    const prevPath = prevProps?.location?.pathname || '';
+    const nextPath = this.props?.location?.pathname || '';
+
+    if (prevPath === nextPath) return;
+
+    const wasProducts = prevPath.startsWith('/products');
+    const isProducts = nextPath.startsWith('/products');
+
+    // Reset category highlight when leaving the All Products page.
+    if (wasProducts && !isProducts && this.state.activeCategory !== 'ALL') {
+      this.setState({ activeCategory: 'ALL' });
+    }
+  }
+
   render() {
     const { isAuthenticated, role } = this.context;
+    const pathname = this.props.location?.pathname || '';
     const { sidebarOpen, activeCategory } = this.state;
+
+    const normalizedRole = String(role || '').toLowerCase();
+    const isCustomer = normalizedRole === 'customer';
+    const isAdmin = normalizedRole === 'admin';
+
+    const showFooterOnPublicCustomerPages =
+      !isAuthenticated && ['/login', '/register', '/privacy', '/terms', '/contact'].includes(pathname);
+    const shouldShowCustomerFooter = (!isAdmin && isAuthenticated && isCustomer) || showFooterOnPublicCustomerPages;
 
     return (
       <AppContainer>
@@ -65,6 +91,7 @@ class AppContent extends React.Component {
             activeCategory={activeCategory}
             onSelectCategory={this.handleSelectCategory}
             onClose={this.closeSidebar}
+            pathname={this.props.location?.pathname}
           />
         )}
         {isAuthenticated ? (
@@ -75,7 +102,8 @@ class AppContent extends React.Component {
           <AppRoutes activeCategory={activeCategory} />
         )}
 
-        {isAuthenticated && String(role || '').toLowerCase() === 'customer' && <FeedbackManager />}
+        {isAuthenticated && isCustomer && <FeedbackManager />}
+        {shouldShowCustomerFooter && <CustomerFooter withSidebar={isAuthenticated} />}
         <ToastContainer
           position="top-right"
           autoClose={3000}
@@ -101,7 +129,9 @@ class App extends React.Component {
           <LanguageProvider>
             <AuthProvider>
               <CartProvider>
-                <AppContentWithRouter />
+                <LegalModalProvider>
+                  <AppContentWithRouter />
+                </LegalModalProvider>
               </CartProvider>
             </AuthProvider>
           </LanguageProvider>

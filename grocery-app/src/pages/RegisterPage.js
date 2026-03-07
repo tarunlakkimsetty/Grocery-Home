@@ -3,6 +3,7 @@ import { Navigate, Link } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
 import LanguageContext from '../context/LanguageContext';
 import { toast } from 'react-toastify';
+import LegalModalContext from '../context/LegalModalContext';
 import {
     AuthContainer,
 } from '../styledComponents/LayoutStyles';
@@ -31,6 +32,7 @@ class RegisterPage extends React.Component {
             showPassword: false,
             showConfirmPassword: false,
             place: '',
+            agreedToPolicies: false,
             errors: {},
             loading: false,
         };
@@ -61,6 +63,11 @@ class RegisterPage extends React.Component {
 
     handleSubmit = async (e) => {
         e.preventDefault();
+
+        if (!this.state.agreedToPolicies) {
+            toast.warning('Please agree to the Terms & Conditions and Privacy Policy before registering.');
+            return;
+        }
         if (!this.validate()) return;
 
         this.setState({ loading: true });
@@ -110,6 +117,7 @@ class RegisterPage extends React.Component {
             showPassword,
             showConfirmPassword,
             place,
+            agreedToPolicies,
             errors,
             loading,
         } = this.state;
@@ -275,7 +283,49 @@ class RegisterPage extends React.Component {
                                                             )}
                                                         </div>
 
-                                                        <button type="submit" className="btn btn-success w-100 py-2" disabled={loading || passwordsMismatch}>
+                                                        <div className="mb-3">
+                                                            <div className="form-check" style={{ fontSize: '0.9rem' }}>
+                                                                <input
+                                                                    className="form-check-input"
+                                                                    type="checkbox"
+                                                                    id="agreePolicies"
+                                                                    checked={!!agreedToPolicies}
+                                                                    onChange={(e) => this.setState({ agreedToPolicies: e.target.checked })}
+                                                                    disabled={loading}
+                                                                />
+                                                                <label className="form-check-label" htmlFor="agreePolicies">
+                                                                    <LegalModalContext.Consumer>
+                                                                        {(legalModal) => (
+                                                                            <>
+                                                                                {langCtx.getText('legal_agree_prefix')}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-link p-0 align-baseline"
+                                                                                    onClick={() => legalModal.openLegalModal('terms')}
+                                                                                >
+                                                                                    {langCtx.getText('legal_modal_terms')}
+                                                                                </button>
+                                                                                {langCtx.getText('legal_agree_and')}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-link p-0 align-baseline"
+                                                                                    onClick={() => legalModal.openLegalModal('privacy')}
+                                                                                >
+                                                                                    {langCtx.getText('legal_modal_privacy_checkbox')}
+                                                                                </button>
+                                                                                {langCtx.getText('legal_agree_suffix')}
+                                                                            </>
+                                                                        )}
+                                                                    </LegalModalContext.Consumer>
+                                                                </label>
+                                                            </div>
+                                                        </div>
+
+                                                        <button
+                                                            type="submit"
+                                                            className="btn btn-success w-100 py-2"
+                                                            disabled={loading || passwordsMismatch || !agreedToPolicies}
+                                                        >
                                                             {loading ? (
                                                                 <>
                                                                     <span className="spinner-border spinner-border-sm me-2" role="status" />

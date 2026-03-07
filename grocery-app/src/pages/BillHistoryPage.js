@@ -46,22 +46,42 @@ class BillHistoryPage extends React.Component {
     }
 
     fetchData = async () => {
-        this.setState({ loading: true });
+        this.setState({ loading: true, error: null });
         try {
             const { user } = this.context;
             const userId = user ? user.id : 2;
-            const [billsResponse, ordersResponse] = await Promise.all([
+
+            const [billsResult, ordersResult, offlineResult] = await Promise.allSettled([
                 billService.getBillHistory(userId),
                 orderService.getCustomerOrders(userId),
+                // Offline bills/orders: prefetch for accurate count on first render
+                orderService.getUserOfflineOrders(),
             ]);
+
+            if (billsResult.status === 'rejected' || ordersResult.status === 'rejected') {
+                throw (billsResult.status === 'rejected' ? billsResult.reason : ordersResult.reason);
+            }
+
+            const billsResponse = billsResult.value;
+            const ordersResponse = ordersResult.value;
+
             // Handle both { success, data: [...] } and direct array responses
-            const bills = Array.isArray(billsResponse) 
-                ? billsResponse 
+            const bills = Array.isArray(billsResponse)
+                ? billsResponse
                 : (billsResponse?.data || billsResponse?.bills || []);
-            const orders = Array.isArray(ordersResponse) 
-                ? ordersResponse 
+            const orders = Array.isArray(ordersResponse)
+                ? ordersResponse
                 : (ordersResponse?.data || ordersResponse?.orders || []);
-            this.setState({ bills, orders, loading: false });
+
+            let offlineOrders = [];
+            if (offlineResult.status === 'fulfilled') {
+                const resp = offlineResult.value;
+                offlineOrders = Array.isArray(resp)
+                    ? resp
+                    : (resp?.data || resp?.orders || []);
+            }
+
+            this.setState({ bills, orders, offlineOrders, offlineOrdersLoaded: true, loading: false });
         } catch (err) {
             this.setState({ error: t('failedToLoadHistory'), loading: false });
             toast.error(t('failedToLoadHistory'));

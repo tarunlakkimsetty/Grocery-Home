@@ -2,6 +2,8 @@ import styled from 'styled-components';
 
 export const AppContainer = styled.div`
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: ${({ theme }) => theme.colors.bodyBg};
   font-family: ${({ theme }) => theme.fonts.primary};
 `;
@@ -11,6 +13,7 @@ export const MainContent = styled.main`
   margin-top: ${({ theme }) => theme.navbar.height};
   padding: 1.5rem 2rem;
   min-height: calc(100vh - ${({ theme }) => theme.navbar.height});
+  flex: 1;
   transition: margin-left 0.3s ease;
 
   @media (max-width: ${({ theme }) => theme.breakpoints.md}) {

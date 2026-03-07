@@ -16,6 +16,9 @@ import AdminOnlineOrdersPage from '../pages/AdminOnlineOrdersPage';
 import AdminOfflineOrdersPage from '../pages/AdminOfflineOrdersPage';
 import AdminCustomerDetailsPage from '../pages/AdminCustomerDetailsPage';
 import AdminCustomerViewPage from '../pages/AdminCustomerViewPage';
+import PrivacyPolicyPage from '../pages/PrivacyPolicyPage';
+import TermsConditionsPage from '../pages/TermsConditionsPage';
+import ContactPage from '../pages/ContactPage';
 
 // Wrapper to extract route params for class components
 class BillDetailsWrapper extends React.Component {
@@ -162,6 +165,20 @@ class AppRoutes extends React.Component {
                             <AdminCustomerViewWrapper />
                         </RoleBasedRoute>
                     }
+                />
+
+                {/* Legal / Info Pages (Customer + Admin) */}
+                <Route
+                    path="/privacy"
+                    element={<PrivacyPolicyPage />}
+                />
+                <Route
+                    path="/terms"
+                    element={<TermsConditionsPage />}
+                />
+                <Route
+                    path="/contact"
+                    element={<ContactPage />}
                 />
 
                 {/* Default redirect */}

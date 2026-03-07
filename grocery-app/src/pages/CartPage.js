@@ -12,12 +12,57 @@ import styled from 'styled-components';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { TableWrapper, EmptyState, ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
 import { PrimaryButton, DangerButton } from '../styledComponents/ButtonStyles';
+import LegalModalContext from '../context/LegalModalContext';
 
 const ItemRow = styled.tr`
     transition: background-color 0.15s ease;
     ${props => props.$delivered && `
         background-color: rgba(25, 135, 84, 0.08) !important;
     `}
+`;
+
+const InlineLinkButton = styled.button`
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: ${({ theme }) => theme.colors.primary};
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: underline;
+
+    &:hover {
+        color: ${({ theme }) => theme.colors.primaryDark};
+    }
+
+    &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+`;
+
+const AgreementHighlight = styled.div`
+    background: ${({ theme }) => theme.colors.bodyBg};
+    border: 1px solid ${({ theme }) => theme.colors.borderLight};
+    border-radius: ${({ theme }) => theme.borderRadius.md};
+    box-shadow: ${({ theme }) => theme.shadows.sm};
+    padding: 0.85rem 1rem;
+    margin: 0.5rem 0 0.85rem;
+
+    .form-check {
+        margin: 0;
+    }
+`;
+
+const AgreementCheckbox = styled.input`
+    transform: scale(1.15);
+    transform-origin: top left;
+`;
+
+const AgreementLabel = styled.label`
+    font-weight: 700;
+    color: ${({ theme }) => theme.colors.textPrimary};
+    line-height: 1.45;
 `;
 
 class CartPage extends React.Component {
@@ -28,6 +73,7 @@ class CartPage extends React.Component {
         this.state = {
             paymentMethod: 'Cash',
             isCOD: false,
+            agreedToTerms: false,
             loading: false,
             redirectTo: null,
             searchQuery: '',
@@ -36,6 +82,15 @@ class CartPage extends React.Component {
         };
         this.languageContext = null;
     }
+
+    handlePlaceOrderWithAgreement = async (authCtx) => {
+        if (!this.state.agreedToTerms) {
+            toast.warning('Please agree to the Terms & Conditions before placing the order.');
+            return;
+        }
+
+        return this.handlePlaceOrder(authCtx);
+    };
 
     handleSearch = (searchQuery) => {
         this.setState({ searchQuery });
@@ -139,6 +194,9 @@ class CartPage extends React.Component {
         }
 
         const isCOD = !!this.state.isCOD;
+        const dropdownValue = ['Cash', 'Card', 'UPI'].includes(this.state.paymentMethod)
+            ? this.state.paymentMethod
+            : 'Cash';
 
         return (
             <LanguageContext.Consumer>
@@ -282,16 +340,19 @@ class CartPage extends React.Component {
                                                                     </label>
                                                                     <select
                                                                         className="form-select"
-                                                                        value={this.state.paymentMethod}
-                                                                        onChange={(e) => this.setState({ paymentMethod: e.target.value, isCOD: false })}
+                                                                        value={dropdownValue}
+                                                                        onChange={() => {
+                                                                            // Customer portal: dropdown stays visible but is not selectable.
+                                                                            // Cash on Delivery is the only allowed customer payment method.
+                                                                        }}
                                                                     >
-                                                                        <option value="Cash">💵 {langCtx.getText('cash')}</option>
-                                                                        <option value="Card">💳 {langCtx.getText('card')}</option>
-                                                                        <option value="UPI">📱 {langCtx.getText('upi')}</option>
+                                                                        <option value="Cash" disabled>💵 {langCtx.getText('cash')}</option>
+                                                                        <option value="Card" disabled>💳 {langCtx.getText('card')}</option>
+                                                                        <option value="UPI" disabled>📱 {langCtx.getText('upi')}</option>
                                                                     </select>
 
                                                                     <PrimaryButton
-                                                                        onClick={() => this.setState({ isCOD: true })}
+                                                                            onClick={() => this.setState({ isCOD: true, paymentMethod: 'COD', agreedToTerms: false })}
                                                                         disabled={this.state.loading || isCOD}
                                                                         style={{ width: '100%', marginTop: '0.75rem', padding: '0.65rem' }}
                                                                     >
@@ -300,20 +361,60 @@ class CartPage extends React.Component {
                                                                 </div>
 
                                                                 {isCOD ? (
-                                                                    <PrimaryButton
-                                                                        onClick={() => this.handlePlaceOrder(authCtx)}
-                                                                        disabled={this.state.loading || cartCtx.items.length === 0}
-                                                                        style={{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}
-                                                                    >
-                                                                        {this.state.loading ? (
-                                                                            <>
-                                                                                <span className="spinner-border spinner-border-sm me-2" />
-                                                                                {langCtx.getText('placingOrder')}
-                                                                            </>
-                                                                        ) : (
-                                                                            `🛵 ${langCtx.getText('placeOrder')} (${cartCtx.items.length})`
-                                                                        )}
-                                                                    </PrimaryButton>
+                                                                    <>
+                                                                        <AgreementHighlight>
+                                                                            <div className="form-check" style={{ fontSize: '0.95rem' }}>
+                                                                                <AgreementCheckbox
+                                                                                    className="form-check-input"
+                                                                                    type="checkbox"
+                                                                                    id="agreeTerms"
+                                                                                    checked={!!this.state.agreedToTerms}
+                                                                                    onChange={(e) => this.setState({ agreedToTerms: e.target.checked })}
+                                                                                    disabled={this.state.loading}
+                                                                                />
+                                                                                <AgreementLabel className="form-check-label" htmlFor="agreeTerms">
+                                                                                    <LegalModalContext.Consumer>
+                                                                                        {(legalModal) => (
+                                                                                            <>
+                                                                                                {langCtx.getText('legal_agree_prefix')}
+                                                                                                <InlineLinkButton
+                                                                                                    type="button"
+                                                                                                    onClick={() => legalModal.openLegalModal('terms')}
+                                                                                                    disabled={this.state.loading}
+                                                                                                >
+                                                                                                    {langCtx.getText('legal_modal_terms')}
+                                                                                                </InlineLinkButton>
+                                                                                                {langCtx.getText('legal_agree_and')}
+                                                                                                <InlineLinkButton
+                                                                                                    type="button"
+                                                                                                    onClick={() => legalModal.openLegalModal('privacy')}
+                                                                                                    disabled={this.state.loading}
+                                                                                                >
+                                                                                                    {langCtx.getText('legal_modal_privacy_checkbox')}
+                                                                                                </InlineLinkButton>
+                                                                                                {langCtx.getText('legal_agree_suffix')}
+                                                                                            </>
+                                                                                        )}
+                                                                                    </LegalModalContext.Consumer>
+                                                                                </AgreementLabel>
+                                                                            </div>
+                                                                        </AgreementHighlight>
+
+                                                                        <PrimaryButton
+                                                                            onClick={() => this.handlePlaceOrderWithAgreement(authCtx)}
+                                                                            disabled={this.state.loading || cartCtx.items.length === 0 || !this.state.agreedToTerms}
+                                                                            style={{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}
+                                                                        >
+                                                                            {this.state.loading ? (
+                                                                                <>
+                                                                                    <span className="spinner-border spinner-border-sm me-2" />
+                                                                                    {langCtx.getText('placingOrder')}
+                                                                                </>
+                                                                            ) : (
+                                                                                `🛵 ${langCtx.getText('placeOrder')} (${cartCtx.items.length})`
+                                                                            )}
+                                                                        </PrimaryButton>
+                                                                    </>
                                                                 ) : (
                                                                     <PrimaryButton
                                                                         onClick={this.handleGenerateBill}

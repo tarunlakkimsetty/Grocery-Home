@@ -3,6 +3,7 @@ import { Navigate, Link } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
 import LanguageContext from '../context/LanguageContext';
 import { toast } from 'react-toastify';
+import LegalModalContext from '../context/LegalModalContext';
 import {
     AuthContainer,
     
@@ -190,6 +191,38 @@ class LoginPage extends React.Component {
                                                     <div className="mt-3 text-center">
                                                         <span className="text-muted">{langCtx.getText('dontHaveAccount')} </span>
                                                         <Link to="/register">{langCtx.getText('createOne')}</Link>
+                                                    </div>
+
+                                                    <div className="mt-3 text-center" style={{ fontSize: '0.85rem' }}>
+                                                        <LegalModalContext.Consumer>
+                                                            {(legalModal) => (
+                                                                <>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-link p-0 align-baseline"
+                                                                        onClick={() => legalModal.openLegalModal('privacy')}
+                                                                    >
+                                                                        {langCtx.getText('legal_modal_privacy')}
+                                                                    </button>
+                                                                    <span className="text-muted"> {' | '} </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-link p-0 align-baseline"
+                                                                        onClick={() => legalModal.openLegalModal('terms')}
+                                                                    >
+                                                                        {langCtx.getText('legal_modal_terms')}
+                                                                    </button>
+                                                                    <span className="text-muted"> {' | '} </span>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-link p-0 align-baseline"
+                                                                        onClick={() => legalModal.openLegalModal('contact')}
+                                                                    >
+                                                                        {langCtx.getText('legal_modal_contact')}
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </LegalModalContext.Consumer>
                                                     </div>
                                                 </div>
                                             </div>

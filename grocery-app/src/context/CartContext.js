@@ -243,7 +243,9 @@ class CartProvider extends React.Component {
     }
 
     getItemCount() {
-        return this.state.items.reduce((sum, item) => sum + item.quantity, 0);
+        // Navbar badge: show number of distinct products in cart (not total quantity).
+        const uniqueProductIds = new Set((this.state.items || []).map((item) => item.productId));
+        return uniqueProductIds.size;
     }
 
     // Get total for only delivered items

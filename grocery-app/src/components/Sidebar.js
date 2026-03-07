@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
 import LanguageContext from '../context/LanguageContext';
 import {
@@ -24,8 +24,10 @@ class Sidebar extends React.Component {
     static contextType = AuthContext;
 
     render() {
-        const { isOpen, activeCategory, onSelectCategory, onClose } = this.props;
+        const { isOpen, activeCategory, onSelectCategory, onClose, pathname } = this.props;
         const { role } = this.context;
+        const currentPath = pathname || '';
+        const isProductsPage = currentPath.startsWith('/products');
 
         return (
             <LanguageContext.Consumer>
@@ -36,110 +38,130 @@ class Sidebar extends React.Component {
                             <SidebarSection>
                                 <SidebarLabel>{langCtx.getText('selectCategory')}</SidebarLabel>
                                 <CategoryGrains
-                                    active={activeCategory === 'grains'}
+                                    active={isProductsPage && activeCategory === 'grains'}
                                     onClick={onSelectCategory}
                                 />
                                 <CategoryMilk
-                                    active={activeCategory === 'milk'}
+                                    active={isProductsPage && activeCategory === 'milk'}
                                     onClick={onSelectCategory}
                                 />
                                 <CategorySnacks
-                                    active={activeCategory === 'snacks'}
+                                    active={isProductsPage && activeCategory === 'snacks'}
                                     onClick={onSelectCategory}
                                 />
                                 <CategorySpices
-                                    active={activeCategory === 'spices'}
+                                    active={isProductsPage && activeCategory === 'spices'}
                                     onClick={onSelectCategory}
                                 />
                                 <CategoryOils
-                                    active={activeCategory === 'oils'}
+                                    active={isProductsPage && activeCategory === 'oils'}
                                     onClick={onSelectCategory}
                                 />
                                 <CategoryCondiments
-                                    active={activeCategory === 'condiments'}
+                                    active={isProductsPage && activeCategory === 'condiments'}
                                     onClick={onSelectCategory}
                                 />
                                 <CategoryCleaning
-                                    active={activeCategory === 'cleaning'}
+                                    active={isProductsPage && activeCategory === 'cleaning'}
                                     onClick={onSelectCategory}
                                 />
                                 <CategoryPersonalCare
-                                    active={activeCategory === 'personal'}
+                                    active={isProductsPage && activeCategory === 'personal'}
                                     onClick={onSelectCategory}
                                 />
                             </SidebarSection>
 
                             <SidebarSection>
                                 <SidebarLabel>{langCtx.getText('home')}</SidebarLabel>
-                                <Link to="/products" style={{ textDecoration: 'none' }}>
-                                    <SidebarItem
-                                        $active={activeCategory === 'ALL'}
-                                        onClick={() => onSelectCategory('ALL')}
-                                    >
-                                        <span className="item-icon">🏠</span>
-                                        <span className="item-label">{langCtx.getText('allProducts')}</span>
-                                    </SidebarItem>
-                                </Link>
+                                <NavLink to="/products" style={{ textDecoration: 'none' }}>
+                                    {() => (
+                                        <SidebarItem
+                                            $active={isProductsPage && activeCategory === 'ALL'}
+                                            onClick={() => onSelectCategory('ALL')}
+                                        >
+                                            <span className="item-icon">🏠</span>
+                                            <span className="item-label">{langCtx.getText('allProducts')}</span>
+                                        </SidebarItem>
+                                    )}
+                                </NavLink>
                                 {role === 'customer' && (
                                     <>
-                                        <Link to="/cart" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">🛒</span>
-                                                <span className="item-label">{langCtx.getText('cart')}</span>
-                                            </SidebarItem>
-                                        </Link>
-                                        <Link to="/history" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">📋</span>
-                                                <span className="item-label">{langCtx.getText('history')}</span>
-                                            </SidebarItem>
-                                        </Link>
+                                        <NavLink to="/cart" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🛒</span>
+                                                    <span className="item-label">{langCtx.getText('cart')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/history" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">📋</span>
+                                                    <span className="item-label">{langCtx.getText('history')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
                                     </>
                                 )}
                                 {role === 'admin' && (
                                     <>
-                                        <Link to="/admin/add" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">➕</span>
-                                                <span className="item-label">{langCtx.getText('addProduct')}</span>
-                                            </SidebarItem>
-                                        </Link>
-                                        <Link to="/admin/online-bills" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">🧾</span>
-                                                <span className="item-label">Online Bills</span>
-                                            </SidebarItem>
-                                        </Link>
-                                        <Link to="/admin/offline-bills" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">🧾</span>
-                                                <span className="item-label">Offline Bills</span>
-                                            </SidebarItem>
-                                        </Link>
-                                        <Link to="/admin/analytics" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">📊</span>
-                                                <span className="item-label">{langCtx.getText('analytics')}</span>
-                                            </SidebarItem>
-                                        </Link>
-                                        <Link to="/admin/orders" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">🛵</span>
-                                                <span className="item-label">{langCtx.getText('onlineOrders')}</span>
-                                            </SidebarItem>
-                                        </Link>
-                                        <Link to="/admin/offline-orders" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">🧾</span>
-                                                <span className="item-label">{langCtx.getText('offlineOrders')}</span>
-                                            </SidebarItem>
-                                        </Link>
-                                        <Link to="/admin/customers" style={{ textDecoration: 'none' }}>
-                                            <SidebarItem>
-                                                <span className="item-icon">👤</span>
-                                                <span className="item-label">{langCtx.getText('customerDetails')}</span>
-                                            </SidebarItem>
-                                        </Link>
+                                        <NavLink to="/admin/add" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">➕</span>
+                                                    <span className="item-label">{langCtx.getText('addProduct')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/online-bills" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🧾</span>
+                                                    <span className="item-label">Online Bills</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/offline-bills" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🧾</span>
+                                                    <span className="item-label">Offline Bills</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/analytics" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">📊</span>
+                                                    <span className="item-label">{langCtx.getText('analytics')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/orders" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🛵</span>
+                                                    <span className="item-label">{langCtx.getText('onlineOrders')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/offline-orders" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🧾</span>
+                                                    <span className="item-label">{langCtx.getText('offlineOrders')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/customers" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">👤</span>
+                                                    <span className="item-label">{langCtx.getText('customerDetails')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
                                     </>
                                 )}
                             </SidebarSection>
