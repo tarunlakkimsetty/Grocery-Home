@@ -67,13 +67,13 @@ export const validators = {
         return '';
     },
 
-    // Quantity validation - positive integer
+    // Quantity validation - decimal positive number (min 0.1)
     validateQuantity: (value, getText) => {
         if (!value && value !== 0) {
             return getText('quantityRequired');
         }
-        const qty = parseInt(value);
-        if (isNaN(qty) || qty <= 0) {
+        const qty = parseFloat(value);
+        if (isNaN(qty) || qty < 0.1) {
             return getText('quantityInvalid');
         }
         return '';
@@ -160,7 +160,7 @@ export const validateAndFormatInput = (type, value, getText) => {
             break;
         case 'quantity':
             error = validators.validateQuantity(value, getText);
-            formattedValue = parseInt(value) || 0;
+            formattedValue = parseFloat(value) || 0.1;
             break;
         case 'stock':
             error = validators.validateStock(value, getText);

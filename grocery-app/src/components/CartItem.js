@@ -25,18 +25,20 @@ class CartItem extends React.Component {
                 toast.error(STOCK_LIMIT_MESSAGE);
                 return;
             }
-            onUpdateQuantity(item.productId, item.quantity + 1);
+            const newQty = Math.round((item.quantity + 0.1) * 10) / 10;
+            onUpdateQuantity(item.productId, newQty);
         };
 
         const handleDecrease = () => {
-            if (item.quantity <= 1) {
+            if (item.quantity <= 0.1) {
                 return;
             }
-            onUpdateQuantity(item.productId, item.quantity - 1);
+            const newQty = Math.round((item.quantity - 0.1) * 10) / 10;
+            onUpdateQuantity(item.productId, newQty);
         };
 
         const isIncreaseDisabled = item.quantity >= item.stock;
-        const isDecreaseDisabled = item.quantity <= 1;
+        const isDecreaseDisabled = item.quantity <= 0.1;
 
         return (
             <React.Fragment>
@@ -59,12 +61,12 @@ class CartItem extends React.Component {
                                 opacity: isDecreaseDisabled ? 0.5 : 1,
                                 cursor: isDecreaseDisabled ? 'not-allowed' : 'pointer'
                             }}
-                            title={isDecreaseDisabled ? 'Quantity cannot be less than 1' : 'Decrease quantity'}
+                            title={isDecreaseDisabled ? 'Quantity cannot be less than 0.1' : 'Decrease quantity'}
                         >
                             −
                         </GhostButton>
                         <span className="fw-bold" style={{ minWidth: '25px', textAlign: 'center', fontSize: '0.9rem' }}>
-                            {item.quantity}
+                            {item.quantity.toFixed(1)}
                         </span>
                         <GhostButton
                             onClick={handleIncrease}

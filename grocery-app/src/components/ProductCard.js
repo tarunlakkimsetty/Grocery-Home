@@ -29,7 +29,7 @@ class ProductCard extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            quantity: 1,
+            quantity: 0.1,
             showEditModal: false,
             editName: props.product.name,
             editPrice: props.product.price,
@@ -57,15 +57,15 @@ class ProductCard extends React.Component {
 
     handleAddToCart = (cartCtx, langCtx) => {
         const { product } = this.props;
-        const qty = parseInt(this.state.quantity);
-        if (qty < 1 || qty > product.stock) {
+        const qty = parseFloat(this.state.quantity);
+        if (qty < 0.1 || qty > product.stock) {
             toast.warning(langCtx.getText('quantityInvalid'));
             return;
         }
         cartCtx.addToCart(product, qty);
         const translatedName = langCtx.getText(product.name) || product.name;
         toast.success(`${translatedName} ${langCtx.getText('addToCart')}🛒`);
-        this.setState({ quantity: 1 });
+        this.setState({ quantity: 0.1 });
     };
 
     handleSaveEdit = (langCtx) => {
@@ -151,7 +151,8 @@ class ProductCard extends React.Component {
                                             <input
                                                 type="number"
                                                 className="qty-input"
-                                                min="1"
+                                                min="0.1"
+                                                step="0.1"
                                                 max={product.stock}
                                                 value={this.state.quantity}
                                                 onChange={(e) => this.setState({ quantity: e.target.value })}

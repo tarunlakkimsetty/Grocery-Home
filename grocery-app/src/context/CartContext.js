@@ -31,7 +31,7 @@ const normalizeStoredItems = (value) => {
 
             const quantity = Number(it?.quantity);
             const price = Number(it?.price);
-            const safeQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+            const safeQty = Number.isFinite(quantity) && quantity >= 0.1 ? quantity : 0.1;
             const safePrice = Number.isFinite(price) && price >= 0 ? price : 0;
             const total = Number(it?.total);
             const safeTotal = Number.isFinite(total) ? total : safePrice * safeQty;
@@ -137,7 +137,7 @@ class CartProvider extends React.Component {
     }
 
     addToCart(product, quantity) {
-        const qty = Math.max(1, parseInt(quantity, 10) || 1);
+        const qty = Math.max(0.1, parseFloat(quantity) || 0.1);
         this.setState((prevState) => {
             const existingIndex = prevState.items.findIndex(
                 (item) => item.productId === product.id
@@ -198,8 +198,8 @@ class CartProvider extends React.Component {
     }
 
     updateQuantity(productId, quantity) {
-        const qty = parseInt(quantity, 10);
-        if (qty <= 0) {
+        const qty = parseFloat(quantity);
+        if (qty < 0.1) {
             this.removeFromCart(productId);
             return;
         }
