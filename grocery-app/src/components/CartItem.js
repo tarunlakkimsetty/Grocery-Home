@@ -20,25 +20,34 @@ class CartItem extends React.Component {
         const rawTotal = Number(item?.total);
         const total = Number.isFinite(rawTotal) ? rawTotal : price * quantity;
 
+        // Check if weight-based
+        const isWeightBased = item?.unit === 'kg';
+        const increment = isWeightBased ? 0.1 : 1;
+        const minQty = isWeightBased ? 0.1 : 1;
+
         const handleIncrease = () => {
             if (item.quantity >= item.stock) {
                 toast.error(STOCK_LIMIT_MESSAGE);
                 return;
             }
-            const newQty = Math.round((item.quantity + 0.1) * 10) / 10;
+            const newQty = isWeightBased 
+                ? Math.round((item.quantity + increment) * 10) / 10 
+                : item.quantity + increment;
             onUpdateQuantity(item.productId, newQty);
         };
 
         const handleDecrease = () => {
-            if (item.quantity <= 0.1) {
+            if (item.quantity <= minQty) {
                 return;
             }
-            const newQty = Math.round((item.quantity - 0.1) * 10) / 10;
+            const newQty = isWeightBased 
+                ? Math.round((item.quantity - increment) * 10) / 10 
+                : item.quantity - increment;
             onUpdateQuantity(item.productId, newQty);
         };
 
         const isIncreaseDisabled = item.quantity >= item.stock;
-        const isDecreaseDisabled = item.quantity <= 0.1;
+        const isDecreaseDisabled = item.quantity <= minQty;
 
         return (
             <React.Fragment>
@@ -61,12 +70,12 @@ class CartItem extends React.Component {
                                 opacity: isDecreaseDisabled ? 0.5 : 1,
                                 cursor: isDecreaseDisabled ? 'not-allowed' : 'pointer'
                             }}
-                            title={isDecreaseDisabled ? 'Quantity cannot be less than 0.1' : 'Decrease quantity'}
+                            title={isDecreaseDisabled ? `Quantity cannot be less than ${minQty}` : 'Decrease quantity'}
                         >
                             −
                         </GhostButton>
                         <span className="fw-bold" style={{ minWidth: '25px', textAlign: 'center', fontSize: '0.9rem' }}>
-                            {item.quantity.toFixed(1)}
+                            {isWeightBased ? item.quantity.toFixed(1) : Math.floor(item.quantity)}
                         </span>
                         <GhostButton
                             onClick={handleIncrease}

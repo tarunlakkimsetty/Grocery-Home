@@ -28,8 +28,9 @@ class ProductCard extends React.Component {
 
     constructor(props) {
         super(props);
+        const isWeightBased = props.product?.unit === 'kg';
         this.state = {
-            quantity: 0.1,
+            quantity: isWeightBased ? 0.1 : 1,
             showEditModal: false,
             editName: props.product.name,
             editPrice: props.product.price,
@@ -57,15 +58,22 @@ class ProductCard extends React.Component {
 
     handleAddToCart = (cartCtx, langCtx) => {
         const { product } = this.props;
-        const qty = parseFloat(this.state.quantity);
-        if (qty < 0.1 || qty > product.stock) {
+        const isWeightBased = product?.unit === 'kg';
+        
+        // Parse quantity based on unit
+        let qty = isWeightBased ? parseFloat(this.state.quantity) : parseInt(this.state.quantity);
+        
+        // Validate based on unit
+        const minQty = isWeightBased ? 0.1 : 1;
+        if (qty < minQty || qty > product.stock) {
             toast.warning(langCtx.getText('quantityInvalid'));
             return;
         }
+        
         cartCtx.addToCart(product, qty);
         const translatedName = langCtx.getText(product.name) || product.name;
         toast.success(`${translatedName} ${langCtx.getText('addToCart')}🛒`);
-        this.setState({ quantity: 0.1 });
+        this.setState({ quantity: isWeightBased ? 0.1 : 1 });
     };
 
     handleSaveEdit = (langCtx) => {
@@ -148,16 +156,21 @@ class ProductCard extends React.Component {
                                         </div>
                                     ) : (
                                         <>
-                                            <input
-                                                type="number"
-                                                className="qty-input"
-                                                min="0.1"
-                                                step="0.1"
-                                                max={product.stock}
-                                                value={this.state.quantity}
-                                                onChange={(e) => this.setState({ quantity: e.target.value })}
-                                                disabled={product.stock <= 0}
-                                            />
+                                            {(() => {
+                                                const isWeightBased = product?.unit === 'kg';
+                                                return (
+                                                    <input
+                                                        type="number"
+                                                        className="qty-input"
+                                                        min={isWeightBased ? "0.1" : "1"}
+                                                        step={isWeightBased ? "0.1" : "1"}
+                                                        max={product.stock}
+                                                        value={this.state.quantity}
+                                                        onChange={(e) => this.setState({ quantity: e.target.value })}
+                                                        disabled={product.stock <= 0}
+                                                    />
+                                                );
+                                            })()}
                                             <CartContext.Consumer>
                                                 {(cartCtx) => (
                                                     <PrimaryButton

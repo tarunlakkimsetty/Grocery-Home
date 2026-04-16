@@ -4,7 +4,22 @@ import LanguageContext from '../context/LanguageContext';
 import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
-import { TableWrapper, Badge, EmptyState } from '../styledComponents/FormStyles';
+import {
+    TableWrapper,
+    Badge,
+    EmptyState,
+    MobileBillsWrapper,
+    DesktopBillsWrapper,
+    BillCard,
+    BillCardHeader,
+    BillCardTitle,
+    BillCardRow,
+    BillCardLabel,
+    BillCardValue,
+    BillCardFooter,
+    BillCardButton,
+    BillStatusBadge,
+} from '../styledComponents/FormStyles';
 
 class AdminOnlineBillsPage extends React.Component {
     constructor(props) {
@@ -119,44 +134,88 @@ class AdminOnlineBillsPage extends React.Component {
         }
 
         return (
-            <TableWrapper>
-                <table className="table">
-                    <thead>
-                        <tr>
-                            <th>Order ID</th>
-                            <th>Customer Name</th>
-                            <th>Phone Number</th>
-                            <th>Date</th>
-                            <th>Status</th>
-                            <th className="text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+            <>
+                {/* Desktop Table */}
+                <DesktopBillsWrapper>
+                    <TableWrapper>
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th>Order ID</th>
+                                    <th>Customer Name</th>
+                                    <th>Phone Number</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th className="text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {safeOrders.map((order) => (
+                                    <tr key={order.id}>
+                                        <td className="fw-bold">#{order.id}</td>
+                                        <td>{order.customerName || '-'}</td>
+                                        <td>{order.phone || '-'}</td>
+                                        <td>{this.formatDate(this.getBillDate(order))}</td>
+                                        <td>
+                                            <Badge className={this.getStatusBadgeClass(order.status)}>
+                                                {order.status}
+                                            </Badge>
+                                        </td>
+                                        <td className="text-center">
+                                            <button
+                                                type="button"
+                                                className="btn btn-outline-primary btn-sm"
+                                                onClick={() => this.handleViewOrder(order.id)}
+                                            >
+                                                View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </TableWrapper>
+                </DesktopBillsWrapper>
+
+                {/* Mobile Cards */}
+                <MobileBillsWrapper>
+                    <div>
                         {safeOrders.map((order) => (
-                            <tr key={order.id}>
-                                <td className="fw-bold">#{order.id}</td>
-                                <td>{order.customerName || '-'}</td>
-                                <td>{order.phone || '-'}</td>
-                                <td>{this.formatDate(this.getBillDate(order))}</td>
-                                <td>
-                                    <Badge className={this.getStatusBadgeClass(order.status)}>
+                            <BillCard key={order.id}>
+                                <BillCardHeader>
+                                    <BillCardTitle>
+                                        <div className="order-id">Order #{order.id}</div>
+                                        <div className="customer-name">{order.customerName || '-'}</div>
+                                    </BillCardTitle>
+                                </BillCardHeader>
+
+                                <BillCardRow>
+                                    <BillCardLabel>📞 Phone:</BillCardLabel>
+                                    <BillCardValue>{order.phone || '-'}</BillCardValue>
+                                </BillCardRow>
+
+                                <BillCardRow>
+                                    <BillCardLabel>📅 Date:</BillCardLabel>
+                                    <BillCardValue>{this.formatDate(this.getBillDate(order))}</BillCardValue>
+                                </BillCardRow>
+
+                                <BillCardRow>
+                                    <BillCardLabel>📊 Status:</BillCardLabel>
+                                    <BillStatusBadge $status={order.status}>
                                         {order.status}
-                                    </Badge>
-                                </td>
-                                <td className="text-center">
-                                    <button
-                                        type="button"
-                                        className="btn btn-outline-primary btn-sm"
-                                        onClick={() => this.handleViewOrder(order.id)}
-                                    >
-                                        View
-                                    </button>
-                                </td>
-                            </tr>
+                                    </BillStatusBadge>
+                                </BillCardRow>
+
+                                <BillCardFooter>
+                                    <BillCardButton onClick={() => this.handleViewOrder(order.id)}>
+                                        👁️ View Details
+                                    </BillCardButton>
+                                </BillCardFooter>
+                            </BillCard>
                         ))}
-                    </tbody>
-                </table>
-            </TableWrapper>
+                    </div>
+                </MobileBillsWrapper>
+            </>
         );
     };
 

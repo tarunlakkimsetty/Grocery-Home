@@ -5,7 +5,18 @@ import LanguageContext from '../context/LanguageContext';
 import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
-import { TableWrapper, EmptyState } from '../styledComponents/FormStyles';
+import { TableWrapper, EmptyState, 
+    MobileCustomersWrapper,
+    DesktopCustomersWrapper,
+    CustomerCard,
+    CustomerCardHeader,
+    CustomerCardTitle,
+    CustomerCardRow,
+    CustomerCardLabel,
+    CustomerCardValue,
+    CustomerCardFooter,
+    CustomerCardButton,
+} from '../styledComponents/FormStyles';
 import { t } from '../utils/i18n';
 import feedbackService from '../services/feedbackService';
 
@@ -124,48 +135,104 @@ class AdminCustomerDetailsPage extends React.Component {
         }
 
         return (
-            <TableWrapper>
-                <table className="table">
-                    <thead>
-                        <tr>
-                            <th>{langCtx.getText('name')}</th>
-                            <th>{langCtx.getText('phone')}</th>
-                            <th>{langCtx.getText('place')}</th>
-                            <th className="text-center">Avg Rating</th>
-                            <th className="text-center">{langCtx.getText('completed')}</th>
-                            <th className="text-center">{langCtx.getText('rejected')}</th>
-                            <th className="text-end">{langCtx.getText('totalSpent')}</th>
-                            <th>{langCtx.getText('lastCompleted')}</th>
-                            <th>{langCtx.getText('lastRejected')}</th>
-                            <th className="text-center">{langCtx.getText('view')}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+            <>
+                {/* Desktop Table */}
+                <DesktopCustomersWrapper>
+                    <TableWrapper>
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th>{langCtx.getText('name')}</th>
+                                    <th>{langCtx.getText('phone')}</th>
+                                    <th>{langCtx.getText('place')}</th>
+                                    <th className="text-center">Avg Rating</th>
+                                    <th className="text-center">{langCtx.getText('completed')}</th>
+                                    <th className="text-center">{langCtx.getText('rejected')}</th>
+                                    <th className="text-end">{langCtx.getText('totalSpent')}</th>
+                                    <th>{langCtx.getText('lastCompleted')}</th>
+                                    <th>{langCtx.getText('lastRejected')}</th>
+                                    <th className="text-center">{langCtx.getText('view')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {safe.map((c) => (
+                                    <tr key={c.id}>
+                                        <td className="fw-semibold">{c.name || '-'}</td>
+                                        <td>{c.phone || '-'}</td>
+                                        <td>{c.place || '-'}</td>
+                                        <td className="text-center">
+                                            {c.avg_rating === null || c.avg_rating === undefined
+                                                ? '-'
+                                                : `${Number(c.avg_rating).toFixed(1)} ★`}
+                                        </td>
+                                        <td className="text-center">{Number(c.completed_orders || 0)}</td>
+                                        <td className="text-center">{Number(c.rejected_orders || 0)}</td>
+                                        <td className="text-end fw-bold">₹{Number(c.total_spent || 0).toFixed(2)}</td>
+                                        <td>{this.formatDate(c.last_completed_date)}</td>
+                                        <td>{this.formatDate(c.last_rejected_date)}</td>
+                                        <td className="text-center">
+                                            <Link to={`/admin/customers/${c.id}`} className="btn btn-sm btn-outline-primary">
+                                                {langCtx.getText('view')}
+                                            </Link>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </TableWrapper>
+                </DesktopCustomersWrapper>
+
+                {/* Mobile Cards */}
+                <MobileCustomersWrapper>
+                    <div>
                         {safe.map((c) => (
-                            <tr key={c.id}>
-                                <td className="fw-semibold">{c.name || '-'}</td>
-                                <td>{c.phone || '-'}</td>
-                                <td>{c.place || '-'}</td>
-                                <td className="text-center">
-                                    {c.avg_rating === null || c.avg_rating === undefined
-                                        ? '-'
-                                        : `${Number(c.avg_rating).toFixed(1)} ★`}
-                                </td>
-                                <td className="text-center">{Number(c.completed_orders || 0)}</td>
-                                <td className="text-center">{Number(c.rejected_orders || 0)}</td>
-                                <td className="text-end fw-bold">₹{Number(c.total_spent || 0).toFixed(2)}</td>
-                                <td>{this.formatDate(c.last_completed_date)}</td>
-                                <td>{this.formatDate(c.last_rejected_date)}</td>
-                                <td className="text-center">
-                                    <Link to={`/admin/customers/${c.id}`} className="btn btn-sm btn-outline-primary">
-                                        {langCtx.getText('view')}
-                                    </Link>
-                                </td>
-                            </tr>
+                            <CustomerCard key={c.id}>
+                                <CustomerCardHeader>
+                                    <CustomerCardTitle>
+                                        <div className="customer-name">{c.name || '-'}</div>
+                                        <div className="customer-rating">
+                                            {c.avg_rating === null || c.avg_rating === undefined
+                                                ? '—'
+                                                : `${Number(c.avg_rating).toFixed(1)} ⭐`}
+                                        </div>
+                                    </CustomerCardTitle>
+                                </CustomerCardHeader>
+
+                                <CustomerCardRow>
+                                    <CustomerCardLabel>📞 Phone:</CustomerCardLabel>
+                                    <CustomerCardValue>{c.phone || '-'}</CustomerCardValue>
+                                </CustomerCardRow>
+
+                                <CustomerCardRow>
+                                    <CustomerCardLabel>📍 Place:</CustomerCardLabel>
+                                    <CustomerCardValue>{c.place || '-'}</CustomerCardValue>
+                                </CustomerCardRow>
+
+                                <CustomerCardRow>
+                                    <CustomerCardLabel>✅ Completed:</CustomerCardLabel>
+                                    <CustomerCardValue className="count">{Number(c.completed_orders || 0)}</CustomerCardValue>
+                                </CustomerCardRow>
+
+                                <CustomerCardRow>
+                                    <CustomerCardLabel>❌ Rejected:</CustomerCardLabel>
+                                    <CustomerCardValue className="count">{Number(c.rejected_orders || 0)}</CustomerCardValue>
+                                </CustomerCardRow>
+
+                                <CustomerCardRow>
+                                    <CustomerCardLabel>💰 Total Spent:</CustomerCardLabel>
+                                    <CustomerCardValue className="amount">₹{Number(c.total_spent || 0).toFixed(2)}</CustomerCardValue>
+                                </CustomerCardRow>
+
+                                <CustomerCardFooter>
+                                    <CustomerCardButton as={Link} to={`/admin/customers/${c.id}`}>
+                                        👁️ View Profile
+                                    </CustomerCardButton>
+                                </CustomerCardFooter>
+                            </CustomerCard>
                         ))}
-                    </tbody>
-                </table>
-            </TableWrapper>
+                    </div>
+                </MobileCustomersWrapper>
+            </>
         );
     };
 

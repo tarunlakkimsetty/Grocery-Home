@@ -17,6 +17,33 @@ const CATEGORIES = [
     { value: 'personal', label: 'Personal Care & Hygiene' },
 ];
 
+const CATEGORY_EMOJIS = {
+    'grains': '🌾',
+    'milk': '🥛',
+    'snacks': '🍿',
+    'spices': '🌶️',
+    'oils': '🛢️',
+    'condiments': '🍯',
+    'cleaning': '🧼',
+    'personal': '🧴',
+};
+
+const UNIT_OPTIONS = [
+    'Kg',
+    'Gram (g)',
+    'Litre',
+    'Bottle',
+    'Piece',
+    'Pack',
+    'Tin',
+    'Bag (Basta)',
+    'Jar',
+    'Tube',
+    'Can',
+    'Cup',
+    'Other',
+];
+
 class AddProductPage extends React.Component {
     constructor(props) {
         super(props);
@@ -25,8 +52,9 @@ class AddProductPage extends React.Component {
             category: 'grains',
             price: '',
             stock: '',
-            unit: 'pack',
-            emoji: '📦',
+            unit: 'Pack',
+            customUnit: '',
+            emoji: CATEGORY_EMOJIS['grains'] || '📦',
             errors: {},
             loading: false,
             success: false,
@@ -35,7 +63,7 @@ class AddProductPage extends React.Component {
 
     validate = () => {
         const errors = {};
-        const { name, category, price, stock } = this.state;
+        const { name, category, price, stock, unit, customUnit } = this.state;
 
         // Name validation: 2-100 characters
         if (!name || !name.trim()) {
@@ -69,6 +97,15 @@ class AddProductPage extends React.Component {
             errors.stock = 'Enter a valid stock quantity';
         }
 
+        // Custom unit validation (if "Other" is selected)
+        if (unit === 'Other') {
+            if (!customUnit || !customUnit.trim()) {
+                errors.customUnit = 'Please enter a custom unit';
+            } else if (customUnit.trim().length > 20) {
+                errors.customUnit = 'Custom unit cannot exceed 20 characters';
+            }
+        }
+
         this.setState({ errors });
         return Object.keys(errors).length === 0;
     };
@@ -79,13 +116,17 @@ class AddProductPage extends React.Component {
 
         this.setState({ loading: true });
         try {
-            const { name, category, price, stock, unit, emoji } = this.state;
+            const { name, category, price, stock, unit, customUnit, emoji } = this.state;
+            
+            // Determine final unit: if "Other" is selected, use customUnit; otherwise use selected unit
+            const finalUnit = unit === 'Other' ? customUnit.trim() : unit;
+            
             const productData = {
                 name: name.trim(),
                 category,
                 price: Number(price),
                 stock: Number(stock),
-                unit: unit || 'pack',
+                unit: finalUnit || 'Pack',
                 emoji: emoji || '📦',
             };
             console.log('Sending product data:', productData);
@@ -97,8 +138,9 @@ class AddProductPage extends React.Component {
                 category: 'grains',
                 price: '',
                 stock: '',
-                unit: 'pack',
-                emoji: '📦',
+                unit: 'Pack',
+                customUnit: '',
+                emoji: CATEGORY_EMOJIS['grains'] || '📦',
                 errors: {},
                 success: true,
             });
@@ -115,8 +157,17 @@ class AddProductPage extends React.Component {
         this.setState({ [field]: e.target.value });
     };
 
+    handleCategoryChange = (e) => {
+        const selectedCategory = e.target.value;
+        const selectedEmoji = CATEGORY_EMOJIS[selectedCategory] || '📦';
+        this.setState({
+            category: selectedCategory,
+            emoji: selectedEmoji,
+        });
+    };
+
     render() {
-        const { name, category, price, stock, unit, emoji, errors, loading, success } = this.state;
+        const { name, category, price, stock, unit, customUnit, emoji, errors, loading, success } = this.state;
 
         return (
             <LanguageContext.Consumer>
@@ -157,7 +208,7 @@ class AddProductPage extends React.Component {
                                                 <select
                                                     className="form-select"
                                                     value={category}
-                                                    onChange={this.handleChange('category')}
+                                                    onChange={this.handleCategoryChange}
                                                 >
                                                     {CATEGORIES.map((cat) => (
                                                         <option key={cat.value} value={cat.value}>
@@ -172,9 +223,12 @@ class AddProductPage extends React.Component {
                                                     type="text"
                                                     className="form-control text-center"
                                                     value={emoji}
-                                                    onChange={this.handleChange('emoji')}
-                                                    style={{ fontSize: '1.5rem' }}
+                                                    readOnly
+                                                    style={{ fontSize: '1.5rem', cursor: 'default', backgroundColor: '#f8f9fa' }}
                                                 />
+                                                <small className="form-text text-muted d-block mt-1">
+                                                    Auto-filled based on category
+                                                </small>
                                             </div>
                                         </div>
 
@@ -207,23 +261,37 @@ class AddProductPage extends React.Component {
                                             <div className="col-4">
                                                 <label className="form-label fw-semibold">Unit</label>
                                                 <select
-                                                    className="form-select"
+                                                    className={`form-select ${errors.customUnit ? 'is-invalid' : ''}`}
                                                     value={unit}
                                                     onChange={this.handleChange('unit')}
                                                 >
-                                                    <option value="pack">Pack</option>
-                                                    <option value="kg">Kg</option>
-                                                    <option value="litre">Litre</option>
-                                                    <option value="bottle">Bottle</option>
-                                                    <option value="piece">Piece</option>
-                                                    <option value="jar">Jar</option>
-                                                    <option value="tube">Tube</option>
-                                                    <option value="can">Can</option>
-                                                    <option value="packet">Packet</option>
-                                                    <option value="cup">Cup</option>
+                                                    {UNIT_OPTIONS.map((unitOpt) => (
+                                                        <option key={unitOpt} value={unitOpt}>
+                                                            {unitOpt}
+                                                        </option>
+                                                    ))}
                                                 </select>
                                             </div>
                                         </div>
+
+                                        {/* Custom Unit Input - Show only if "Other" is selected */}
+                                        {unit === 'Other' && (
+                                            <div className="mb-3">
+                                                <label className="form-label fw-semibold">Custom Unit</label>
+                                                <input
+                                                    type="text"
+                                                    className={`form-control ${errors.customUnit ? 'is-invalid' : ''}`}
+                                                    value={customUnit}
+                                                    onChange={this.handleChange('customUnit')}
+                                                    placeholder="Enter custom unit (e.g., box, bundle, carton)"
+                                                    maxLength="20"
+                                                />
+                                                {errors.customUnit && <div className="invalid-feedback">{errors.customUnit}</div>}
+                                                <small className="form-text text-muted d-block mt-1">
+                                                    Max 20 characters. Examples: box, bundle, carton, roll, etc.
+                                                </small>
+                                            </div>
+                                        )}
 
                                         <div className="d-flex gap-2">
                                             <PrimaryButton type="submit" disabled={loading}>
@@ -241,10 +309,12 @@ class AddProductPage extends React.Component {
                                                 onClick={() =>
                                                     this.setState({
                                                         name: '',
+                                                        category: 'grains',
                                                         price: '',
                                                         stock: '',
-                                                        unit: 'pack',
-                                                        emoji: '📦',
+                                                        unit: 'Pack',
+                                                        customUnit: '',
+                                                        emoji: CATEGORY_EMOJIS['grains'] || '📦',
                                                         errors: {},
                                                     })
                                                 }

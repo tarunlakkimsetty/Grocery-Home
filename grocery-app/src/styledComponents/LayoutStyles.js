@@ -18,7 +18,14 @@ export const MainContent = styled.main`
 
   @media (max-width: ${({ theme }) => theme.breakpoints.md}) {
     margin-left: 0;
+    margin-top: 120px;
     padding: 1rem;
+    min-height: calc(100vh - 120px);
+  }
+
+  @media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
+    margin-top: 110px;
+    min-height: calc(100vh - 110px);
   }
 `;
 

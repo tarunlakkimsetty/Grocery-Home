@@ -46,6 +46,7 @@ const normalizeStoredItems = (value) => {
                 delivered: Boolean(it?.delivered),
                 selected: Boolean(it?.selected),
                 stock: Number.isFinite(Number(it?.stock)) ? Number(it.stock) : 0,
+                unit: String(it?.unit || 'piece'),
             };
         })
         .filter(Boolean);
@@ -185,6 +186,7 @@ class CartProvider extends React.Component {
                         delivered: false, // Default: not yet delivered
                         selected: false, // Default: not selected
                         stock: availableStock !== null ? availableStock : (product.stock || 0), // Product stock quantity
+                        unit: product.unit || 'piece', // Store unit for proper quantity handling
                     },
                 ],
             };
@@ -198,14 +200,20 @@ class CartProvider extends React.Component {
     }
 
     updateQuantity(productId, quantity) {
-        const qty = parseFloat(quantity);
-        if (qty < 0.1) {
-            this.removeFromCart(productId);
-            return;
-        }
         this.setState((prevState) => {
             const existing = (prevState.items || []).find((i) => i.productId === productId);
             if (!existing) return prevState;
+
+            // Parse quantity based on unit
+            const isWeightBased = existing.unit === 'kg';
+            const qty = isWeightBased ? parseFloat(quantity) : parseInt(quantity);
+            
+            // Validate based on unit
+            const minQty = isWeightBased ? 0.1 : 1;
+            if (qty < minQty) {
+                this.removeFromCart(productId);
+                return prevState;
+            }
 
             const rawStock = Number(existing?.stock);
             const availableStock = Number.isFinite(rawStock) ? rawStock : null;

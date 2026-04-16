@@ -67,14 +67,23 @@ export const validators = {
         return '';
     },
 
-    // Quantity validation - decimal positive number (min 0.1)
-    validateQuantity: (value, getText) => {
+    // Quantity validation - unit-aware (decimal for kg, integer for others)
+    validateQuantity: (value, getText, unit = 'piece') => {
         if (!value && value !== 0) {
             return getText('quantityRequired');
         }
-        const qty = parseFloat(value);
-        if (isNaN(qty) || qty < 0.1) {
-            return getText('quantityInvalid');
+        
+        const isWeightBased = unit === 'kg';
+        if (isWeightBased) {
+            const qty = parseFloat(value);
+            if (isNaN(qty) || qty < 0.1) {
+                return getText('quantityInvalid');
+            }
+        } else {
+            const qty = parseInt(value);
+            if (isNaN(qty) || qty < 1) {
+                return getText('quantityInvalid');
+            }
         }
         return '';
     },

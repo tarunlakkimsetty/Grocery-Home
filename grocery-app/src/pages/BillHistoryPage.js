@@ -14,6 +14,17 @@ import {
     Badge,
     ModalOverlay,
     ModalContent,
+    MobileHistoryWrapper,
+    DesktopHistoryWrapper,
+    HistoryCard,
+    HistoryCardHeader,
+    HistoryCardTitle,
+    HistoryCardRow,
+    HistoryCardLabel,
+    HistoryCardValue,
+    HistoryCardFooter,
+    HistoryCardButton,
+    HistoryStatusBadge,
 } from '../styledComponents/FormStyles';
 import { t, statusKey } from '../utils/i18n';
 
@@ -278,42 +289,87 @@ class BillHistoryPage extends React.Component {
                                     </EmptyState>
                                 )}
 
+                                {/* Desktop Bills Table */}
                                 {activeTab === 'bills' && safeBills.length > 0 && (
-                                    <TableWrapper $clickable>
-                                        <table className="table table-hover">
-                                            <thead>
-                                                <tr>
-                                                    <th>{langCtx.getText('billNumber')}</th>
-                                                    <th>{langCtx.getText('billDate')}</th>
-                                                    <th>{langCtx.getText('items')}</th>
-                                                    <th>{langCtx.getText('paymentMethod')}</th>
-                                                    <th className="text-end">{langCtx.getText('total')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {visibleItems.map((bill) => (
-                                                    <tr
-                                                        key={bill.id}
-                                                        onClick={() => this.setState({ redirectTo: `/bill/${bill.id}` })}
-                                                        style={{ cursor: 'pointer' }}
-                                                    >
-                                                        <td className="fw-bold">#{bill.id}</td>
-                                                        <td>{this.formatDate(bill.date)}</td>
-                                                        <td>{bill.items.length} {langCtx.getText('items')}</td>
-                                                        <td>
-                                                            <Badge className={this.getPaymentBadge(bill.paymentMethod)}>
-                                                                {bill.paymentMethod}
-                                                            </Badge>
-                                                        </td>
-                                                        <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{Number(bill.grandTotal || 0).toFixed(2)}
-                                                        </td>
+                                    <DesktopHistoryWrapper>
+                                        <TableWrapper $clickable>
+                                            <table className="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{langCtx.getText('billNumber')}</th>
+                                                        <th>{langCtx.getText('billDate')}</th>
+                                                        <th>{langCtx.getText('items')}</th>
+                                                        <th>{langCtx.getText('paymentMethod')}</th>
+                                                        <th className="text-end">{langCtx.getText('total')}</th>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                        {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
-                                    </TableWrapper>
+                                                </thead>
+                                                <tbody>
+                                                    {visibleItems.map((bill) => (
+                                                        <tr
+                                                            key={bill.id}
+                                                            onClick={() => this.setState({ redirectTo: `/bill/${bill.id}` })}
+                                                            style={{ cursor: 'pointer' }}
+                                                        >
+                                                            <td className="fw-bold">#{bill.id}</td>
+                                                            <td>{this.formatDate(bill.date)}</td>
+                                                            <td>{bill.items.length} {langCtx.getText('items')}</td>
+                                                            <td>
+                                                                <Badge className={this.getPaymentBadge(bill.paymentMethod)}>
+                                                                    {bill.paymentMethod}
+                                                                </Badge>
+                                                            </td>
+                                                            <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
+                                                                ₹{Number(bill.grandTotal || 0).toFixed(2)}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </TableWrapper>
+                                    </DesktopHistoryWrapper>
+                                )}
+
+                                {/* Mobile Bills Cards */}
+                                {activeTab === 'bills' && safeBills.length > 0 && (
+                                    <MobileHistoryWrapper>
+                                        <div>
+                                            {visibleItems.map((bill) => (
+                                                <HistoryCard key={bill.id} onClick={() => this.setState({ redirectTo: `/bill/${bill.id}` })}>
+                                                    <HistoryCardHeader>
+                                                        <HistoryCardTitle>
+                                                            <div className="order-id">Bill #{bill.id}</div>
+                                                            <div className="order-date">{this.formatDate(bill.date)}</div>
+                                                        </HistoryCardTitle>
+                                                    </HistoryCardHeader>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>📦 {langCtx.getText('items')}:</HistoryCardLabel>
+                                                        <HistoryCardValue>{bill.items.length}</HistoryCardValue>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>💰 {langCtx.getText('total')}:</HistoryCardLabel>
+                                                        <HistoryCardValue className="amount">₹{Number(bill.grandTotal || 0).toFixed(2)}</HistoryCardValue>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>💳 {langCtx.getText('paymentMethod')}:</HistoryCardLabel>
+                                                        <Badge className={this.getPaymentBadge(bill.paymentMethod)}>
+                                                            {bill.paymentMethod}
+                                                        </Badge>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardFooter>
+                                                        <HistoryCardButton onClick={() => this.setState({ redirectTo: `/bill/${bill.id}` })}>
+                                                            👁️ {langCtx.getText('viewDetails')}
+                                                        </HistoryCardButton>
+                                                    </HistoryCardFooter>
+                                                </HistoryCard>
+                                            ))}
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </div>
+                                    </MobileHistoryWrapper>
                                 )}
 
                                 {/* Online Orders Tab */}
@@ -325,73 +381,134 @@ class BillHistoryPage extends React.Component {
                                     </EmptyState>
                                 )}
 
+                                {/* Desktop Online Orders Table */}
                                 {activeTab === 'orders' && safeOrders.length > 0 && (
-                                    <TableWrapper>
-                                        <table className="table table-hover">
-                                            <thead>
-                                                <tr>
-                                                    <th>{langCtx.getText('orderId')}</th>
-                                                    <th>{langCtx.getText('orderDate')}</th>
-                                                    <th>{langCtx.getText('items')}</th>
-                                                    <th>{langCtx.getText('paymentMethod')}</th>
-                                                    <th>{langCtx.getText('orderStatus')}</th>
-                                                    <th className="text-end">{langCtx.getText('total')}</th>
-                                                    <th className="text-end">{langCtx.getText('advance')}</th>
-                                                    <th className="text-end">{langCtx.getText('remaining')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {visibleItems.map((order) => (
-                                                    <tr
-                                                        key={order.id}
-                                                        onClick={() => this.openOrderModal(order)}
-                                                        style={{ cursor: 'pointer' }}
-                                                    >
-                                                        <td className="fw-bold">#{order.id}</td>
-                                                        <td>
-                                                            {this.formatDate(
-                                                                order.createdAt ||
-                                                                    order.orderDate ||
-                                                                    order.updatedAt ||
-                                                                    order.date
-                                                            )}
-                                                        </td>
-                                                        <td>{(order.items ? order.items.length : 0)} {langCtx.getText('items')}</td>
-                                                        <td>
-                                                            <Badge className="badge-warning">
-                                                                🛵 COD
-                                                            </Badge>
-                                                        </td>
-                                                        <td>
-                                                            <Badge className={this.getStatusBadge(order.status)}>
-                                                                {order.status === 'Pending Acceptance' && '🕒 '}
-                                                                {order.status === 'Accepted' && '👍 '}
-                                                                {order.status === 'Pending' && '⏳ '}
-                                                                {order.status === 'Verified' && '✅ '}
-                                                                {order.status === 'Paid' && '💰 '}
-                                                                {order.status === 'Delivered' && '📦 '}
-                                                                {order.status === 'Rejected' && '❌ '}
-                                                                {langCtx.getText(statusKey(order.status))}
-                                                            </Badge>
-                                                        </td>
-                                                        <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{this.getOrderTotal(order).toFixed(2)}
-                                                        </td>
-                                                        <td className="text-end">
-                                                            ₹{this.getAdvanceAmount(order).toFixed(2)}
-                                                        </td>
-                                                        <td
-                                                            className="text-end fw-bold"
-                                                            style={{ color: this.getRemainingBalance(order) < 0 ? '#c62828' : '#2E7D32' }}
-                                                        >
-                                                            ₹{this.getRemainingBalance(order).toFixed(2)}
-                                                        </td>
+                                    <DesktopHistoryWrapper>
+                                        <TableWrapper>
+                                            <table className="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{langCtx.getText('orderId')}</th>
+                                                        <th>{langCtx.getText('orderDate')}</th>
+                                                        <th>{langCtx.getText('items')}</th>
+                                                        <th>{langCtx.getText('paymentMethod')}</th>
+                                                        <th>{langCtx.getText('orderStatus')}</th>
+                                                        <th className="text-end">{langCtx.getText('total')}</th>
+                                                        <th className="text-end">{langCtx.getText('advance')}</th>
+                                                        <th className="text-end">{langCtx.getText('remaining')}</th>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                        {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
-                                    </TableWrapper>
+                                                </thead>
+                                                <tbody>
+                                                    {visibleItems.map((order) => (
+                                                        <tr
+                                                            key={order.id}
+                                                            onClick={() => this.openOrderModal(order)}
+                                                            style={{ cursor: 'pointer' }}
+                                                        >
+                                                            <td className="fw-bold">#{order.id}</td>
+                                                            <td>
+                                                                {this.formatDate(
+                                                                    order.createdAt ||
+                                                                        order.orderDate ||
+                                                                        order.updatedAt ||
+                                                                        order.date
+                                                                )}
+                                                            </td>
+                                                            <td>{(order.items ? order.items.length : 0)} {langCtx.getText('items')}</td>
+                                                            <td>
+                                                                <Badge className="badge-warning">
+                                                                    🛵 COD
+                                                                </Badge>
+                                                            </td>
+                                                            <td>
+                                                                <Badge className={this.getStatusBadge(order.status)}>
+                                                                    {order.status === 'Pending Acceptance' && '🕒 '}
+                                                                    {order.status === 'Accepted' && '👍 '}
+                                                                    {order.status === 'Pending' && '⏳ '}
+                                                                    {order.status === 'Verified' && '✅ '}
+                                                                    {order.status === 'Paid' && '💰 '}
+                                                                    {order.status === 'Delivered' && '📦 '}
+                                                                    {order.status === 'Rejected' && '❌ '}
+                                                                    {langCtx.getText(statusKey(order.status))}
+                                                                </Badge>
+                                                            </td>
+                                                            <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
+                                                                ₹{this.getOrderTotal(order).toFixed(2)}
+                                                            </td>
+                                                            <td className="text-end">
+                                                                ₹{this.getAdvanceAmount(order).toFixed(2)}
+                                                            </td>
+                                                            <td
+                                                                className="text-end fw-bold"
+                                                                style={{ color: this.getRemainingBalance(order) < 0 ? '#c62828' : '#2E7D32' }}
+                                                            >
+                                                                ₹{this.getRemainingBalance(order).toFixed(2)}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </TableWrapper>
+                                    </DesktopHistoryWrapper>
+                                )}
+
+                                {/* Mobile Online Orders Cards */}
+                                {activeTab === 'orders' && safeOrders.length > 0 && (
+                                    <MobileHistoryWrapper>
+                                        <div>
+                                            {visibleItems.map((order) => (
+                                                <HistoryCard key={order.id} onClick={() => this.openOrderModal(order)}>
+                                                    <HistoryCardHeader>
+                                                        <HistoryCardTitle>
+                                                            <div className="order-id">Order #{order.id}</div>
+                                                            <div className="order-date">
+                                                                {this.formatDate(
+                                                                    order.createdAt || order.orderDate || order.updatedAt || order.date
+                                                                )}
+                                                            </div>
+                                                        </HistoryCardTitle>
+                                                    </HistoryCardHeader>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>📦 {langCtx.getText('items')}:</HistoryCardLabel>
+                                                        <HistoryCardValue>{order.items ? order.items.length : 0}</HistoryCardValue>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>💰 {langCtx.getText('total')}:</HistoryCardLabel>
+                                                        <HistoryCardValue className="amount">₹{this.getOrderTotal(order).toFixed(2)}</HistoryCardValue>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>💳 {langCtx.getText('paymentMethod')}:</HistoryCardLabel>
+                                                        <Badge className="badge-warning">🛵 COD</Badge>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>📊 {langCtx.getText('orderStatus')}:</HistoryCardLabel>
+                                                        <HistoryStatusBadge $status={order.status}>
+                                                            {order.status === 'Pending Acceptance' && '🕒 '}
+                                                            {order.status === 'Accepted' && '👍 '}
+                                                            {order.status === 'Pending' && '⏳ '}
+                                                            {order.status === 'Verified' && '✅ '}
+                                                            {order.status === 'Paid' && '💰 '}
+                                                            {order.status === 'Delivered' && '📦 '}
+                                                            {order.status === 'Rejected' && '❌ '}
+                                                            {langCtx.getText(statusKey(order.status))}
+                                                        </HistoryStatusBadge>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardFooter>
+                                                        <HistoryCardButton onClick={() => this.openOrderModal(order)}>
+                                                            👁️ {langCtx.getText('viewDetails')}
+                                                        </HistoryCardButton>
+                                                    </HistoryCardFooter>
+                                                </HistoryCard>
+                                            ))}
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </div>
+                                    </MobileHistoryWrapper>
                                 )}
 
                                 {/* Offline Orders Tab */}
@@ -407,73 +524,134 @@ class BillHistoryPage extends React.Component {
                                     </EmptyState>
                                 )}
 
+                                {/* Desktop Offline Orders Table */}
                                 {activeTab === 'offlineOrders' && safeOfflineOrders.length > 0 && (
-                                    <TableWrapper>
-                                        <table className="table table-hover">
-                                            <thead>
-                                                <tr>
-                                                    <th>{langCtx.getText('orderId')}</th>
-                                                    <th>{langCtx.getText('orderDate')}</th>
-                                                    <th>{langCtx.getText('items')}</th>
-                                                    <th>{langCtx.getText('paymentMethod')}</th>
-                                                    <th>{langCtx.getText('orderStatus')}</th>
-                                                    <th className="text-end">{langCtx.getText('total')}</th>
-                                                    <th className="text-end">{langCtx.getText('advance')}</th>
-                                                    <th className="text-end">{langCtx.getText('remaining')}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {visibleItems.map((order) => (
-                                                    <tr
-                                                        key={order.id}
-                                                        onClick={() => this.openOrderModal(order)}
-                                                        style={{ cursor: 'pointer' }}
-                                                    >
-                                                        <td className="fw-bold">#{order.id}</td>
-                                                        <td>
-                                                            {this.formatDate(
-                                                                order.createdAt ||
-                                                                    order.orderDate ||
-                                                                    order.updatedAt ||
-                                                                    order.date
-                                                            )}
-                                                        </td>
-                                                        <td>{(order.items ? order.items.length : 0)} {langCtx.getText('items')}</td>
-                                                        <td>
-                                                            <Badge className="badge-warning">
-                                                                🧾 OFFLINE
-                                                            </Badge>
-                                                        </td>
-                                                        <td>
-                                                            <Badge className={this.getStatusBadge(order.status)}>
-                                                                {order.status === 'Pending Acceptance' && '🕒 '}
-                                                                {order.status === 'Accepted' && '👍 '}
-                                                                {order.status === 'Pending' && '⏳ '}
-                                                                {order.status === 'Verified' && '✅ '}
-                                                                {order.status === 'Paid' && '💰 '}
-                                                                {order.status === 'Delivered' && '📦 '}
-                                                                {order.status === 'Rejected' && '❌ '}
-                                                                {langCtx.getText(statusKey(order.status))}
-                                                            </Badge>
-                                                        </td>
-                                                        <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{this.getOrderTotal(order).toFixed(2)}
-                                                        </td>
-                                                        <td className="text-end">
-                                                            ₹{this.getAdvanceAmount(order).toFixed(2)}
-                                                        </td>
-                                                        <td
-                                                            className="text-end fw-bold"
-                                                            style={{ color: this.getRemainingBalance(order) < 0 ? '#c62828' : '#2E7D32' }}
-                                                        >
-                                                            ₹{this.getRemainingBalance(order).toFixed(2)}
-                                                        </td>
+                                    <DesktopHistoryWrapper>
+                                        <TableWrapper>
+                                            <table className="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{langCtx.getText('orderId')}</th>
+                                                        <th>{langCtx.getText('orderDate')}</th>
+                                                        <th>{langCtx.getText('items')}</th>
+                                                        <th>{langCtx.getText('paymentMethod')}</th>
+                                                        <th>{langCtx.getText('orderStatus')}</th>
+                                                        <th className="text-end">{langCtx.getText('total')}</th>
+                                                        <th className="text-end">{langCtx.getText('advance')}</th>
+                                                        <th className="text-end">{langCtx.getText('remaining')}</th>
                                                     </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                        {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
-                                    </TableWrapper>
+                                                </thead>
+                                                <tbody>
+                                                    {visibleItems.map((order) => (
+                                                        <tr
+                                                            key={order.id}
+                                                            onClick={() => this.openOrderModal(order)}
+                                                            style={{ cursor: 'pointer' }}
+                                                        >
+                                                            <td className="fw-bold">#{order.id}</td>
+                                                            <td>
+                                                                {this.formatDate(
+                                                                    order.createdAt ||
+                                                                        order.orderDate ||
+                                                                        order.updatedAt ||
+                                                                        order.date
+                                                                )}
+                                                            </td>
+                                                            <td>{(order.items ? order.items.length : 0)} {langCtx.getText('items')}</td>
+                                                            <td>
+                                                                <Badge className="badge-warning">
+                                                                    🧾 OFFLINE
+                                                                </Badge>
+                                                            </td>
+                                                            <td>
+                                                                <Badge className={this.getStatusBadge(order.status)}>
+                                                                    {order.status === 'Pending Acceptance' && '🕒 '}
+                                                                    {order.status === 'Accepted' && '👍 '}
+                                                                    {order.status === 'Pending' && '⏳ '}
+                                                                    {order.status === 'Verified' && '✅ '}
+                                                                    {order.status === 'Paid' && '💰 '}
+                                                                    {order.status === 'Delivered' && '📦 '}
+                                                                    {order.status === 'Rejected' && '❌ '}
+                                                                    {langCtx.getText(statusKey(order.status))}
+                                                                </Badge>
+                                                            </td>
+                                                            <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
+                                                                ₹{this.getOrderTotal(order).toFixed(2)}
+                                                            </td>
+                                                            <td className="text-end">
+                                                                ₹{this.getAdvanceAmount(order).toFixed(2)}
+                                                            </td>
+                                                            <td
+                                                                className="text-end fw-bold"
+                                                                style={{ color: this.getRemainingBalance(order) < 0 ? '#c62828' : '#2E7D32' }}
+                                                            >
+                                                                ₹{this.getRemainingBalance(order).toFixed(2)}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </TableWrapper>
+                                    </DesktopHistoryWrapper>
+                                )}
+
+                                {/* Mobile Offline Orders Cards */}
+                                {activeTab === 'offlineOrders' && safeOfflineOrders.length > 0 && (
+                                    <MobileHistoryWrapper>
+                                        <div>
+                                            {visibleItems.map((order) => (
+                                                <HistoryCard key={order.id} onClick={() => this.openOrderModal(order)}>
+                                                    <HistoryCardHeader>
+                                                        <HistoryCardTitle>
+                                                            <div className="order-id">Order #{order.id}</div>
+                                                            <div className="order-date">
+                                                                {this.formatDate(
+                                                                    order.createdAt || order.orderDate || order.updatedAt || order.date
+                                                                )}
+                                                            </div>
+                                                        </HistoryCardTitle>
+                                                    </HistoryCardHeader>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>📦 {langCtx.getText('items')}:</HistoryCardLabel>
+                                                        <HistoryCardValue>{order.items ? order.items.length : 0}</HistoryCardValue>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>💰 {langCtx.getText('total')}:</HistoryCardLabel>
+                                                        <HistoryCardValue className="amount">₹{this.getOrderTotal(order).toFixed(2)}</HistoryCardValue>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>💳 {langCtx.getText('paymentMethod')}:</HistoryCardLabel>
+                                                        <Badge className="badge-warning">🧾 OFFLINE</Badge>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>📊 {langCtx.getText('orderStatus')}:</HistoryCardLabel>
+                                                        <HistoryStatusBadge $status={order.status}>
+                                                            {order.status === 'Pending Acceptance' && '🕒 '}
+                                                            {order.status === 'Accepted' && '👍 '}
+                                                            {order.status === 'Pending' && '⏳ '}
+                                                            {order.status === 'Verified' && '✅ '}
+                                                            {order.status === 'Paid' && '💰 '}
+                                                            {order.status === 'Delivered' && '📦 '}
+                                                            {order.status === 'Rejected' && '❌ '}
+                                                            {langCtx.getText(statusKey(order.status))}
+                                                        </HistoryStatusBadge>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardFooter>
+                                                        <HistoryCardButton onClick={() => this.openOrderModal(order)}>
+                                                            👁️ {langCtx.getText('viewDetails')}
+                                                        </HistoryCardButton>
+                                                    </HistoryCardFooter>
+                                                </HistoryCard>
+                                            ))}
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </div>
+                                    </MobileHistoryWrapper>
                                 )}
 
                                 {/* ── Customer Order Details Modal (Read-only) ── */}

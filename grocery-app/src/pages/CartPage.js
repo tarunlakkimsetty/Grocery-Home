@@ -10,8 +10,24 @@ import { toast } from 'react-toastify';
 import { Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { PageHeader } from '../styledComponents/LayoutStyles';
-import { TableWrapper, EmptyState, ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
-import { PrimaryButton, DangerButton } from '../styledComponents/ButtonStyles';
+import {
+    TableWrapper,
+    EmptyState,
+    ModalOverlay,
+    ModalContent,
+    MobileCartWrapper,
+    DesktopCartWrapper,
+    CartCard,
+    CartCardHeader,
+    CartCardCheckbox,
+    CartCardProductName,
+    CartCardRow,
+    CartCardLabel,
+    CartCardValue,
+    QuantityControlsMobile,
+    RemoveButtonMobile,
+} from '../styledComponents/FormStyles';
+import { PrimaryButton, DangerButton, GhostButton } from '../styledComponents/ButtonStyles';
 import LegalModalContext from '../context/LegalModalContext';
 
 const ItemRow = styled.tr`
@@ -242,46 +258,156 @@ class CartPage extends React.Component {
                                                                 </div>
                                                             )}
 
-                                                            <TableWrapper>
-                                                                <table className="table table-hover align-middle">
-                                                                    <thead>
-                                                                        <tr>
-                                                                            {!isCOD && (
-                                                                                <th className="text-center" style={{ width: '70px', verticalAlign: 'middle' }}>Checkbox</th>
-                                                                            )}
-                                                                            <th className="text-start" style={{ verticalAlign: 'middle' }}>{langCtx.getText('productName')}</th>
-                                                                            <th className="text-center" style={{ width: '120px', verticalAlign: 'middle' }}>{langCtx.getText('price')}</th>
-                                                                            <th className="text-center" style={{ width: '170px', verticalAlign: 'middle' }}>{langCtx.getText('quantity')}</th>
-                                                                            <th className="text-center" style={{ width: '130px', verticalAlign: 'middle' }}>{langCtx.getText('total')}</th>
-                                                                            <th className="text-center" style={{ width: '90px', verticalAlign: 'middle' }}>Action</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        {filteredItems.map((item) => (
-                                                                            <ItemRow key={item.productId} $delivered={!!item.delivered}>
+                                                            <DesktopCartWrapper>
+                                                                <TableWrapper>
+                                                                    <table className="table table-hover align-middle">
+                                                                        <thead>
+                                                                            <tr>
                                                                                 {!isCOD && (
-                                                                                    <td className="text-center" style={{ width: '70px', verticalAlign: 'middle' }}>
-                                                                                        <input
+                                                                                    <th className="text-center" style={{ width: '70px', verticalAlign: 'middle' }}>Checkbox</th>
+                                                                                )}
+                                                                                <th className="text-start" style={{ verticalAlign: 'middle' }}>{langCtx.getText('productName')}</th>
+                                                                                <th className="text-center" style={{ width: '120px', verticalAlign: 'middle' }}>{langCtx.getText('price')}</th>
+                                                                                <th className="text-center" style={{ width: '170px', verticalAlign: 'middle' }}>{langCtx.getText('quantity')}</th>
+                                                                                <th className="text-center" style={{ width: '130px', verticalAlign: 'middle' }}>{langCtx.getText('total')}</th>
+                                                                                <th className="text-center" style={{ width: '90px', verticalAlign: 'middle' }}>Action</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {filteredItems.map((item) => (
+                                                                                <ItemRow key={item.productId} $delivered={!!item.delivered}>
+                                                                                    {!isCOD && (
+                                                                                        <td className="text-center" style={{ width: '70px', verticalAlign: 'middle' }}>
+                                                                                            <input
+                                                                                                type="checkbox"
+                                                                                                className="form-check-input m-0"
+                                                                                                style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
+                                                                                                checked={!!item.delivered}
+                                                                                                onChange={() => cartCtx.toggleItemDelivered(item.productId)}
+                                                                                                aria-label={`Include ${item.name} in billing`}
+                                                                                            />
+                                                                                        </td>
+                                                                                    )}
+                                                                                    <CartItem
+                                                                                        item={item}
+                                                                                        onUpdateQuantity={cartCtx.updateQuantity}
+                                                                                        onRemove={cartCtx.removeFromCart}
+                                                                                        isTableRow={true}
+                                                                                    />
+                                                                                </ItemRow>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </TableWrapper>
+                                                            </DesktopCartWrapper>
+
+                                                            <MobileCartWrapper>
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                                                                    {filteredItems.map((item) => {
+                                                                        const rawPrice = Number(item?.price ?? 0);
+                                                                        const price = Number.isFinite(rawPrice) ? rawPrice : 0;
+                                                                        const rawQuantity = Number(item?.quantity ?? 0);
+                                                                        const quantity = Number.isFinite(rawQuantity) ? rawQuantity : 0;
+                                                                        const rawTotal = Number(item?.total);
+                                                                        const total = Number.isFinite(rawTotal) ? rawTotal : price * quantity;
+                                                                        const isWeightBased = item?.unit === 'kg';
+                                                                        const increment = isWeightBased ? 0.1 : 1;
+                                                                        const minQty = isWeightBased ? 0.1 : 1;
+
+                                                                        const handleIncrease = () => {
+                                                                            if (item.quantity >= item.stock) {
+                                                                                toast.error('Stock limit reached');
+                                                                                return;
+                                                                            }
+                                                                            const newQty = isWeightBased
+                                                                                ? Math.round((item.quantity + increment) * 10) / 10
+                                                                                : item.quantity + increment;
+                                                                            cartCtx.updateQuantity(item.productId, newQty);
+                                                                        };
+
+                                                                        const handleDecrease = () => {
+                                                                            if (item.quantity <= minQty) {
+                                                                                return;
+                                                                            }
+                                                                            const newQty = isWeightBased
+                                                                                ? Math.round((item.quantity - increment) * 10) / 10
+                                                                                : item.quantity - increment;
+                                                                            cartCtx.updateQuantity(item.productId, newQty);
+                                                                        };
+
+                                                                        return (
+                                                                            <CartCard key={item.productId} $delivered={!!item.delivered}>
+                                                                                {!isCOD && (
+                                                                                    <CartCardHeader>
+                                                                                        <CartCardCheckbox
                                                                                             type="checkbox"
-                                                                                            className="form-check-input m-0"
-                                                                                            style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
                                                                                             checked={!!item.delivered}
                                                                                             onChange={() => cartCtx.toggleItemDelivered(item.productId)}
                                                                                             aria-label={`Include ${item.name} in billing`}
                                                                                         />
-                                                                                    </td>
+                                                                                        <CartCardProductName>
+                                                                                            <div className="name">{item.name}</div>
+                                                                                            <span className="unit">{item.unit || 'piece'}</span>
+                                                                                        </CartCardProductName>
+                                                                                    </CartCardHeader>
                                                                                 )}
-                                                                                <CartItem
-                                                                                    item={item}
-                                                                                    onUpdateQuantity={cartCtx.updateQuantity}
-                                                                                    onRemove={cartCtx.removeFromCart}
-                                                                                    isTableRow={true}
-                                                                                />
-                                                                            </ItemRow>
-                                                                        ))}
-                                                                    </tbody>
-                                                                </table>
-                                                            </TableWrapper>
+                                                                                {isCOD && (
+                                                                                    <CartCardHeader>
+                                                                                        <CartCardProductName style={{ marginLeft: 0 }}>
+                                                                                            <div className="name">{item.name}</div>
+                                                                                            <span className="unit">{item.unit || 'piece'}</span>
+                                                                                        </CartCardProductName>
+                                                                                    </CartCardHeader>
+                                                                                )}
+
+                                                                                <CartCardRow>
+                                                                                    <CartCardLabel>{langCtx.getText('price')}:</CartCardLabel>
+                                                                                    <CartCardValue className="price">₹{price.toFixed(2)}</CartCardValue>
+                                                                                </CartCardRow>
+
+                                                                                <div style={{ marginBottom: '0.75rem' }}>
+                                                                                    <CartCardLabel style={{ display: 'block', marginBottom: '0.5rem' }}>
+                                                                                        {langCtx.getText('quantity')}:
+                                                                                    </CartCardLabel>
+                                                                                    <QuantityControlsMobile>
+                                                                                        <GhostButton
+                                                                                            onClick={handleDecrease}
+                                                                                            disabled={item.quantity <= minQty}
+                                                                                            title={item.quantity <= minQty ? `Cannot go below ${minQty}` : 'Decrease quantity'}
+                                                                                            style={{ padding: 0 }}
+                                                                                        >
+                                                                                            −
+                                                                                        </GhostButton>
+                                                                                        <span className="quantity-display">
+                                                                                            {isWeightBased ? item.quantity.toFixed(1) : Math.floor(item.quantity)}
+                                                                                        </span>
+                                                                                        <GhostButton
+                                                                                            onClick={handleIncrease}
+                                                                                            disabled={item.quantity >= item.stock}
+                                                                                            title={item.quantity >= item.stock ? 'Stock limit reached' : 'Increase quantity'}
+                                                                                            style={{ padding: 0 }}
+                                                                                        >
+                                                                                            +
+                                                                                        </GhostButton>
+                                                                                    </QuantityControlsMobile>
+                                                                                </div>
+
+                                                                                <CartCardRow>
+                                                                                    <CartCardLabel>{langCtx.getText('total')}:</CartCardLabel>
+                                                                                    <CartCardValue className="total">₹{total.toFixed(2)}</CartCardValue>
+                                                                                </CartCardRow>
+
+                                                                                <RemoveButtonMobile
+                                                                                    onClick={() => cartCtx.removeFromCart(item.productId)}
+                                                                                    title={langCtx.getText('removeItem')}
+                                                                                >
+                                                                                    ✕ {langCtx.getText('removeItem')}
+                                                                                </RemoveButtonMobile>
+                                                                            </CartCard>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </MobileCartWrapper>
                                                         </div>
 
                                                         <div className="col-12 col-lg-4">

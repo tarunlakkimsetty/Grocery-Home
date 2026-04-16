@@ -6,7 +6,6 @@ export const NavbarWrapper = styled.nav`
   top: 0;
   left: 0;
   right: 0;
-  height: ${({ theme }) => theme.navbar.height};
   background: ${({ theme }) => theme.colors.navbarBg};
   display: flex;
   align-items: center;
@@ -15,6 +14,19 @@ export const NavbarWrapper = styled.nav`
   z-index: 1030;
   box-shadow: ${({ theme }) => theme.shadows.md};
   transition: ${({ theme }) => theme.transitions.normal};
+  height: ${({ theme }) => theme.navbar.height};
+
+  @media (max-width: 768px) {
+    height: auto;
+    flex-direction: column;
+    padding: 0.5rem;
+    gap: 0.5rem;
+  }
+
+  @media (max-width: 576px) {
+    padding: 0.4rem;
+    gap: 0.4rem;
+  }
 `;
 
 export const NavBrand = styled.div`
@@ -71,6 +83,14 @@ export const NavActions = styled.div`
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-shrink: 0;
+
+  @media (max-width: 768px) {
+    width: 100%;
+    justify-content: space-around;
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+  }
 `;
 
 export const CartLink = styled(Link)`
@@ -112,6 +132,7 @@ export const UserInfo = styled.div`
   background: rgba(255, 255, 255, 0.08);
   border-radius: ${({ theme }) => theme.borderRadius.pill};
   border: 1px solid rgba(255, 255, 255, 0.1);
+  min-height: 40px;
 
   .user-avatar {
     width: 32px;
@@ -124,6 +145,7 @@ export const UserInfo = styled.div`
     color: white;
     font-weight: 600;
     font-size: 0.875rem;
+    flex-shrink: 0;
   }
 
   .user-meta {
@@ -144,11 +166,22 @@ export const UserInfo = styled.div`
       font-weight: 500;
     }
   }
+
+  @media (max-width: 768px) {
+    padding: 0.4rem 0.75rem;
+    gap: 0.5rem;
+    min-height: 40px;
+
+    .user-meta {
+      display: none;
+    }
+  }
 `;
 
 export const LogoutButton = styled.button`
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 1.25rem;
   background: rgba(229, 57, 53, 0.15);
@@ -162,12 +195,20 @@ export const LogoutButton = styled.button`
   white-space: normal;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  min-height: 40px;
+  min-width: 40px;
 
   &:hover {
     background: ${({ theme }) => theme.colors.danger};
     color: ${({ theme }) => theme.colors.white};
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(229, 57, 53, 0.4);
+  }
+
+  @media (max-width: 768px) {
+    padding: 0.5rem 0.75rem;
+    font-size: ${({ theme }) => theme.fontSizes.xs};
+    gap: 0.25rem;
   }
 `;
 
@@ -178,11 +219,127 @@ export const HamburgerButton = styled.button`
   color: ${({ theme }) => theme.colors.white};
   font-size: 1.5rem;
   cursor: pointer;
-  padding: 0.25rem;
+  padding: 0.5rem;
   line-height: 1;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: ${({ theme }) => theme.borderRadius.sm};
+  transition: ${({ theme }) => theme.transitions.fast};
 
-  @media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  @media (max-width: 768px) {
     display: flex;
     align-items: center;
+    justify-content: center;
+  }
+`;
+
+export const NavTopRow = styled.div`
+  display: none;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+
+  @media (max-width: 768px) {
+    display: flex;
+  }
+`;
+
+export const NavBottomRow = styled.div`
+  display: none;
+  width: 100%;
+  align-items: center;
+  justify-content: space-around;
+  gap: 0.5rem;
+
+  @media (max-width: 768px) {
+    display: flex;
+    padding: 0 0.5rem;
+  }
+`;
+
+export const NavBrandMobile = styled.div`
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+
+  @media (max-width: 768px) {
+    display: flex;
+  }
+
+  .logo-icon {
+    width: 28px;
+    height: 28px;
+    background: ${({ theme }) => theme.colors.gradient};
+    border-radius: ${({ theme }) => theme.borderRadius.sm};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    color: ${({ theme }) => theme.colors.white};
+    box-shadow: ${({ theme }) => theme.shadows.glow};
+    flex-shrink: 0;
+  }
+
+  .brand-text {
+    font-family: ${({ theme }) => theme.fonts.heading};
+    font-size: ${({ theme }) => theme.fontSizes.md};
+    font-weight: 700;
+    color: ${({ theme }) => theme.colors.white};
+    letter-spacing: -0.5px;
+    min-width: 0;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    line-height: 1.2;
+  }
+
+  @media (max-width: 576px) {
+    gap: 0.4rem;
+
+    .logo-icon {
+      width: 24px;
+      height: 24px;
+      font-size: 0.9rem;
+    }
+
+    .brand-text {
+      font-size: ${({ theme }) => theme.fontSizes.sm};
+    }
+  }
+`;
+
+export const NavIconButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: ${({ theme }) => theme.colors.white};
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: ${({ theme }) => theme.borderRadius.sm};
+  transition: ${({ theme }) => theme.transitions.fast};
+  position: relative;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  @media (max-width: 768px) {
+    font-size: 1.1rem;
+    padding: 0.4rem;
+    min-width: 38px;
+    min-height: 38px;
   }
 `;

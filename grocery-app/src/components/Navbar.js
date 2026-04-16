@@ -13,6 +13,10 @@ import {
     UserInfo,
     LogoutButton,
     HamburgerButton,
+    NavTopRow,
+    NavBottomRow,
+    NavBrandMobile,
+    NavIconButton,
 } from '../styledComponents/NavbarStyles';
 
 class Navbar extends React.Component {
@@ -27,7 +31,8 @@ class Navbar extends React.Component {
                 {(langCtx) => (
                     <React.Fragment>
                         <NavbarWrapper>
-                            <div className="container-fluid d-flex justify-content-between align-items-center py-2" style={{ minWidth: 0 }}>
+                            {/* Desktop Layout - Hide on mobile */}
+                            <div className="d-flex d-none d-md-flex justify-content-between align-items-center" style={{ width: '100%' }}>
                                 <div className="d-flex align-items-center gap-2" style={{ minWidth: 0, maxWidth: isAuthenticated ? '60%' : '100%' }}>
                                     {isAuthenticated && (
                                         <HamburgerButton onClick={onToggleSidebar} aria-label="Toggle sidebar">
@@ -104,6 +109,52 @@ class Navbar extends React.Component {
                                     </NavActions>
                                 )}
                             </div>
+
+                            {/* Mobile Layout - Show only on mobile (≤768px) */}
+                            {isAuthenticated && (
+                                <>
+                                    {/* Top Row: Hamburger + Shop Name */}
+                                    <NavTopRow>
+                                        <HamburgerButton onClick={onToggleSidebar} aria-label="Toggle sidebar">
+                                            ☰
+                                        </HamburgerButton>
+
+                                        <Link to="/products" style={{ textDecoration: 'none', flex: 1, minWidth: 0 }}>
+                                            <NavBrandMobile>
+                                                <div className="logo-icon">🛒</div>
+                                                <div className="brand-text">{langCtx.getText('shopName')}</div>
+                                            </NavBrandMobile>
+                                        </Link>
+                                    </NavTopRow>
+
+                                    {/* Bottom Row: Language + Cart + Profile */}
+                                    <NavBottomRow>
+                                        <LanguageToggle />
+
+                                        <CartContext.Consumer>
+                                            {(cartCtx) => (
+                                                (() => {
+                                                    const count = cartCtx.getItemCount();
+                                                    return (
+                                                        <CartLink to="/cart" aria-label="Cart" style={{ position: 'relative' }}>
+                                                            <NavIconButton as="span">🛒</NavIconButton>
+                                                            {count > 0 && <CartBadge>{count}</CartBadge>}
+                                                        </CartLink>
+                                                    );
+                                                })()
+                                            )}
+                                        </CartContext.Consumer>
+
+                                        <UserInfo style={{ padding: '0.4rem 0.75rem', background: 'transparent', border: 'none' }}>
+                                            <div className="user-avatar">
+                                                {user && user.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                                            </div>
+                                        </UserInfo>
+
+                                        <LogoutButton onClick={logout}>⏻</LogoutButton>
+                                    </NavBottomRow>
+                                </>
+                            )}
                         </NavbarWrapper>
                     </React.Fragment>
                 )}

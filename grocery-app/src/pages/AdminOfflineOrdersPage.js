@@ -14,6 +14,17 @@ import {
     Badge,
     ModalOverlay,
     ModalContent,
+    MobileOrdersWrapper,
+    DesktopOrdersWrapper,
+    OrderCard,
+    OrderCardHeader,
+    OrderCardTitle,
+    OrderCardRow,
+    OrderCardLabel,
+    OrderCardValue,
+    OrderCardFooter,
+    OrderCardButton,
+    OrderStatusBadge,
 } from '../styledComponents/FormStyles';
 
 // ─── Styled Components (match AdminOnlineOrdersPage look) ────────────────────
@@ -1225,108 +1236,166 @@ class AdminOfflineOrdersPage extends React.Component {
                             )}
 
                             {!effectiveLoading && !errorKey && offlineOrders.length > 0 && (
-                                <TableWrapper>
-                                    <table className="table table-hover align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th>{langCtx.getText('orderId')}</th>
-                                                <th>{langCtx.getText('customerName')}</th>
-                                                <th>{langCtx.getText('phone')}</th>
-                                                <th>{langCtx.getText('place')}</th>
-                                                <th style={{ whiteSpace: 'normal' }}>{langCtx.getText('orderDate')}</th>
-                                                <th className="text-end">{langCtx.getText('total')}</th>
-                                                <th className="text-end">{langCtx.getText('advance')}</th>
-                                                <th className="text-end">{langCtx.getText('remaining')}</th>
-                                                <th className="text-center">{langCtx.getText('orderType')}</th>
-                                                <th className="text-center">{langCtx.getText('orderStatus')}</th>
-                                                <th className="text-center">{langCtx.getText('viewOrder')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
+                                <>
+                                    {/* Desktop Table */}
+                                    <DesktopOrdersWrapper>
+                                        <TableWrapper>
+                                            <table className="table table-hover align-middle">
+                                                <thead>
+                                                    <tr>
+                                                        <th>{langCtx.getText('orderId')}</th>
+                                                        <th>{langCtx.getText('customerName')}</th>
+                                                        <th>{langCtx.getText('phone')}</th>
+                                                        <th>{langCtx.getText('place')}</th>
+                                                        <th style={{ whiteSpace: 'normal' }}>{langCtx.getText('orderDate')}</th>
+                                                        <th className="text-end">{langCtx.getText('total')}</th>
+                                                        <th className="text-end">{langCtx.getText('advance')}</th>
+                                                        <th className="text-end">{langCtx.getText('remaining')}</th>
+                                                        <th className="text-center">{langCtx.getText('orderType')}</th>
+                                                        <th className="text-center">{langCtx.getText('orderStatus')}</th>
+                                                        <th className="text-center">{langCtx.getText('viewOrder')}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {Array.isArray(offlineOrders) && offlineOrders.map((order) => {
+                                                        const total = Number(order.totalAmount ?? order.grandTotal ?? 0) || 0;
+                                                        const remaining = Number(order.remainingBalance ?? (total - (Number(order.advanceAmount || 0) || 0))) || 0;
+                                                        const phoneVal = order.customerPhone || order.phone || '—';
+                                                        return (
+                                                            <tr key={order.id}>
+                                                                <td className="fw-bold">#{order.id}</td>
+                                                                <td>{order.customerName}</td>
+                                                                <td>{phoneVal}</td>
+                                                                <td>{order.place || '—'}</td>
+                                                                <td style={{ whiteSpace: 'normal' }}>
+                                                                    {this.formatDate(order.orderDate || order.date)}
+                                                                </td>
+                                                                <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
+                                                                    ₹{(Number(total) || 0).toFixed(2)}
+                                                                </td>
+                                                                <td className="text-end" style={{ minWidth: '160px' }}>
+                                                                    <div className="d-flex flex-column align-items-end gap-1">
+                                                                        <input
+                                                                            type="number"
+                                                                            className="form-control form-control-sm"
+                                                                            style={{ maxWidth: '150px' }}
+                                                                            min="0"
+                                                                            step="0.01"
+                                                                            value={this.getAdvanceInputValue(order)}
+                                                                            disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
+                                                                            onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}
+                                                                        />
+                                                                        <div className="d-flex gap-1" style={{ justifyContent: 'flex-end' }}>
+                                                                            {Number(order.advanceAmount || 0) <= 0 && this.isAdvanceEditable(order) && (
+                                                                                <ActionButton
+                                                                                    className="btn-primary-soft"
+                                                                                    disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                                    onClick={() => this.submitAdvance(order)}
+                                                                                >
+                                                                                    {langCtx.getText('enterAdvance')}
+                                                                                </ActionButton>
+                                                                            )}
+                                                                            {Number(order.advanceAmount || 0) > 0 && this.isAdvanceEditable(order) && (
+                                                                                <ActionButton
+                                                                                    className="btn-primary-soft"
+                                                                                    disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                                    onClick={() => this.submitAdvance(order)}
+                                                                                >
+                                                                                    {langCtx.getText('editAdvance')}
+                                                                                </ActionButton>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="text-end fw-bold" style={{ color: remaining < 0 ? '#c62828' : '#2E7D32' }}>
+                                                                    ₹{(Number(remaining) || 0).toFixed(2)}
+                                                                </td>
+                                                                <td className="text-center">
+                                                                    <Badge className="badge-admin">{langCtx.getText('offline')}</Badge>
+                                                                </td>
+                                                                <td className="text-center">
+                                                                    <Badge className={this.getStatusBadgeClass(order.status)}>
+                                                                        {this.getStatusIcon(order.status)} {langCtx.getText(statusKey(order.status))}
+                                                                    </Badge>
+                                                                </td>
+                                                                <td className="text-center">
+                                                                    <div className="d-flex flex-column align-items-center gap-1">
+                                                                        <ActionButton
+                                                                            className="btn-view"
+                                                                            onClick={() => this.openModal(order)}
+                                                                        >
+                                                                            🔍 {langCtx.getText('viewOrder')}
+                                                                        </ActionButton>
+                                                                        <ActionButton
+                                                                            className="btn-primary-soft"
+                                                                            onClick={() => this.handlePrintBill(order.id)}
+                                                                            disabled={Boolean(printLoadingByOrder[order.id])}
+                                                                        >
+                                                                            🖨️ {Boolean(printLoadingByOrder[order.id]) ? 'Printing...' : 'Print Bill'}
+                                                                        </ActionButton>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </TableWrapper>
+                                    </DesktopOrdersWrapper>
+
+                                    {/* Mobile Cards */}
+                                    <MobileOrdersWrapper>
+                                        <div>
                                             {Array.isArray(offlineOrders) && offlineOrders.map((order) => {
                                                 const total = Number(order.totalAmount ?? order.grandTotal ?? 0) || 0;
-                                                const remaining = Number(order.remainingBalance ?? (total - (Number(order.advanceAmount || 0) || 0))) || 0;
                                                 const phoneVal = order.customerPhone || order.phone || '—';
                                                 return (
-                                                    <tr key={order.id}>
-                                                        <td className="fw-bold">#{order.id}</td>
-                                                        <td>{order.customerName}</td>
-                                                        <td>{phoneVal}</td>
-                                                        <td>{order.place || '—'}</td>
-                                                        <td style={{ whiteSpace: 'normal' }}>
-                                                            {this.formatDate(order.orderDate || order.date)}
-                                                        </td>
-                                                        <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{(Number(total) || 0).toFixed(2)}
-                                                        </td>
-                                                        <td className="text-end" style={{ minWidth: '160px' }}>
-                                                            <div className="d-flex flex-column align-items-end gap-1">
-                                                                <input
-                                                                    type="number"
-                                                                    className="form-control form-control-sm"
-                                                                    style={{ maxWidth: '150px' }}
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    value={this.getAdvanceInputValue(order)}
-                                                                    disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
-                                                                    onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}
-                                                                />
-                                                                <div className="d-flex gap-1" style={{ justifyContent: 'flex-end' }}>
-                                                                    {Number(order.advanceAmount || 0) <= 0 && this.isAdvanceEditable(order) && (
-                                                                        <ActionButton
-                                                                            className="btn-primary-soft"
-                                                                            disabled={Boolean(this.state.advanceSaving[order.id])}
-                                                                            onClick={() => this.submitAdvance(order)}
-                                                                        >
-                                                                            {langCtx.getText('enterAdvance')}
-                                                                        </ActionButton>
-                                                                    )}
-                                                                    {Number(order.advanceAmount || 0) > 0 && this.isAdvanceEditable(order) && (
-                                                                        <ActionButton
-                                                                            className="btn-primary-soft"
-                                                                            disabled={Boolean(this.state.advanceSaving[order.id])}
-                                                                            onClick={() => this.submitAdvance(order)}
-                                                                        >
-                                                                            {langCtx.getText('editAdvance')}
-                                                                        </ActionButton>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="text-end fw-bold" style={{ color: remaining < 0 ? '#c62828' : '#2E7D32' }}>
-                                                            ₹{(Number(remaining) || 0).toFixed(2)}
-                                                        </td>
-                                                        <td className="text-center">
-                                                            <Badge className="badge-admin">{langCtx.getText('offline')}</Badge>
-                                                        </td>
-                                                        <td className="text-center">
-                                                            <Badge className={this.getStatusBadgeClass(order.status)}>
-                                                                {this.getStatusIcon(order.status)} {langCtx.getText(statusKey(order.status))}
-                                                            </Badge>
-                                                        </td>
-                                                        <td className="text-center">
-                                                            <div className="d-flex flex-column align-items-center gap-1">
-                                                                <ActionButton
-                                                                    className="btn-view"
-                                                                    onClick={() => this.openModal(order)}
-                                                                >
-                                                                    🔍 {langCtx.getText('viewOrder')}
-                                                                </ActionButton>
-                                                                <ActionButton
-                                                                    className="btn-primary-soft"
-                                                                    onClick={() => this.handlePrintBill(order.id)}
-                                                                    disabled={Boolean(printLoadingByOrder[order.id])}
-                                                                >
-                                                                    🖨️ {Boolean(printLoadingByOrder[order.id]) ? 'Printing...' : 'Print Bill'}
-                                                                </ActionButton>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
+                                                    <OrderCard key={order.id}>
+                                                        <OrderCardHeader>
+                                                            <OrderCardTitle>
+                                                                <div className="order-id">Order #{order.id}</div>
+                                                                <div className="customer-name">{order.customerName}</div>
+                                                            </OrderCardTitle>
+                                                        </OrderCardHeader>
+
+                                                        <OrderCardRow>
+                                                            <OrderCardLabel>📞 Phone:</OrderCardLabel>
+                                                            <OrderCardValue>{phoneVal}</OrderCardValue>
+                                                        </OrderCardRow>
+
+                                                        <OrderCardRow>
+                                                            <OrderCardLabel>📍 Place:</OrderCardLabel>
+                                                            <OrderCardValue>{order.place || '—'}</OrderCardValue>
+                                                        </OrderCardRow>
+
+                                                        <OrderCardRow>
+                                                            <OrderCardLabel>📅 Date:</OrderCardLabel>
+                                                            <OrderCardValue>{this.formatDate(order.orderDate || order.date)}</OrderCardValue>
+                                                        </OrderCardRow>
+
+                                                        <OrderCardRow>
+                                                            <OrderCardLabel>💰 Amount:</OrderCardLabel>
+                                                            <OrderCardValue className="amount">₹{(Number(total) || 0).toFixed(2)}</OrderCardValue>
+                                                        </OrderCardRow>
+
+                                                        <OrderCardRow>
+                                                            <OrderCardLabel>📊 Status:</OrderCardLabel>
+                                                            <OrderStatusBadge $status={order.status}>
+                                                                {langCtx.getText(statusKey(order.status))}
+                                                            </OrderStatusBadge>
+                                                        </OrderCardRow>
+
+                                                        <OrderCardFooter>
+                                                            <OrderCardButton onClick={() => this.openModal(order)}>
+                                                                👁️ View Details
+                                                            </OrderCardButton>
+                                                        </OrderCardFooter>
+                                                    </OrderCard>
                                                 );
                                             })}
-                                        </tbody>
-                                    </table>
-                                </TableWrapper>
+                                        </div>
+                                    </MobileOrdersWrapper>
+                                </>
                             )}
 
                             {/* ── Create Offline Order Modal ── */}
