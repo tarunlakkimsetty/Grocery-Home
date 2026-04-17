@@ -348,12 +348,28 @@ export const CartCardProductName = styled.div`
     overflow-wrap: break-word;
     word-break: break-word;
     line-height: 1.4;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+
+    .cart-category-icon {
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      line-height: 1;
+    }
   }
 
   .unit {
-    font-size: 0.8rem;
-    color: ${({ theme }) => theme.colors.textSecondary};
+    display: inline-block;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: white;
+    background: ${({ theme }) => theme.colors.primary};
+    padding: 0.35rem 0.65rem;
+    border-radius: ${({ theme }) => theme.borderRadius.pill};
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 `;
 
@@ -397,6 +413,7 @@ export const QuantityControlsMobile = styled.div`
   justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+  flex-wrap: wrap;
 
   button {
     background: ${({ theme }) => theme.colors.bodyBg};
@@ -431,6 +448,7 @@ export const QuantityControlsMobile = styled.div`
 
   .quantity-display {
     flex: 1;
+    min-width: 60px;
     text-align: center;
     font-weight: 600;
     font-size: 1rem;
@@ -438,6 +456,58 @@ export const QuantityControlsMobile = styled.div`
     background: ${({ theme }) => theme.colors.bodyBg};
     border-radius: ${({ theme }) => theme.borderRadius.sm};
     color: ${({ theme }) => theme.colors.textPrimary};
+  }
+
+  .quantity-input-wrapper {
+    width: 100%;
+    margin-top: 0.5rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .quantity-input-label {
+    font-size: 0.8rem;
+    color: ${({ theme }) => theme.colors.textSecondary};
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .quantity-input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1.5px solid ${({ theme }) => theme.colors.border};
+    border-radius: ${({ theme }) => theme.borderRadius.sm};
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    color: ${({ theme }) => theme.colors.textPrimary};
+    background: white;
+    outline: none;
+    transition: ${({ theme }) => theme.transitions.fast};
+
+    &:focus {
+      border-color: ${({ theme }) => theme.colors.primary};
+      box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+    }
+
+    &:invalid {
+      border-color: #dc3545;
+    }
+
+    &:disabled {
+      background: #f0f0f0;
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
+
+  .quantity-input-error {
+    width: 100%;
+    font-size: 0.75rem;
+    color: #dc3545;
+    margin-top: 0.25rem;
+    font-weight: 500;
   }
 `;
 

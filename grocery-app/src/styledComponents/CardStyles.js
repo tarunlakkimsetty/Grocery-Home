@@ -1,4 +1,4 @@
-import styled, { css } from 'styled-components';
+import styled from 'styled-components';
 
 export const ProductCardWrapper = styled.div`
   background: ${({ theme }) => theme.colors.white};
@@ -15,38 +15,14 @@ export const ProductCardWrapper = styled.div`
     box-shadow: ${({ theme }) => theme.shadows.lg};
     border-color: ${({ theme }) => theme.colors.primaryLight};
   }
+
+  @media (max-width: 768px) {
+    min-height: auto;
+  }
 `;
 
 export const CardImage = styled.div`
-  height: 140px;
-  background: ${({ $bg }) => $bg || 'linear-gradient(135deg, #e8f5e9, #b2dfdb)'};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 3rem;
-  position: relative;
-
-  .stock-badge {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: ${({ theme }) => theme.borderRadius.pill};
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-
-    ${({ $inStock }) =>
-        $inStock
-            ? css`
-            background: rgba(67, 160, 71, 0.15);
-            color: #2e7d32;
-          `
-            : css`
-            background: rgba(229, 57, 53, 0.15);
-            color: #c62828;
-          `}
-  }
+  display: none;
 `;
 
 export const CardBody = styled.div`
@@ -65,6 +41,15 @@ export const CardBody = styled.div`
     overflow-wrap: break-word;
     word-break: break-word;
     line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    .card-category-icon {
+      font-size: 1.2rem;
+      flex-shrink: 0;
+      line-height: 1;
+    }
   }
 
   .card-category {
@@ -85,9 +70,9 @@ export const CardBody = styled.div`
     margin-bottom: 0.25rem;
     
     .unit {
-      font-size: 0.8rem;
-      font-weight: 400;
-      color: ${({ theme }) => theme.colors.textSecondary};
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: ${({ theme }) => theme.colors.primary};
       word-wrap: break-word;
       overflow-wrap: break-word;
     }
@@ -99,6 +84,42 @@ export const CardBody = styled.div`
     margin-bottom: 0.75rem;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    display: none;
+  }
+
+  @media (max-width: 768px) {
+    padding: 0.75rem;
+
+    .card-title {
+      font-size: 0.95rem;
+      margin-bottom: 0.15rem;
+
+      .card-category-icon {
+        font-size: 1rem;
+      }
+    }
+
+    .card-category {
+      font-size: 0.65rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .card-price {
+      font-size: 1.1rem;
+      margin-bottom: 0.15rem;
+
+      .unit {
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+    }
+
+    .card-stock {
+      display: block !important;
+      font-size: 0.7rem;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
   }
 `;
 
@@ -140,13 +161,21 @@ export const CardActions = styled.div`
   }
 
   @media (max-width: 768px) {
-    padding: 0 0.75rem 0.75rem;
-    gap: 0.4rem;
+    padding: 0.5rem;
+    gap: 0.35rem;
+    min-height: 40px;
 
     button {
-      font-size: 0.75rem !important;
-      padding: 0.45rem 0.5rem !important;
-      min-width: 70px;
+      font-size: 0.7rem !important;
+      padding: 0.4rem 0.35rem !important;
+      min-width: 60px;
+      line-height: 1.2;
+    }
+
+    .qty-input {
+      width: 60px;
+      padding: 0.35rem 0.4rem;
+      font-size: 0.75rem;
     }
   }
 `;

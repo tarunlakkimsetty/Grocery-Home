@@ -60,7 +60,6 @@ const MOCK_PRODUCTS = [
 ];
 
 let mockProductStore = [...MOCK_PRODUCTS];
-let productNextId = 46;
 
 // ============================================================
 // Product Service

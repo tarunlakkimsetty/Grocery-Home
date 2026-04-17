@@ -28,6 +28,17 @@ import {
 } from '../styledComponents/FormStyles';
 import { t, statusKey } from '../utils/i18n';
 
+const CATEGORY_ICONS = {
+    grains: '🌾',
+    milk: '🥛',
+    snacks: '🍿',
+    spices: '🌶️',
+    oils: '🍶',
+    condiments: '🥫',
+    cleaning: '🧼',
+    personal: '🧴',
+};
+
 const ITEMS_PER_PAGE = 10;
 
 class BillHistoryPage extends React.Component {
@@ -733,7 +744,10 @@ class BillHistoryPage extends React.Component {
                                                                 <tbody>
                                                                     {selectedOrder.items.map((item) => (
                                                                         <tr key={item.productId}>
-                                                                            <td style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                                                                            <td style={{ fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                                                <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>
+                                                                                    {CATEGORY_ICONS[item.category] || '📦'}
+                                                                                </span>
                                                                                 {item.name || item.productName}
                                                                             </td>
                                                                             <td className="text-center">{item.quantity}</td>

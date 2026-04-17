@@ -7,6 +7,17 @@ import { PageHeader } from '../styledComponents/LayoutStyles';
 import { TableWrapper, Badge } from '../styledComponents/FormStyles';
 import { SecondaryButton } from '../styledComponents/ButtonStyles';
 
+const CATEGORY_ICONS = {
+    grains: '🌾',
+    milk: '🥛',
+    snacks: '🍿',
+    spices: '🌶️',
+    oils: '🍶',
+    condiments: '🥫',
+    cleaning: '🧼',
+    personal: '🧴',
+};
+
 class BillDetailsPage extends React.Component {
     constructor(props) {
         super(props);
@@ -85,7 +96,12 @@ class BillDetailsPage extends React.Component {
                                             <tbody>
                                                 {bill.items.map((item, idx) => (
                                                     <tr key={idx}>
-                                                        <td className="fw-semibold">{item.name}</td>
+                                                        <td className="fw-semibold" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                            <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>
+                                                                {CATEGORY_ICONS[item.category] || '📦'}
+                                                            </span>
+                                                            {item.name}
+                                                        </td>
                                                         <td className="text-center">₹{item.price.toFixed(2)}</td>
                                                         <td className="text-center">{item.quantity}</td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>

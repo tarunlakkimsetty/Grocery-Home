@@ -23,6 +23,17 @@ const CATEGORY_GRADIENTS = {
     personal: 'linear-gradient(135deg, #f3e5f5, #e1bee7)',
 };
 
+const CATEGORY_ICONS = {
+    grains: '🌾',
+    milk: '🥛',
+    snacks: '🍿',
+    spices: '🌶️',
+    oils: '🍶',
+    condiments: '🥫',
+    cleaning: '🧼',
+    personal: '🧴',
+};
+
 class ProductCard extends React.Component {
     static contextType = AuthContext;
 
@@ -124,10 +135,16 @@ class ProductCard extends React.Component {
                                     </span>
                                 </CardImage>
                                 <CardBody>
-                                    <div className="card-title">{translatedName}</div>
+                                    <div className="card-title">
+                                        <span className="card-category-icon">{CATEGORY_ICONS[product.category] || '📦'}</span>
+                                        {translatedName}
+                                    </div>
                                     <div className="card-category">{langCtx.getText(product.category)}</div>
                                     <div className="card-price">
                                         ₹{product.price} <span className="unit">/{product.unit || 'unit'}</span>
+                                    </div>
+                                    <div className="card-stock">
+                                        {product.stock > 0 ? `${product.stock} ${inStockText}` : `❌ ${outOfStockText}`}
                                     </div>
                                 </CardBody>
                                 <CardActions>

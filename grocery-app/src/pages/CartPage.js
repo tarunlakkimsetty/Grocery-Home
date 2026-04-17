@@ -28,7 +28,19 @@ import {
     RemoveButtonMobile,
 } from '../styledComponents/FormStyles';
 import { PrimaryButton, DangerButton, GhostButton } from '../styledComponents/ButtonStyles';
+import { searchProducts } from '../utils/searchUtils';
 import LegalModalContext from '../context/LegalModalContext';
+
+const CATEGORY_ICONS = {
+    grains: '🌾',
+    milk: '🥛',
+    snacks: '🍿',
+    spices: '🌶️',
+    oils: '🍶',
+    condiments: '🥫',
+    cleaning: '🧼',
+    personal: '🧴',
+};
 
 const ItemRow = styled.tr`
     transition: background-color 0.15s ease;
@@ -95,9 +107,85 @@ class CartPage extends React.Component {
             searchQuery: '',
             showOrderPlacedPopup: false,
             orderPlacedAdminPhone: process.env.REACT_APP_ADMIN_PHONE || '9441754505',
+            manualQuantityInputs: {}, // productId -> { value, error }
         };
         this.languageContext = null;
     }
+
+    handleManualQuantityChange = (productId, item, newValue) => {
+        const isWeightBased = item?.unit === 'kg';
+        const minQty = isWeightBased ? 0.1 : 1;
+        const maxQty = item.stock;
+        let error = '';
+
+        // Check if value is empty
+        if (newValue.trim() === '') {
+            this.setState((prevState) => ({
+                manualQuantityInputs: {
+                    ...prevState.manualQuantityInputs,
+                    [productId]: { value: newValue, error: '' },
+                },
+            }));
+            return;
+        }
+
+        // Try to parse as number
+        const numValue = parseFloat(newValue);
+        if (isNaN(numValue)) {
+            error = 'Please enter a valid number';
+        } else if (numValue < minQty) {
+            error = `Minimum quantity is ${minQty}`;
+        } else if (numValue > maxQty) {
+            error = `Maximum quantity is ${maxQty}`;
+        }
+
+        this.setState((prevState) => ({
+            manualQuantityInputs: {
+                ...prevState.manualQuantityInputs,
+                [productId]: { value: newValue, error },
+            },
+        }));
+    };
+
+    handleManualQuantityBlur = (productId, item, cartCtx) => {
+        const inputValue = this.state.manualQuantityInputs[productId]?.value || '';
+        const isWeightBased = item?.unit === 'kg';
+        const minQty = isWeightBased ? 0.1 : 1;
+        const maxQty = item.stock;
+
+        if (inputValue.trim() === '') {
+            // If input is empty, revert to current quantity
+            this.setState((prevState) => ({
+                manualQuantityInputs: {
+                    ...prevState.manualQuantityInputs,
+                    [productId]: { value: '', error: '' },
+                },
+            }));
+            return;
+        }
+
+        const numValue = parseFloat(inputValue);
+        
+        // Validate and update
+        if (!isNaN(numValue) && numValue >= minQty && numValue <= maxQty) {
+            const finalValue = isWeightBased 
+                ? Math.round(numValue * 10) / 10 
+                : Math.floor(numValue);
+            
+            cartCtx.updateQuantity(productId, finalValue);
+            
+            // Clear input and error
+            this.setState((prevState) => ({
+                manualQuantityInputs: {
+                    ...prevState.manualQuantityInputs,
+                    [productId]: { value: '', error: '' },
+                },
+            }));
+        } else {
+            // Keep showing error
+            toast.error('Invalid quantity');
+        }
+    };
 
     handlePlaceOrderWithAgreement = async (authCtx) => {
         if (!this.state.agreedToTerms) {
@@ -224,9 +312,7 @@ class CartPage extends React.Component {
                                 <CartContext.Consumer>
                                     {(cartCtx) => {
                                         const filteredItems = this.state.searchQuery.trim()
-                                            ? cartCtx.items.filter((i) =>
-                                                i.name.toLowerCase().includes(this.state.searchQuery.toLowerCase())
-                                              )
+                                            ? searchProducts(cartCtx.items, this.state.searchQuery, langCtx.getText)
                                             : cartCtx.items;
                                         return (
                                         <div>
@@ -346,7 +432,10 @@ class CartPage extends React.Component {
                                                                                             aria-label={`Include ${item.name} in billing`}
                                                                                         />
                                                                                         <CartCardProductName>
-                                                                                            <div className="name">{item.name}</div>
+                                                                                            <div className="name">
+                                                                                                <span className="cart-category-icon">{CATEGORY_ICONS[item.category] || '📦'}</span>
+                                                                                                {item.name}
+                                                                                            </div>
                                                                                             <span className="unit">{item.unit || 'piece'}</span>
                                                                                         </CartCardProductName>
                                                                                     </CartCardHeader>
@@ -354,7 +443,10 @@ class CartPage extends React.Component {
                                                                                 {isCOD && (
                                                                                     <CartCardHeader>
                                                                                         <CartCardProductName style={{ marginLeft: 0 }}>
-                                                                                            <div className="name">{item.name}</div>
+                                                                                            <div className="name">
+                                                                                                <span className="cart-category-icon">{CATEGORY_ICONS[item.category] || '📦'}</span>
+                                                                                                {item.name}
+                                                                                            </div>
                                                                                             <span className="unit">{item.unit || 'piece'}</span>
                                                                                         </CartCardProductName>
                                                                                     </CartCardHeader>
@@ -389,6 +481,30 @@ class CartPage extends React.Component {
                                                                                         >
                                                                                             +
                                                                                         </GhostButton>
+                                                                                        <div className="quantity-input-wrapper">
+                                                                                            <span className="quantity-input-label">Edit directly:</span>
+                                                                                            <input
+                                                                                                type="number"
+                                                                                                className="quantity-input"
+                                                                                                placeholder="Type qty"
+                                                                                                step={isWeightBased ? "0.1" : "1"}
+                                                                                                min={minQty}
+                                                                                                max={item.stock}
+                                                                                                value={this.state.manualQuantityInputs[item.productId]?.value || ''}
+                                                                                                onChange={(e) =>
+                                                                                                    this.handleManualQuantityChange(item.productId, item, e.target.value)
+                                                                                                }
+                                                                                                onBlur={() =>
+                                                                                                    this.handleManualQuantityBlur(item.productId, item, cartCtx)
+                                                                                                }
+                                                                                                aria-label="Manually edit quantity"
+                                                                                            />
+                                                                                        </div>
+                                                                                        {this.state.manualQuantityInputs[item.productId]?.error && (
+                                                                                            <div className="quantity-input-error">
+                                                                                                {this.state.manualQuantityInputs[item.productId].error}
+                                                                                            </div>
+                                                                                        )}
                                                                                     </QuantityControlsMobile>
                                                                                 </div>
 

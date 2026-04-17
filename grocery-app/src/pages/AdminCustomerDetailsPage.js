@@ -19,6 +19,7 @@ import { TableWrapper, EmptyState,
 } from '../styledComponents/FormStyles';
 import { t } from '../utils/i18n';
 import feedbackService from '../services/feedbackService';
+import { searchCustomers } from '../utils/searchUtils';
 
 class AdminCustomerDetailsPage extends React.Component {
     constructor(props) {
@@ -123,7 +124,12 @@ class AdminCustomerDetailsPage extends React.Component {
     };
 
     renderTable = (langCtx) => {
-        const safe = Array.isArray(this.state.customers) ? this.state.customers : [];
+        const unsafeCustomers = Array.isArray(this.state.customers) ? this.state.customers : [];
+        // Apply enhanced search with Telugu support
+        const safe = this.state.search.trim()
+            ? searchCustomers(unsafeCustomers, this.state.search)
+            : unsafeCustomers;
+        
         if (safe.length === 0) {
             return (
                 <EmptyState>

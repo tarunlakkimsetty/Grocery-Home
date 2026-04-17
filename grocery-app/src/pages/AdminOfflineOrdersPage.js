@@ -26,6 +26,7 @@ import {
     OrderCardButton,
     OrderStatusBadge,
 } from '../styledComponents/FormStyles';
+import { searchOrders } from '../utils/searchUtils';
 
 // ─── Styled Components (match AdminOnlineOrdersPage look) ────────────────────
 
@@ -240,14 +241,12 @@ class AdminOfflineOrdersPage extends React.Component {
                 : (response?.orders || response?.data?.orders || response?.data || []);
 
             const safeOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
-            const nextAdvanceInputs = { ...this.state.advanceInputs };
+            const nextAdvanceInputs = {};
             safeOrders.forEach((o) => {
                 const id = o && o.id;
                 if (!id) return;
-                if (nextAdvanceInputs[id] === undefined) {
-                    const fromApi = Number(o.advanceAmount || 0);
-                    nextAdvanceInputs[id] = Number.isFinite(fromApi) ? String(fromApi) : '0';
-                }
+                // Always initialize to empty string - temporary input should never be pre-filled
+                nextAdvanceInputs[id] = '';
             });
 
             this.setState({
@@ -287,11 +286,11 @@ class AdminOfflineOrdersPage extends React.Component {
 
     getAdvanceInputValue = (order) => {
         const id = order && order.id;
-        if (!id) return '0';
+        if (!id) return '';
         const v = this.state.advanceInputs[id];
+        // For delta input, return the change amount if being edited, otherwise empty
         if (v !== undefined && v !== null) return String(v);
-        const fromApi = Number(order?.advanceAmount || 0);
-        return String(Number.isFinite(fromApi) ? fromApi : 0);
+        return '';
     };
 
     handleAdvanceInputChange = (orderId, value) => {
@@ -313,14 +312,28 @@ class AdminOfflineOrdersPage extends React.Component {
             return;
         }
 
+        // Get the delta amount entered by user
         const raw = this.getAdvanceInputValue(order);
-        const num = Number(raw);
-        if (!Number.isFinite(num)) {
+        const deltaAmount = Number(raw);
+        if (!Number.isFinite(deltaAmount)) {
             toast.error(t('enterValidAdvanceAmount'));
             return;
         }
-        if (num < 0) {
-            toast.error(t('advanceAmountCannotBeNegative'));
+
+        // Calculate new total: previousAmount + delta
+        const previousAmount = Number(order?.advanceAmount || 0) || 0;
+        const newAmount = previousAmount + deltaAmount;
+
+        // Prevent negative totals
+        if (newAmount < 0) {
+            toast.error(t('totalPaymentCannotBeNegative'));
+            return;
+        }
+
+        // Prevent overpayment - total paid cannot exceed bill amount
+        const billTotal = Number(order?.totalAmount ?? order?.grandTotal ?? 0) || 0;
+        if (newAmount > billTotal) {
+            toast.error(`Total paid amount cannot exceed bill amount (₹${billTotal.toFixed(2)})`);
             return;
         }
 
@@ -332,25 +345,57 @@ class AdminOfflineOrdersPage extends React.Component {
         });
 
         try {
-            const resp = await orderService.updateAdvanceAmount(orderId, num);
-            const updatedOrder = resp?.order || resp?.data?.order || resp;
+            const resp = await orderService.updateAdvanceAmount(orderId, newAmount);
+            // Extract order from response - backend returns { success, message, order }
+            const updatedOrder = resp?.data?.order || resp?.order;
+            
+            if (!updatedOrder || !Number.isFinite(updatedOrder.advanceAmount)) {
+                throw new Error('Invalid response: missing updated order data');
+            }
 
-            const patchList = (list) => (Array.isArray(list) ? list.map((o) => (o.id === orderId ? { ...o, ...updatedOrder } : o)) : list);
-
-            this.setState((prev) => ({
-                offlineOrders: patchList(prev.offlineOrders),
-                selectedOrder: prev.selectedOrder && prev.selectedOrder.id === orderId ? { ...prev.selectedOrder, ...updatedOrder } : prev.selectedOrder,
-                advanceInputs: {
-                    ...prev.advanceInputs,
-                    [orderId]: String(Number(updatedOrder?.advanceAmount || 0) || 0),
-                },
-            }));
+            const patchList = (list) => (Array.isArray(list) ? list.map((o) => {
+                if (o.id === orderId) {
+                    const total = Number(updatedOrder?.totalAmount ?? o?.totalAmount ?? 0) || 0;
+                    const remainingBalance = total - Number(updatedOrder.advanceAmount || 0);
+                    return {
+                        ...o,
+                        advanceAmount: updatedOrder.advanceAmount,
+                        paymentHistory: updatedOrder.paymentHistory,
+                        remainingBalance: remainingBalance
+                    };
+                }
+                return o;
+            }) : list);
+            
+            this.setState((prev) => {
+                const selectedOrderToUpdate = prev.selectedOrder && prev.selectedOrder.id === orderId ? prev.selectedOrder : null;
+                const selectedTotal = selectedOrderToUpdate?.totalAmount ?? 0;
+                const finalTotal = Number(updatedOrder?.totalAmount ?? selectedTotal ?? 0);
+                const finalRemaining = finalTotal - Number(updatedOrder.advanceAmount || 0);
+                
+                return {
+                    offlineOrders: patchList(prev.offlineOrders),
+                    selectedOrder: selectedOrderToUpdate 
+                        ? {
+                            ...selectedOrderToUpdate,
+                            advanceAmount: updatedOrder.advanceAmount,
+                            paymentHistory: updatedOrder.paymentHistory,
+                            remainingBalance: finalRemaining
+                          }
+                        : prev.selectedOrder,
+                    advanceInputs: {
+                        ...prev.advanceInputs,
+                        [orderId]: '', // Clear delta input after successful update
+                    },
+                };
+            });
 
             toast.success(t('advanceUpdated'));
         } catch (e) {
-            const rawMsg = e?.response?.data?.errorKey || e?.response?.data?.message || e?.message;
+            const rawMsg = e?.response?.data?.message || e?.response?.data?.errorKey || e?.message;
             const normalized = rawMsg ? String(rawMsg).trim() : '';
             if (normalized === 'Quantity exceeds stock limit') toast.error('Quantity exceeds stock limit');
+            else if (normalized === 'Total payment amount cannot be negative') toast.error('Total amount cannot be negative');
             else if (normalized && hasTranslation(normalized)) toast.error(t(normalized));
             else if (normalized) toast.error(normalized);
             else toast.error(t('failedToUpdateAdvance'));
@@ -1191,13 +1236,19 @@ class AdminOfflineOrdersPage extends React.Component {
                     const isRemainingSettled = Math.abs(Number(remainingForPayment) || 0) <= 0.009;
 
                     const effectiveLoading = typeof isLoading === 'boolean' ? isLoading : loading;
+                    
+                    // Apply enhanced search with Telugu support
+                    const unsafeOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
+                    const safeOrders = this.state.searchQuery.trim()
+                        ? searchOrders(unsafeOrders, this.state.searchQuery)
+                        : unsafeOrders;
 
                     return (
                         <div>
                             <PageHeader>
                                 <h1>🧾 {langCtx.getText('offlineOrders')}</h1>
                                 <p>
-                                    {offlineOrders.length} {langCtx.getText('offlineOrderCountLabel')}
+                                    {safeOrders.length} {langCtx.getText('offlineOrderCountLabel')}
                                 </p>
                             </PageHeader>
 
@@ -1227,7 +1278,7 @@ class AdminOfflineOrdersPage extends React.Component {
                             {effectiveLoading && <Spinner fullPage text={langCtx.getText('loadingOfflineOrders')} />}
                             {errorKey && <div className="alert alert-danger">{langCtx.getText(errorKey)}</div>}
 
-                            {!effectiveLoading && !errorKey && offlineOrders.length === 0 && (
+                            {!effectiveLoading && !errorKey && safeOrders.length === 0 && (
                                 <EmptyState>
                                     <div className="empty-icon">🧾</div>
                                     <h3>{langCtx.getText('noOfflineOrders')}</h3>
@@ -1235,7 +1286,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                 </EmptyState>
                             )}
 
-                            {!effectiveLoading && !errorKey && offlineOrders.length > 0 && (
+                            {!effectiveLoading && !errorKey && safeOrders.length > 0 && (
                                 <>
                                     {/* Desktop Table */}
                                     <DesktopOrdersWrapper>
@@ -1257,7 +1308,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {Array.isArray(offlineOrders) && offlineOrders.map((order) => {
+                                                    {Array.isArray(safeOrders) && safeOrders.map((order) => {
                                                         const total = Number(order.totalAmount ?? order.grandTotal ?? 0) || 0;
                                                         const remaining = Number(order.remainingBalance ?? (total - (Number(order.advanceAmount || 0) || 0))) || 0;
                                                         const phoneVal = order.customerPhone || order.phone || '—';
@@ -1279,8 +1330,8 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             type="number"
                                                                             className="form-control form-control-sm"
                                                                             style={{ maxWidth: '150px' }}
-                                                                            min="0"
                                                                             step="0.01"
+                                                                            placeholder="Enter amount"
                                                                             value={this.getAdvanceInputValue(order)}
                                                                             disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
                                                                             onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}

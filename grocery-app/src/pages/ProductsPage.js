@@ -7,6 +7,7 @@ import LanguageContext from '../context/LanguageContext';
 import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { EmptyState } from '../styledComponents/FormStyles';
+import { searchProducts } from '../utils/searchUtils';
 
 class ProductsPage extends React.Component {
     static contextType = LanguageContext;
@@ -48,8 +49,9 @@ class ProductsPage extends React.Component {
 
             const searchQuery = (this.state.searchQuery || '').trim();
             const safeProducts = Array.isArray(products) ? products : [];
+            // Use enhanced search with Telugu and English support
             const filteredProducts = searchQuery
-                ? safeProducts.filter((product) => product.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                ? searchProducts(safeProducts, searchQuery, this.context.getText)
                 : safeProducts;
 
             this.setState({ products: safeProducts, filteredProducts, loading: false });
@@ -68,9 +70,8 @@ class ProductsPage extends React.Component {
             return;
         }
 
-        const filtered = safeProducts.filter((product) =>
-            product.name.toLowerCase().includes(searchQuery.toLowerCase())
-        );
+        // Use enhanced search with Telugu and English support
+        const filtered = searchProducts(safeProducts, searchQuery, this.context.getText);
 
         this.setState({ filteredProducts: filtered, searchQuery });
     };

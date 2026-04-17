@@ -5,6 +5,17 @@ import { toast } from 'react-toastify';
 
 const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
+const CATEGORY_ICONS = {
+    grains: '🌾',
+    milk: '🥛',
+    snacks: '🍿',
+    spices: '🌶️',
+    oils: '🍶',
+    condiments: '🥫',
+    cleaning: '🧼',
+    personal: '🧴',
+};
+
 class CartItem extends React.Component {
     static contextType = LanguageContext;
 
@@ -53,7 +64,9 @@ class CartItem extends React.Component {
             <React.Fragment>
                 <td className="text-start" style={{ verticalAlign: 'middle', paddingRight: '0.75rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: '0' }}>
-                        <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>{item.emoji}</span>
+                        <span style={{ fontSize: '1.2rem', flexShrink: 0 }} title="Category">
+                            {CATEGORY_ICONS[item.category] || '📦'}
+                        </span>
                         <span className="fw-semibold" style={{ whiteSpace: 'normal', wordWrap: 'break-word', overflowWrap: 'break-word', minWidth: '0', flex: 1 }}>{item.name}</span>
                     </div>
                 </td>
