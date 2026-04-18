@@ -78,21 +78,6 @@ const ActionButton = styled.button`
     }
 `;
 
-const DetailRow = styled.div`
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding: 0.45rem 0;
-    border-bottom: 1px solid #f0f0f0;
-    font-size: 0.875rem;
-    gap: 1rem;
-
-    &:last-child { border-bottom: none; }
-
-    .label { color: #6c757d; white-space: nowrap; flex-shrink: 0; }
-    .value { font-weight: 600; color: #212529; text-align: right; }
-`;
-
 const SectionTitle = styled.h6`
     font-size: 0.72rem;
     font-weight: 700;
@@ -434,6 +419,8 @@ class AdminOnlineOrdersPage extends React.Component {
             addProductId: '',
             addProductQty: '1',
             addProductQtyError: '',
+            addProductSearch: '',
+            addCategoryFilter: '', // Category filter for product selection
 
             // Search
             searchQuery: '',
@@ -910,6 +897,8 @@ class AdminOnlineOrdersPage extends React.Component {
             addProductId: '',
             addProductQty: '1',
             addProductQtyError: '',
+            addProductSearch: '', // Reset product search
+            addCategoryFilter: '', // Reset category filter to show all products
         });
     };
 
@@ -1445,6 +1434,8 @@ class AdminOnlineOrdersPage extends React.Component {
                         productsLoading,
                         addProductId,
                         addProductQty,
+                        addProductSearch,
+                        addCategoryFilter,
                         printLoadingByOrder,
                     } = this.state;
 
@@ -1862,49 +1853,55 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     👤 {langCtx.getText('customerDetails')}
                                                 </SectionTitle>
 
-                                                <div className="row g-0">
-                                                    <div className="col-12 col-sm-6">
-                                                        <DetailRow>
-                                                            <span className="label">👤 {langCtx.getText('customerName')}</span>
-                                                            <span className="value">{selectedOrder.customerName}</span>
-                                                        </DetailRow>
-                                                        <DetailRow>
-                                                            <span className="label">📞 {langCtx.getText('phone')}</span>
-                                                            <span className="value">{selectedOrder.phone || selectedOrder.customerPhone || '—'}</span>
-                                                        </DetailRow>
-                                                        {/* PART 5: Place field */}
-                                                        <DetailRow>
-                                                            <span className="label">🏘️ {langCtx.getText('place')}</span>
-                                                            <span className="value">{selectedOrder.place || '—'}</span>
-                                                        </DetailRow>
-                                                        <DetailRow>
-                                                            <span className="label">📍 {langCtx.getText('addressLabel')}</span>
-                                                            <span className="value">{selectedOrder.address || '—'}</span>
-                                                        </DetailRow>
+                                                <div className="row g-3 g-lg-4">
+                                                    <div className="col-12 col-sm-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">👤 {langCtx.getText('customerName')}</span>
+                                                            <span className="fw-semibold">{selectedOrder.customerName}</span>
+                                                        </div>
                                                     </div>
-                                                    <div className="col-12 col-sm-6">
-                                                        <DetailRow>
-                                                            <span className="label">📅 {langCtx.getText('orderDate')}</span>
-                                                            <span className="value">{this.formatDate(selectedOrder.orderDate || selectedOrder.date, locale)}</span>
-                                                        </DetailRow>
-                                                        <DetailRow>
-                                                            <span className="label">📊 {langCtx.getText('orderStatus')}</span>
-                                                            <span>
-                                                                <Badge className={this.getStatusBadgeClass(selectedOrder.status)}>
-                                                                    {this.getStatusIcon(selectedOrder.status)} {langCtx.getText(statusKey(selectedOrder.status))}
-                                                                </Badge>
-                                                            </span>
-                                                        </DetailRow>
+                                                    <div className="col-12 col-sm-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">📞 {langCtx.getText('phone')}</span>
+                                                            <span className="fw-semibold">{selectedOrder.phone || selectedOrder.customerPhone || '—'}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="col-12 col-sm-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">📅 {langCtx.getText('orderDate')}</span>
+                                                            <span className="fw-semibold">{this.formatDate(selectedOrder.orderDate || selectedOrder.date, locale)}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="col-12 col-sm-6 col-lg-4">
+                                                        {/* PART 5: Place field */}
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">🏘️ {langCtx.getText('place')}</span>
+                                                            <span className="fw-semibold">{selectedOrder.place || '—'}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="col-12 col-sm-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">📊 {langCtx.getText('orderStatus')}</span>
+                                                            <Badge className={this.getStatusBadgeClass(selectedOrder.status)}>
+                                                                {this.getStatusIcon(selectedOrder.status)} {langCtx.getText(statusKey(selectedOrder.status))}
+                                                            </Badge>
+                                                        </div>
+                                                    </div>
+                                                    <div className="col-12 col-sm-6 col-lg-4">
                                                         {/* PART 4 + 6: Payment Status */}
-                                                        <DetailRow>
-                                                            <span className="label">💳 {langCtx.getText('paymentStatus')}</span>
-                                                            <span>
-                                                                <Badge className={this.getPaymentBadgeClass(selectedOrder.paymentStatus)}>
-                                                                    {this.getPaymentIcon(selectedOrder.paymentStatus)}{' '}
-                                                                    {getPaymentStatusText(selectedOrder.paymentStatus)}
-                                                                </Badge>
-                                                            </span>
-                                                        </DetailRow>
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">💳 {langCtx.getText('paymentStatus')}</span>
+                                                            <Badge className={this.getPaymentBadgeClass(selectedOrder.paymentStatus)}>
+                                                                {this.getPaymentIcon(selectedOrder.paymentStatus)}{' '}
+                                                                {getPaymentStatusText(selectedOrder.paymentStatus)}
+                                                            </Badge>
+                                                        </div>
+                                                    </div>
+                                                    <div className="col-12 col-lg-8">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">📍 {langCtx.getText('addressLabel')}</span>
+                                                            <span className="fw-semibold">{selectedOrder.address || '—'}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1921,6 +1918,32 @@ class AdminOnlineOrdersPage extends React.Component {
                                                     }}
                                                 >
                                                     <SectionTitle>➕ {langCtx.getText('addProductToOrder')}</SectionTitle>
+                                                    
+                                                    {/* Category Filter */}
+                                                    <div className="mb-3">
+                                                        <label className="form-label small fw-semibold mb-1">Category Filter</label>
+                                                        <select
+                                                            className="form-select form-select-sm"
+                                                            value={addCategoryFilter || ''}
+                                                            onChange={(e) => this.setState({ addCategoryFilter: e.target.value })}
+                                                            disabled={actionLoading || productsLoading}
+                                                            style={{
+                                                                fontSize: '0.9rem',
+                                                                borderRadius: '6px',
+                                                                border: '1px solid #dee2e6',
+                                                            }}
+                                                        >
+                                                            <option value="">All Products</option>
+                                                            {Array.isArray(products) && products.length > 0 ? (
+                                                                [...new Set(products.map(p => p.category).filter(Boolean))].sort().map((category) => (
+                                                                    <option key={category} value={category}>
+                                                                        {category}
+                                                                    </option>
+                                                                ))
+                                                            ) : null}
+                                                        </select>
+                                                    </div>
+                                                    
                                                     <div className="row g-2 align-items-end">
                                                         <div className="col-12 col-md-7">
                                                             <label className="form-label small fw-semibold mb-1">
@@ -1930,7 +1953,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                 type="text"
                                                                 className="form-control"
                                                                 placeholder={langCtx.getText('searchProduct')}
-                                                                value={this.state.addProductSearch || ''}
+                                                                value={addProductSearch || ''}
                                                                 onChange={(e) => this.setState({ addProductSearch: e.target.value })}
                                                                 disabled={actionLoading || productsLoading}
                                                                 style={{ marginBottom: '0.5rem' }}
@@ -1945,7 +1968,14 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                 }}
                                                             >
                                                                 {Array.isArray(products) && products.length > 0 ? (
-                                                                    searchProducts(products, this.state.addProductSearch)
+                                                                    (() => {
+                                                                        // Filter by category first
+                                                                        const categoryFiltered = addCategoryFilter
+                                                                            ? products.filter(p => p.category === addCategoryFilter)
+                                                                            : products;
+                                                                        
+                                                                        // Then filter by search
+                                                                        return searchProducts(categoryFiltered, addProductSearch)
                                                                         .map((p) => (
                                                                             <div
                                                                                 key={p.id}
@@ -1976,7 +2006,8 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                                     ₹{p.price}
                                                                                 </div>
                                                                             </div>
-                                                                        ))
+                                                                        ));
+                                                                    })()
                                                                 ) : (
                                                                     <div style={{ padding: '1rem', textAlign: 'center', color: '#6c757d' }}>
                                                                         {productsLoading ? langCtx.getText('loading') : langCtx.getText('noProductsFound')}

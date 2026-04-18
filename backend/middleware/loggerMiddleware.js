@@ -6,12 +6,6 @@ const morgan = require('morgan');
  * Format changes based on environment
  */
 
-// Custom token for response time in ms
-morgan.token('response-time-ms', (req, res) => {
-    const time = morgan['response-time'](req, res);
-    return time ? `${time}ms` : '-';
-});
-
 // Development format - colorful and detailed
 const devFormat = ':method :url :status :response-time ms - :res[content-length]';
 

@@ -27,6 +27,7 @@ import {
     OrderStatusBadge,
 } from '../styledComponents/FormStyles';
 import { searchOrders, searchProducts } from '../utils/searchUtils';
+import BillScannerModal from '../components/BillScannerModal';
 
 // ─── Styled Components (match AdminOnlineOrdersPage look) ────────────────────
 
@@ -420,6 +421,10 @@ class AdminOfflineOrdersPage extends React.Component {
             createAddProductId: '',
             createAddQty: '1',
             createAddQtyError: '',
+            createCategoryFilter: '', // Category filter for product selection (empty = all products)
+
+            // Bill Scanner Modal
+            billScannerOpen: false,
 
             // View Order Details Modal
             modalOpen: false,
@@ -428,6 +433,8 @@ class AdminOfflineOrdersPage extends React.Component {
             checkedItems: {},
             addProductId: '',
             addProductQty: 1,
+            addProductSearch: '', // Search field for modal product selection
+            addCategoryFilter: '', // Category filter for modal product selection
 
             // Search
             searchQuery: '',
@@ -885,6 +892,8 @@ class AdminOfflineOrdersPage extends React.Component {
             createAddProductId: '',
             createAddQty: '1',
             createAddQtyError: '',
+            createCategoryFilter: '', // Reset category filter to show all products
+            createProductSearch: '', // Reset product search
         });
     };
 
@@ -977,6 +986,69 @@ class AdminOfflineOrdersPage extends React.Component {
         });
     };
 
+    handleBillScannerConfirm = (scannedData) => {
+        const { customerDetails, detectedProducts } = scannedData;
+        const { createItems } = this.state;
+
+        // Auto-fill customer details if not already filled
+        let newState = {
+            billScannerOpen: false,
+            customerName: customerDetails.name || this.state.customerName,
+            phone: customerDetails.phone || this.state.phone,
+            place: customerDetails.place || this.state.place,
+        };
+
+        // Add detected CUSTOM products to create items (NO database matching)
+        let updatedItems = [...createItems];
+        let newSelectedProducts = [...this.state.selectedProducts];
+        let addedCount = 0;
+
+        for (let ocrItem of detectedProducts) {
+            // Check if this item already exists (by name for custom items)
+            const existingIdx = updatedItems.findIndex((i) => 
+                i.name && ocrItem.name && i.name.toLowerCase() === ocrItem.name.toLowerCase()
+            );
+
+            if (existingIdx !== -1) {
+                // Product already exists, merge quantities
+                updatedItems[existingIdx].quantity += ocrItem.quantity;
+                updatedItems[existingIdx].total = updatedItems[existingIdx].quantity * updatedItems[existingIdx].price;
+                console.log(`📦 Merged: ${ocrItem.name} (now qty: ${updatedItems[existingIdx].quantity})`);
+            } else {
+                // Add new CUSTOM product (from OCR, not from database)
+                const newItem = {
+                    productId: ocrItem.id, // Use OCR item ID
+                    name: ocrItem.name,
+                    price: 0, // Default: user can edit
+                    quantity: ocrItem.quantity,
+                    unit: ocrItem.unit || 'unit',
+                    total: 0, // Will update when price is set
+                    isOCR: true, // Mark as OCR-created
+                    isCustom: true, // Mark as custom (not from DB)
+                };
+
+                updatedItems.push(newItem);
+                addedCount++;
+                
+                // Auto-select new OCR items for quick billing
+                if (!newSelectedProducts.includes(ocrItem.id)) {
+                    newSelectedProducts.push(ocrItem.id);
+                }
+                
+                console.log(`✅ Added custom product: ${ocrItem.name} x${ocrItem.quantity}${ocrItem.unit}`);
+            }
+        }
+
+        newState.createItems = updatedItems;
+        newState.selectedProducts = newSelectedProducts;
+
+        this.setState(newState, () => {
+            if (addedCount > 0) {
+                toast.success(`✅ Created ${addedCount} custom product(s) from bill`);
+            }
+        });
+    };
+
     toggleCreateCheck = (productId) => {
         const { selectedProducts } = this.state;
         const isSelected = selectedProducts.includes(productId);
@@ -1005,6 +1077,24 @@ class AdminOfflineOrdersPage extends React.Component {
             return { ...i, quantity: nextQty, total: (Number(i.price || 0) || 0) * (Number(nextQty || 0) || 0) };
         });
         this.setState({ createItems: nextItems, selectedProducts: [] });
+    };
+
+    updateCreateItemPrice = (productId, newPrice) => {
+        const price = Number(newPrice) || 0;
+        const nextItems = this.state.createItems.map((i) => {
+            if (i.productId !== productId) return i;
+            const qty = Number(i.quantity || 0) || 0;
+            return { ...i, price, total: price * qty };
+        });
+        this.setState({ createItems: nextItems });
+    };
+
+    updateCreateItemUnit = (productId, newUnit) => {
+        const nextItems = this.state.createItems.map((i) => {
+            if (i.productId !== productId) return i;
+            return { ...i, unit: newUnit };
+        });
+        this.setState({ createItems: nextItems });
     };
 
     removeCreateItem = (productId) => {
@@ -1174,6 +1264,8 @@ class AdminOfflineOrdersPage extends React.Component {
             },
             addProductId: '',
             addProductQty: 1,
+            addProductSearch: '', // Reset product search
+            addCategoryFilter: '', // Reset category filter to show all products
         });
     };
 
@@ -1581,12 +1673,16 @@ class AdminOfflineOrdersPage extends React.Component {
                         createItems,
                         createAddProductId,
                         createAddQty,
+                        createCategoryFilter,
+                        createProductSearch,
                         modalOpen,
                         selectedOrder,
                         modalItems,
                         checkedItems,
                         addProductId,
                         addProductQty,
+                        addProductSearch,
+                        addCategoryFilter,
                         printLoadingByOrder,
                     } = this.state;
 
@@ -1979,8 +2075,8 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 }}
                                             >
                                                 <SectionTitle>{langCtx.getText('step1CustomerDetails')}</SectionTitle>
-                                                <div className="row g-2">
-                                                    <div className="col-12 col-md-6">
+                                                <div className="row g-3 g-lg-4">
+                                                    <div className="col-12 col-md-6 col-lg-4">
                                                         <label className="form-label small fw-semibold mb-1">
                                                             {langCtx.getText('customerName')} <span className="text-danger">*</span>
                                                         </label>
@@ -1992,7 +2088,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             placeholder={langCtx.getText('enterCustomerName')}
                                                         />
                                                     </div>
-                                                    <div className="col-12 col-md-6">
+                                                    <div className="col-12 col-md-6 col-lg-4">
                                                         <label className="form-label small fw-semibold mb-1">
                                                             {langCtx.getText('phone')} <span className="text-danger">*</span>
                                                         </label>
@@ -2004,7 +2100,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             placeholder={langCtx.getText('enterPhoneNumber')}
                                                         />
                                                     </div>
-                                                    <div className="col-12 col-md-6">
+                                                    <div className="col-12 col-md-6 col-lg-4">
                                                         <label className="form-label small fw-semibold mb-1">
                                                             {langCtx.getText('place')} <span className="text-danger">*</span>
                                                         </label>
@@ -2016,7 +2112,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             placeholder={langCtx.getText('enterPlaceCity')}
                                                         />
                                                     </div>
-                                                    <div className="col-12 col-md-6">
+                                                    <div className="col-12 col-md-6 col-lg-4">
                                                         <label className="form-label small fw-semibold mb-1">{langCtx.getText('orderDate')}</label>
                                                         <input
                                                             type="date"
@@ -2025,7 +2121,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             onChange={this.onCreateFieldChange('orderDate')}
                                                         />
                                                     </div>
-                                                    <div className="col-12">
+                                                    <div className="col-12 col-lg-8">
                                                         <label className="form-label small fw-semibold mb-1">
                                                             {langCtx.getText('addressLabel')} ({langCtx.getText('optional')})
                                                         </label>
@@ -2051,6 +2147,47 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 }}
                                             >
                                                 <SectionTitle>{langCtx.getText('step2AddItems')}</SectionTitle>
+
+                                                {/* Scan Bill Button */}
+                                                <div style={{ marginBottom: '1rem' }}>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-outline-primary btn-sm"
+                                                        onClick={() => this.setState({ billScannerOpen: true })}
+                                                        style={{ fontWeight: '700' }}
+                                                    >
+                                                        📸 {langCtx.getText('scanBill')}
+                                                    </button>
+                                                    <small style={{ display: 'block', marginTop: '0.5rem', color: '#6c757d' }}>
+                                                        Automatically extract customer details and products from a bill image using OCR
+                                                    </small>
+                                                </div>
+                                                
+                                                {/* Category Filter */}
+                                                <div className="mb-3">
+                                                    <label className="form-label small fw-semibold mb-1">Category Filter</label>
+                                                    <select
+                                                        className="form-select form-select-sm"
+                                                        value={createCategoryFilter || ''}
+                                                        onChange={(e) => this.setState({ createCategoryFilter: e.target.value })}
+                                                        disabled={productsLoading}
+                                                        style={{
+                                                            fontSize: '0.9rem',
+                                                            borderRadius: '6px',
+                                                            border: '1px solid #dee2e6',
+                                                        }}
+                                                    >
+                                                        <option value="">All Products</option>
+                                                        {Array.isArray(products) && products.length > 0 ? (
+                                                            [...new Set(products.map(p => p.category).filter(Boolean))].sort().map((category) => (
+                                                                <option key={category} value={category}>
+                                                                    {category}
+                                                                </option>
+                                                            ))
+                                                        ) : null}
+                                                    </select>
+                                                </div>
+
                                                 <div className="row g-2 align-items-end mb-3">
                                                     <div className="col-12 col-md-7">
                                                         <label className="form-label small fw-semibold mb-1">{langCtx.getText('product')}</label>
@@ -2058,7 +2195,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             type="text"
                                                             className="form-control"
                                                             placeholder={langCtx.getText('searchProduct')}
-                                                            value={this.state.createProductSearch || ''}
+                                                            value={createProductSearch || ''}
                                                             onChange={(e) => this.setState({ createProductSearch: e.target.value })}
                                                             disabled={productsLoading}
                                                             style={{ marginBottom: '0.5rem' }}
@@ -2073,38 +2210,46 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             }}
                                                         >
                                                             {Array.isArray(products) && products.length > 0 ? (
-                                                                searchProducts(products, this.state.createProductSearch)
-                                                                    .map((p) => (
-                                                                        <div
-                                                                            key={p.id ?? p._id}
-                                                                            onClick={() => {
-                                                                                this.setState({ 
-                                                                                    createAddProductId: p.id ?? p._id,
-                                                                                    createProductSearch: ''
-                                                                                });
-                                                                            }}
-                                                                            style={{
-                                                                                padding: '0.75rem 1rem',
-                                                                                cursor: 'pointer',
-                                                                                borderBottom: '1px solid #e9ecef',
-                                                                                transition: 'background 0.15s ease',
-                                                                                background: createAddProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white',
-                                                                            }}
-                                                                            onMouseEnter={(e) => (e.currentTarget.style.background = '#f8f9fa')}
-                                                                            onMouseLeave={(e) => (e.currentTarget.style.background = createAddProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white')}
-                                                                        >
-                                                                            <strong>{p.name}</strong>
-                                                                            {p.teluguName && (
-                                                                                <div style={{ fontSize: '0.7rem', color: '#8B5A3C', marginTop: '0.2rem', fontWeight: '500' }}>
-                                                                                    {p.teluguName}
+                                                                (() => {
+                                                                    // Filter by category first
+                                                                    const categoryFiltered = createCategoryFilter
+                                                                        ? products.filter(p => p.category === createCategoryFilter)
+                                                                        : products;
+                                                                    
+                                                                    // Then filter by search
+                                                                    return searchProducts(categoryFiltered, createProductSearch)
+                                                                        .map((p) => (
+                                                                            <div
+                                                                                key={p.id ?? p._id}
+                                                                                onClick={() => {
+                                                                                    this.setState({ 
+                                                                                        createAddProductId: p.id ?? p._id,
+                                                                                        createProductSearch: ''
+                                                                                    });
+                                                                                }}
+                                                                                style={{
+                                                                                    padding: '0.75rem 1rem',
+                                                                                    cursor: 'pointer',
+                                                                                    borderBottom: '1px solid #e9ecef',
+                                                                                    transition: 'background 0.15s ease',
+                                                                                    background: createAddProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white',
+                                                                                }}
+                                                                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f8f9fa')}
+                                                                                onMouseLeave={(e) => (e.currentTarget.style.background = createAddProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white')}
+                                                                            >
+                                                                                <strong>{p.name}</strong>
+                                                                                {p.teluguName && (
+                                                                                    <div style={{ fontSize: '0.7rem', color: '#8B5A3C', marginTop: '0.2rem', fontWeight: '500' }}>
+                                                                                        {p.teluguName}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                                                                                    {p.category && <span>{p.category} • </span>}
+                                                                                    ₹{p.price}
                                                                                 </div>
-                                                                            )}
-                                                                            <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '0.25rem' }}>
-                                                                                {p.category && <span>{p.category} • </span>}
-                                                                                ₹{p.price}
                                                                             </div>
-                                                                        </div>
-                                                                    ))
+                                                                        ));
+                                                                })()
                                                             ) : (
                                                                 <div style={{ padding: '1rem', textAlign: 'center', color: '#6c757d' }}>
                                                                     {productsLoading ? langCtx.getText('loading') : langCtx.getText('noProductsFound')}
@@ -2169,7 +2314,10 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 return (
                                                                     <tr
                                                                         key={item.productId}
-                                                                        style={{ background: checked ? 'rgba(67,160,71,0.06)' : 'white' }}
+                                                                        style={{ 
+                                                                            background: checked ? 'rgba(67,160,71,0.06)' : (item.isOCR ? 'rgba(33, 150, 243, 0.04)' : 'white'),
+                                                                            borderLeft: item.isOCR ? '4px solid #2196F3' : 'none',
+                                                                        }}
                                                                     >
                                                                         <td className="text-center">
                                                                             <input
@@ -2180,25 +2328,80 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                 style={{ accentColor: '#2E7D32' }}
                                                                             />
                                                                         </td>
-                                                                        <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || langCtx.getText('productNameMissing')}</td>
-                                                                        <td className="text-center">₹{item.price}</td>
+                                                                        <td style={{ fontWeight: checked ? 600 : 400 }}>
+                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                                                <span>{item.name || langCtx.getText('productNameMissing')}</span>
+                                                                                {item.isOCR && (
+                                                                                    <span style={{
+                                                                                        display: 'inline-block',
+                                                                                        background: '#2196F3',
+                                                                                        color: 'white',
+                                                                                        fontSize: '0.65rem',
+                                                                                        fontWeight: '700',
+                                                                                        padding: '0.2rem 0.45rem',
+                                                                                        borderRadius: '12px',
+                                                                                        textTransform: 'uppercase',
+                                                                                        letterSpacing: '0.4px',
+                                                                                    }}>
+                                                                                        📸 OCR
+                                                                                    </span>
+                                                                                )}
+                                                                                {item.isUnknown && (
+                                                                                    <span title="Price not found - please verify" style={{
+                                                                                        display: 'inline-block',
+                                                                                        fontSize: '1rem',
+                                                                                        cursor: 'help',
+                                                                                    }}>
+                                                                                        ⚠️
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        </td>
                                                                         <td className="text-center">
-                                                                            <QtyControl>
-                                                                                <button
-                                                                                    className="qty-btn"
-                                                                                    onClick={() => this.updateCreateQuantity(item.productId, -1)}
-                                                                                    disabled={(Number(item.quantity || 0) || 0) <= 0}
-                                                                                >
-                                                                                    −
-                                                                                </button>
-                                                                                <span className="qty-value">{item.quantity}</span>
-                                                                                <button
-                                                                                    className="qty-btn"
-                                                                                    onClick={() => this.updateCreateQuantity(item.productId, +1)}
-                                                                                >
-                                                                                    +
-                                                                                </button>
-                                                                            </QtyControl>
+                                                                            {item.isOCR || item.isCustom ? (
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    step="0.01"
+                                                                                    value={item.price || 0}
+                                                                                    onChange={(e) => this.updateCreateItemPrice(item.productId, e.target.value)}
+                                                                                    style={{
+                                                                                        width: '70px',
+                                                                                        padding: '4px',
+                                                                                        border: '1px solid #ccc',
+                                                                                        borderRadius: '4px',
+                                                                                        textAlign: 'center'
+                                                                                    }}
+                                                                                    placeholder="₹"
+                                                                                />
+                                                                            ) : (
+                                                                                `₹${item.price}`
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="text-center">
+                                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                                                                                <QtyControl>
+                                                                                    <button
+                                                                                        className="qty-btn"
+                                                                                        onClick={() => this.updateCreateQuantity(item.productId, -1)}
+                                                                                        disabled={(Number(item.quantity || 0) || 0) <= 0}
+                                                                                    >
+                                                                                        −
+                                                                                    </button>
+                                                                                    <span className="qty-value">{item.quantity}</span>
+                                                                                    <button
+                                                                                        className="qty-btn"
+                                                                                        onClick={() => this.updateCreateQuantity(item.productId, +1)}
+                                                                                    >
+                                                                                        +
+                                                                                    </button>
+                                                                                </QtyControl>
+                                                                                {(item.isOCR || item.isCustom) && item.unit && (
+                                                                                    <span style={{ fontSize: '0.85rem', color: '#666', minWidth: '35px' }}>
+                                                                                        {item.unit}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                         </td>
                                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
                                                                             ₹{(Number(item.total) || 0).toFixed(2)}
@@ -2331,34 +2534,42 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 }}
                                             >
                                                 <SectionTitle>{langCtx.getText('customerDetails')}</SectionTitle>
-                                                <div className="row g-0">
-                                                    <div className="col-12 col-sm-6">
-                                                        <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">👤 {langCtx.getText('name')}</span>
+                                                <div className="row g-3 g-lg-4">
+                                                    <div className="col-12 col-md-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">👤 {langCtx.getText('name')}</span>
                                                             <span className="fw-semibold">{selectedOrder.customerName}</span>
                                                         </div>
-                                                        <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">📞 {langCtx.getText('phone')}</span>
+                                                    </div>
+                                                    <div className="col-12 col-md-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">📞 {langCtx.getText('phone')}</span>
                                                             <span className="fw-semibold">{selectedOrder.customerPhone || selectedOrder.phone || '—'}</span>
                                                         </div>
-                                                        <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">🏘️ {langCtx.getText('place')}</span>
+                                                    </div>
+                                                    <div className="col-12 col-md-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">🏘️ {langCtx.getText('place')}</span>
                                                             <span className="fw-semibold">{selectedOrder.place || '—'}</span>
                                                         </div>
                                                     </div>
-                                                    <div className="col-12 col-sm-6">
-                                                        <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">📅 {langCtx.getText('orderDate')}</span>
+                                                    <div className="col-12 col-md-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">📅 {langCtx.getText('orderDate')}</span>
                                                             <span className="fw-semibold">
                                                                 {this.formatDate(selectedOrder.orderDate || selectedOrder.date)}
                                                             </span>
                                                         </div>
-                                                        <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">💰 {langCtx.getText('paymentMethod')}</span>
+                                                    </div>
+                                                    <div className="col-12 col-md-6 col-lg-4">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">💰 {langCtx.getText('paymentMethod')}</span>
                                                             <span className="fw-semibold">{langCtx.getText('cash')}</span>
                                                         </div>
-                                                        <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.9rem' }}>
-                                                            <span className="text-muted">📍 {langCtx.getText('addressLabel')}</span>
+                                                    </div>
+                                                    <div className="col-12 col-lg-8">
+                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1">📍 {langCtx.getText('addressLabel')}</span>
                                                             <span className="fw-semibold">{selectedOrder.address || '—'}</span>
                                                         </div>
                                                     </div>
@@ -2377,23 +2588,105 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     }}
                                                 >
                                                     <SectionTitle>{langCtx.getText('addProductToOrder')}</SectionTitle>
+                                                    
+                                                    {/* Category Filter */}
+                                                    <div className="mb-3">
+                                                        <label className="form-label small fw-semibold mb-1">Category Filter</label>
+                                                        <select
+                                                            className="form-select form-select-sm"
+                                                            value={addCategoryFilter || ''}
+                                                            onChange={(e) => this.setState({ addCategoryFilter: e.target.value })}
+                                                            disabled={actionLoading || productsLoading}
+                                                            style={{
+                                                                fontSize: '0.9rem',
+                                                                borderRadius: '6px',
+                                                                border: '1px solid #dee2e6',
+                                                            }}
+                                                        >
+                                                            <option value="">All Products</option>
+                                                            {Array.isArray(products) && products.length > 0 ? (
+                                                                [...new Set(products.map(p => p.category).filter(Boolean))].sort().map((category) => (
+                                                                    <option key={category} value={category}>
+                                                                        {category}
+                                                                    </option>
+                                                                ))
+                                                            ) : null}
+                                                        </select>
+                                                    </div>
+                                                    
                                                     <div className="row g-2 align-items-end">
                                                         <div className="col-12 col-md-7">
                                                             <label className="form-label small fw-semibold mb-1">{langCtx.getText('product')}</label>
-                                                            <select
-                                                                className="form-select"
-                                                                value={addProductId}
-                                                                onChange={this.onChangeAddProductId}
+                                                            <input
+                                                                type="text"
+                                                                className="form-control"
+                                                                placeholder={langCtx.getText('searchProduct')}
+                                                                value={addProductSearch || ''}
+                                                                onChange={(e) => this.setState({ addProductSearch: e.target.value })}
                                                                 disabled={actionLoading || productsLoading}
+                                                                style={{ marginBottom: '0.5rem' }}
+                                                            />
+                                                            <div
+                                                                style={{
+                                                                    border: '1px solid #dee2e6',
+                                                                    borderRadius: '6px',
+                                                                    maxHeight: '200px',
+                                                                    overflowY: 'auto',
+                                                                    background: '#fff',
+                                                                }}
                                                             >
-                                                                <option value="">{langCtx.getText('selectProduct')}</option>
-                                                                {Array.isArray(products) &&
-                                                                    products.map((p) => (
-                                                                    <option key={p.id ?? p._id} value={p.id ?? p._id}>
-                                                                        {p.name} — ₹{p.price}
-                                                                    </option>
-                                                                    ))}
-                                                            </select>
+                                                                {Array.isArray(products) && products.length > 0 ? (
+                                                                    (() => {
+                                                                        // Filter by category first
+                                                                        const categoryFiltered = addCategoryFilter
+                                                                            ? products.filter(p => p.category === addCategoryFilter)
+                                                                            : products;
+                                                                        
+                                                                        // Then filter by search
+                                                                        return searchProducts(categoryFiltered, addProductSearch)
+                                                                            .map((p) => (
+                                                                                <div
+                                                                                    key={p.id ?? p._id}
+                                                                                    onClick={() => {
+                                                                                        this.setState({ 
+                                                                                            addProductId: p.id ?? p._id,
+                                                                                            addProductSearch: ''
+                                                                                        });
+                                                                                    }}
+                                                                                    style={{
+                                                                                        padding: '0.75rem 1rem',
+                                                                                        cursor: 'pointer',
+                                                                                        borderBottom: '1px solid #e9ecef',
+                                                                                        transition: 'background 0.15s ease',
+                                                                                        background: addProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white',
+                                                                                    }}
+                                                                                    onMouseEnter={(e) => (e.currentTarget.style.background = '#f8f9fa')}
+                                                                                    onMouseLeave={(e) => (e.currentTarget.style.background = addProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white')}
+                                                                                >
+                                                                                    <strong>{p.name}</strong>
+                                                                                    {p.teluguName && (
+                                                                                        <div style={{ fontSize: '0.7rem', color: '#8B5A3C', marginTop: '0.2rem', fontWeight: '500' }}>
+                                                                                            {p.teluguName}
+                                                                                        </div>
+                                                                                    )}
+                                                                                    <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                                                                                        {p.category && <span>{p.category} • </span>}
+                                                                                        ₹{p.price}
+                                                                                    </div>
+                                                                                </div>
+                                                                            ));
+                                                                    })()
+                                                                ) : (
+                                                                    <div style={{ padding: '1rem', textAlign: 'center', color: '#6c757d' }}>
+                                                                        {productsLoading ? langCtx.getText('loading') : langCtx.getText('noProductsFound')}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {addProductId && (
+                                                                <small style={{ display: 'block', marginTop: '0.5rem', color: '#2E7D32', fontWeight: 600 }}>
+                                                                    ✓ {products.find(p => (p.id ?? p._id) === addProductId)?.name} selected
+                                                                </small>
+                                                            )}
                                                         </div>
                                                         <div className="col-6 col-md-3">
                                                             <label className="form-label small fw-semibold mb-1">{langCtx.getText('quantity')}</label>
@@ -2701,6 +2994,15 @@ class AdminOfflineOrdersPage extends React.Component {
                                     </ModalContent>
                                 </ModalOverlay>
                             )}
+
+                            {/* Bill Scanner Modal */}
+                            <BillScannerModal
+                                isOpen={this.state.billScannerOpen}
+                                onClose={() => this.setState({ billScannerOpen: false })}
+                                products={this.state.products}
+                                onConfirm={this.handleBillScannerConfirm}
+                                langCtx={langCtx}
+                            />
                         </div>
                     );
                 }}

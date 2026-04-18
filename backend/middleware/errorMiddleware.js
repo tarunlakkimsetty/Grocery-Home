@@ -12,7 +12,7 @@ const notFound = (req, res, next) => {
 // Global Error Handler
 const errorHandler = (err, req, res, next) => {
     // Set status code
-    const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+    const statusCode = res.statusCode >= 400 ? res.statusCode : 500;
     
     // Log error for debugging (in development)
     if (process.env.NODE_ENV !== 'production') {
