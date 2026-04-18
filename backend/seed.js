@@ -49,27 +49,27 @@ const seedDatabase = async () => {
         const [existingProducts] = await promisePool.query('SELECT COUNT(*) as count FROM products');
         
         if (existingProducts[0].count === 0) {
-            // Insert sample products
+            // Insert sample products with Telugu names and search keywords
             const products = [
-                ['Basmati Rice (5kg)', 'grains', 420, 50],
-                ['Toor Dal (1kg)', 'grains', 140, 80],
-                ['Full Cream Milk (1L)', 'milk', 62, 100],
-                ['Paneer (200g)', 'milk', 90, 40],
-                ['Potato Chips Classic', 'snacks', 30, 200],
-                ['Turmeric Powder (200g)', 'spices', 55, 80],
-                ['Sunflower Oil (1L)', 'oils', 150, 70],
-                ['Tomato Ketchup (500g)', 'condiments', 105, 85],
-                ['Dish Wash Liquid (500ml)', 'cleaning', 85, 90],
-                ['Toothpaste (150g)', 'personal', 95, 100],
+                ['Basmati Rice (5kg)', 'grains', 420, 50, 'బియ్యం', JSON.stringify(['rice', 'biyyam', 'basmati', 'chawal'])],
+                ['Toor Dal (1kg)', 'grains', 140, 80, 'తూర్ బీజ', JSON.stringify(['toor', 'tur', 'dal', 'dhal', 'arhar', 'ahar'])],
+                ['Full Cream Milk (1L)', 'milk', 62, 100, 'పాలు', JSON.stringify(['milk', 'paal', 'dudh', 'ksheer'])],
+                ['Paneer (200g)', 'milk', 90, 40, 'పనీర్', JSON.stringify(['paneer', 'cheese', 'cottage cheese', 'chikni'])],
+                ['Potato Chips Classic', 'snacks', 30, 200, 'చిప్‌స్', JSON.stringify(['chips', 'aloo chips', 'potato chips', 'crisps'])],
+                ['Turmeric Powder (200g)', 'spices', 55, 80, 'పసుపు', JSON.stringify(['turmeric', 'haldi', 'pasuppu', 'manjal', 'spice'])],
+                ['Sunflower Oil (1L)', 'oils', 150, 70, 'సూర్యకాంతి నూనె', JSON.stringify(['oil', 'sunflower', 'tel', 'seed oil', 'cooking oil'])],
+                ['Tomato Ketchup (500g)', 'condiments', 105, 85, 'టమాటా సాస్', JSON.stringify(['ketchup', 'sauce', 'tomato', 'tamato sauce', 'condiment'])],
+                ['Dish Wash Liquid (500ml)', 'cleaning', 85, 90, 'పాత్ర శుభ్రక రసం', JSON.stringify(['dish wash', 'dish soap', 'liquid soap', 'washing liquid'])],
+                ['Toothpaste (150g)', 'personal', 95, 100, 'చెవ్వుకు పేస్ట్', JSON.stringify(['toothpaste', 'tooth paste', 'paste', 'dental', 'oral care'])],
             ];
 
-            for (const [name, category, price, stock] of products) {
+            for (const [name, category, price, stock, teluguName, keywords] of products) {
                 await promisePool.query(
-                    'INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)',
-                    [name, category, price, stock]
+                    'INSERT INTO products (name, category, price, stock, teluguName, keywords) VALUES (?, ?, ?, ?, ?, ?)',
+                    [name, category, price, stock, teluguName, keywords]
                 );
             }
-            console.log(`${products.length} sample products created`);
+            console.log(`${products.length} sample products created with Telugu names and keywords`);
         } else {
             console.log(`Products already exist (${existingProducts[0].count} found)`);
         }

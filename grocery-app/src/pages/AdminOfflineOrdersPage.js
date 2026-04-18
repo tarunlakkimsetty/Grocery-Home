@@ -26,7 +26,7 @@ import {
     OrderCardButton,
     OrderStatusBadge,
 } from '../styledComponents/FormStyles';
-import { searchOrders } from '../utils/searchUtils';
+import { searchOrders, searchProducts } from '../utils/searchUtils';
 
 // ─── Styled Components (match AdminOnlineOrdersPage look) ────────────────────
 
@@ -167,6 +167,228 @@ const VerifyCheckWrapper = styled.div`
     }
 `;
 
+const AmountActionsContainer = styled.div`
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+    width: 100%;
+
+    .amount-input-section {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.3rem;
+
+        input {
+            max-width: 150px;
+            width: 100%;
+        }
+
+        .preview-text {
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-top: -0.3rem;
+        }
+    }
+
+    .amount-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.4rem;
+        width: 100%;
+        flex-wrap: wrap;
+
+        button {
+            white-space: nowrap;
+        }
+    }
+
+    .return-section {
+        width: 100%;
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid #e9ecef;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.3rem;
+
+        input {
+            max-width: 150px;
+            width: 100%;
+        }
+
+        .preview-text {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #c62828;
+            margin-top: -0.3rem;
+        }
+
+        button {
+            white-space: nowrap;
+        }
+    }
+
+    @media (max-width: 1024px) {
+        position: relative;
+        z-index: 10;
+
+        .amount-input-section {
+            align-items: stretch;
+
+            input {
+                max-width: 100%;
+                width: 100%;
+                font-size: 13px;
+            }
+
+            .preview-text {
+                font-size: 0.7rem;
+                text-align: right;
+            }
+        }
+
+        .amount-buttons {
+            justify-content: space-between;
+            gap: 0.3rem;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+
+            button {
+                font-size: 11px;
+                padding: 0.45rem 0.4rem;
+                min-width: 0;
+                word-break: break-word;
+                white-space: normal;
+                line-height: 1.2;
+            }
+        }
+
+        .return-section {
+            align-items: stretch;
+            width: 100%;
+            margin-top: 0.4rem;
+            padding-top: 0.4rem;
+
+            input {
+                max-width: 100%;
+                width: 100%;
+                font-size: 13px;
+            }
+
+            .preview-text {
+                text-align: right;
+                font-size: 0.7rem;
+            }
+
+            button {
+                font-size: 11px;
+                padding: 0.45rem 0.4rem;
+                min-width: 0;
+                word-break: break-word;
+                white-space: normal;
+                line-height: 1.2;
+                width: 100%;
+            }
+        }
+    }
+
+    @media (max-width: 768px) {
+        position: relative;
+        z-index: 10;
+
+        .amount-input-section {
+            align-items: stretch;
+
+            input {
+                max-width: 100%;
+                width: 100%;
+                font-size: 12px;
+            }
+
+            .preview-text {
+                font-size: 0.7rem;
+                text-align: right;
+            }
+        }
+
+        .amount-buttons {
+            justify-content: space-between;
+            gap: 0.3rem;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+
+            button {
+                font-size: 10px;
+                padding: 0.4rem 0.3rem;
+                min-width: 0;
+                word-break: break-word;
+                white-space: normal;
+                line-height: 1.2;
+            }
+        }
+
+        .return-section {
+            align-items: stretch;
+            width: 100%;
+            margin-top: 0.4rem;
+            padding-top: 0.4rem;
+
+            input {
+                max-width: 100%;
+                width: 100%;
+                font-size: 12px;
+            }
+
+            .preview-text {
+                text-align: right;
+                font-size: 0.7rem;
+            }
+
+            button {
+                font-size: 10px;
+                padding: 0.4rem 0.3rem;
+                min-width: 0;
+                word-break: break-word;
+                white-space: normal;
+                line-height: 1.2;
+                width: 100%;
+            }
+        }
+    }
+
+    @media (max-width: 576px) {
+        .amount-input-section input {
+            font-size: 11px;
+        }
+
+        .amount-buttons {
+            grid-template-columns: 1fr;
+
+            button {
+                font-size: 9px;
+                padding: 0.35rem 0.25rem;
+            }
+        }
+
+        .return-section {
+            input {
+                font-size: 11px;
+            }
+
+            button {
+                font-size: 9px;
+                padding: 0.35rem 0.25rem;
+            }
+        }
+    }
+`;
+
 class AdminOfflineOrdersPage extends React.Component {
     constructor(props) {
         super(props);
@@ -216,6 +438,10 @@ class AdminOfflineOrdersPage extends React.Component {
             // Advance Payment (per order row)
             advanceInputs: {},
             advanceSaving: {},
+
+            // Return Amount (per order row)
+            returnInputs: {},
+            returnSaving: {},
         };
     }
 
@@ -242,16 +468,19 @@ class AdminOfflineOrdersPage extends React.Component {
 
             const safeOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
             const nextAdvanceInputs = {};
+            const nextReturnInputs = {};
             safeOrders.forEach((o) => {
                 const id = o && o.id;
                 if (!id) return;
                 // Always initialize to empty string - temporary input should never be pre-filled
                 nextAdvanceInputs[id] = '';
+                nextReturnInputs[id] = '';
             });
 
             this.setState({
                 offlineOrders: safeOrders,
                 advanceInputs: nextAdvanceInputs,
+                returnInputs: nextReturnInputs,
                 errorKey: null,
                 loading: false,
                 isLoading: false,
@@ -407,6 +636,170 @@ class AdminOfflineOrdersPage extends React.Component {
                 },
             });
         }
+    };
+
+    calculateAddedAmountDisplay = (order) => {
+        const deltaStr = this.getAdvanceInputValue(order);
+        const deltaAmount = Number(deltaStr);
+        
+        if (!Number.isFinite(deltaAmount) || deltaAmount <= 0) {
+            return null;
+        }
+        
+        const previousAmount = Number(order?.advanceAmount || 0) || 0;
+        const newTotal = previousAmount + deltaAmount;
+        
+        return `+₹${deltaAmount.toFixed(2)} added (Total: ₹${newTotal.toFixed(2)})`;
+    };
+
+    // ─── Return Amount Helpers ───────────────────────────────────────────────
+
+    isReturnEditable = (order) => {
+        const statusRaw = String(order?.status || '').trim();
+        const statusLower = statusRaw.toLowerCase();
+        const paymentStatusLower = String(order?.paymentStatus || '').trim().toLowerCase();
+
+        const isLocked =
+            Boolean(order?.isPaid) ||
+            paymentStatusLower === 'paid' ||
+            statusLower === 'paid' ||
+            statusLower === 'completed' ||
+            statusLower === 'mark paid';
+
+        if (isLocked) return false;
+
+        const allowed = new Set(['pending', 'confirmed', 'processing', 'verified', 'delivered']);
+        return allowed.has(statusLower);
+    };
+
+    getReturnInputValue = (order) => {
+        const id = order && order.id;
+        if (!id) return '';
+        const v = this.state.returnInputs[id];
+        if (v !== undefined && v !== null) return String(v);
+        return '';
+    };
+
+    handleReturnInputChange = (orderId, value) => {
+        this.setState({
+            returnInputs: {
+                ...this.state.returnInputs,
+                [orderId]: value,
+            },
+        });
+    };
+
+    submitReturn = async (order) => {
+        const orderId = order && order.id;
+        if (!orderId) return;
+
+        const editable = this.isReturnEditable(order);
+        if (!editable) {
+            toast.error('Return cannot be processed for this order status');
+            return;
+        }
+
+        // Get the return amount entered by user
+        const raw = this.getReturnInputValue(order);
+        const returnAmount = Number(raw);
+        if (!Number.isFinite(returnAmount)) {
+            toast.error('Enter valid return amount');
+            return;
+        }
+
+        if (returnAmount <= 0) {
+            toast.error('Return amount must be greater than zero');
+            return;
+        }
+
+        // Prevent overpayment - return cannot exceed advance amount
+        const currentAdvance = Number(order?.advanceAmount || 0) || 0;
+        if (returnAmount > currentAdvance) {
+            toast.error(`Return amount cannot exceed paid amount (₹${currentAdvance.toFixed(2)})`);
+            return;
+        }
+
+        this.setState({
+            returnSaving: {
+                ...this.state.returnSaving,
+                [orderId]: true,
+            },
+        });
+
+        try {
+            const resp = await orderService.updateReturnAmount(orderId, returnAmount);
+            const updatedOrder = resp?.data?.order || resp?.order;
+            
+            if (!updatedOrder || !Number.isFinite(updatedOrder.advanceAmount)) {
+                throw new Error('Invalid response: missing updated order data');
+            }
+
+            const patchList = (list) => (Array.isArray(list) ? list.map((o) => {
+                if (o.id === orderId) {
+                    const total = Number(updatedOrder?.totalAmount ?? o?.totalAmount ?? 0) || 0;
+                    const remainingBalance = total - Number(updatedOrder.advanceAmount || 0);
+                    return {
+                        ...o,
+                        advanceAmount: updatedOrder.advanceAmount,
+                        paymentHistory: updatedOrder.paymentHistory,
+                        remainingBalance: remainingBalance
+                    };
+                }
+                return o;
+            }) : list);
+            
+            this.setState((prev) => {
+                const selectedOrderToUpdate = prev.selectedOrder && prev.selectedOrder.id === orderId ? prev.selectedOrder : null;
+                const selectedTotal = selectedOrderToUpdate?.totalAmount ?? 0;
+                const finalTotal = Number(updatedOrder?.totalAmount ?? selectedTotal ?? 0);
+                const finalRemaining = finalTotal - Number(updatedOrder.advanceAmount || 0);
+                
+                return {
+                    offlineOrders: patchList(prev.offlineOrders),
+                    selectedOrder: selectedOrderToUpdate 
+                        ? {
+                            ...selectedOrderToUpdate,
+                            advanceAmount: updatedOrder.advanceAmount,
+                            paymentHistory: updatedOrder.paymentHistory,
+                            remainingBalance: finalRemaining
+                          }
+                        : prev.selectedOrder,
+                    returnInputs: {
+                        ...prev.returnInputs,
+                        [orderId]: '', // Clear return input after successful update
+                    },
+                };
+            });
+
+            toast.success('Return processed successfully');
+        } catch (e) {
+            const rawMsg = e?.response?.data?.message || e?.response?.data?.errorKey || e?.message;
+            const normalized = rawMsg ? String(rawMsg).trim() : '';
+            if (normalized && hasTranslation(normalized)) toast.error(t(normalized));
+            else if (normalized) toast.error(normalized);
+            else toast.error('Failed to process return');
+        } finally {
+            this.setState({
+                returnSaving: {
+                    ...this.state.returnSaving,
+                    [orderId]: false,
+                },
+            });
+        }
+    };
+
+    calculateReturnedAmountDisplay = (order) => {
+        const deltaStr = this.getReturnInputValue(order);
+        const deltaAmount = Number(deltaStr);
+        
+        if (!Number.isFinite(deltaAmount) || deltaAmount <= 0) {
+            return null;
+        }
+        
+        const currentAdvance = Number(order?.advanceAmount || 0) || 0;
+        const newTotal = currentAdvance - deltaAmount;
+        
+        return `-₹${deltaAmount.toFixed(2)} returned (Total: ₹${newTotal.toFixed(2)})`;
     };
 
     handleSearchChange = (e) => {
@@ -1324,19 +1717,26 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
                                                                     ₹{(Number(total) || 0).toFixed(2)}
                                                                 </td>
-                                                                <td className="text-end" style={{ minWidth: '160px' }}>
-                                                                    <div className="d-flex flex-column align-items-end gap-1">
-                                                                        <input
-                                                                            type="number"
-                                                                            className="form-control form-control-sm"
-                                                                            style={{ maxWidth: '150px' }}
-                                                                            step="0.01"
-                                                                            placeholder="Enter amount"
-                                                                            value={this.getAdvanceInputValue(order)}
-                                                                            disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
-                                                                            onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}
-                                                                        />
-                                                                        <div className="d-flex gap-1" style={{ justifyContent: 'flex-end' }}>
+                                                                <td className="text-end amount-actions-cell" style={{ minWidth: '160px' }}>
+                                                                    <AmountActionsContainer>
+                                                                        <div className="amount-input-section">
+                                                                            <input
+                                                                                type="number"
+                                                                                className="form-control form-control-sm"
+                                                                                step="0.01"
+                                                                                placeholder="Enter amount"
+                                                                                value={this.getAdvanceInputValue(order)}
+                                                                                disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
+                                                                                onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}
+                                                                            />
+                                                                            {this.calculateAddedAmountDisplay(order) && (
+                                                                                <div className="preview-text" style={{ color: '#2E7D32' }}>
+                                                                                    {this.calculateAddedAmountDisplay(order)}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="amount-buttons">
                                                                             {Number(order.advanceAmount || 0) <= 0 && this.isAdvanceEditable(order) && (
                                                                                 <ActionButton
                                                                                     className="btn-primary-soft"
@@ -1356,7 +1756,35 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                 </ActionButton>
                                                                             )}
                                                                         </div>
-                                                                    </div>
+
+                                                                        {/* Return Amount Section */}
+                                                                        {Number(order.advanceAmount || 0) > 0 && this.isReturnEditable(order) && (
+                                                                            <div className="return-section">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    className="form-control form-control-sm"
+                                                                                    step="0.01"
+                                                                                    placeholder="Return amount"
+                                                                                    value={this.getReturnInputValue(order)}
+                                                                                    disabled={Boolean(this.state.returnSaving[order.id])}
+                                                                                    onChange={(e) => this.handleReturnInputChange(order.id, e.target.value)}
+                                                                                />
+                                                                                {this.calculateReturnedAmountDisplay(order) && (
+                                                                                    <div className="preview-text">
+                                                                                        {this.calculateReturnedAmountDisplay(order)}
+                                                                                    </div>
+                                                                                )}
+                                                                                <ActionButton
+                                                                                    className="btn-primary-soft"
+                                                                                    style={{ background: 'rgba(198, 40, 40, 0.1)', color: '#c62828', borderColor: 'rgba(198, 40, 40, 0.35)' }}
+                                                                                    disabled={Boolean(this.state.returnSaving[order.id])}
+                                                                                    onClick={() => this.submitReturn(order)}
+                                                                                >
+                                                                                    ↩️ Apply Return
+                                                                                </ActionButton>
+                                                                            </div>
+                                                                        )}
+                                                                    </AmountActionsContainer>
                                                                 </td>
                                                                 <td className="text-end fw-bold" style={{ color: remaining < 0 ? '#c62828' : '#2E7D32' }}>
                                                                     ₹{(Number(remaining) || 0).toFixed(2)}
@@ -1398,7 +1826,6 @@ class AdminOfflineOrdersPage extends React.Component {
                                     <MobileOrdersWrapper>
                                         <div>
                                             {Array.isArray(offlineOrders) && offlineOrders.map((order) => {
-                                                const total = Number(order.totalAmount ?? order.grandTotal ?? 0) || 0;
                                                 const phoneVal = order.customerPhone || order.phone || '—';
                                                 return (
                                                     <OrderCard key={order.id}>
@@ -1426,7 +1853,12 @@ class AdminOfflineOrdersPage extends React.Component {
 
                                                         <OrderCardRow>
                                                             <OrderCardLabel>💰 Amount:</OrderCardLabel>
-                                                            <OrderCardValue className="amount">₹{(Number(total) || 0).toFixed(2)}</OrderCardValue>
+                                                            <OrderCardValue className="amount">₹{(Number(order.totalAmount ?? order.grandTotal ?? 0) || 0).toFixed(2)}</OrderCardValue>
+                                                        </OrderCardRow>
+
+                                                        <OrderCardRow>
+                                                            <OrderCardLabel>� Paid:</OrderCardLabel>
+                                                            <OrderCardValue>₹{(Number(order.advanceAmount || 0) || 0).toFixed(2)}</OrderCardValue>
                                                         </OrderCardRow>
 
                                                         <OrderCardRow>
@@ -1435,6 +1867,78 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 {langCtx.getText(statusKey(order.status))}
                                                             </OrderStatusBadge>
                                                         </OrderCardRow>
+
+                                                        {/* Edit Amount Section - Mobile */}
+                                                        <OrderCardRow style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid #e9ecef', flexDirection: 'column', alignItems: 'stretch', gap: '0.5rem' }}>
+                                                            <OrderCardLabel style={{ marginBottom: '0.3rem' }}>✏️ Edit Amount Paid:</OrderCardLabel>
+                                                            <input
+                                                                type="number"
+                                                                className="form-control form-control-sm"
+                                                                step="0.01"
+                                                                placeholder="Enter amount"
+                                                                value={this.getAdvanceInputValue(order)}
+                                                                disabled={!this.isAdvanceEditable(order) || Boolean(this.state.advanceSaving[order.id])}
+                                                                onChange={(e) => this.handleAdvanceInputChange(order.id, e.target.value)}
+                                                                style={{ fontSize: '12px' }}
+                                                            />
+                                                            {this.calculateAddedAmountDisplay(order) && (
+                                                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#2E7D32', marginTop: '0.2rem' }}>
+                                                                    {this.calculateAddedAmountDisplay(order)}
+                                                                </div>
+                                                            )}
+                                                            <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                                                {Number(order.advanceAmount || 0) <= 0 && this.isAdvanceEditable(order) && (
+                                                                    <ActionButton
+                                                                        className="btn-primary-soft"
+                                                                        disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                        onClick={() => this.submitAdvance(order)}
+                                                                        style={{ flex: 1, fontSize: '11px', padding: '0.4rem 0.3rem' }}
+                                                                    >
+                                                                        {langCtx.getText('enterAdvance')}
+                                                                    </ActionButton>
+                                                                )}
+                                                                {Number(order.advanceAmount || 0) > 0 && this.isAdvanceEditable(order) && (
+                                                                    <ActionButton
+                                                                        className="btn-primary-soft"
+                                                                        disabled={Boolean(this.state.advanceSaving[order.id])}
+                                                                        onClick={() => this.submitAdvance(order)}
+                                                                        style={{ flex: 1, fontSize: '11px', padding: '0.4rem 0.3rem' }}
+                                                                    >
+                                                                        {langCtx.getText('editAdvance')}
+                                                                    </ActionButton>
+                                                                )}
+                                                            </div>
+                                                        </OrderCardRow>
+
+                                                        {/* Return Amount Section - Mobile */}
+                                                        {Number(order.advanceAmount || 0) > 0 && this.isReturnEditable(order) && (
+                                                            <OrderCardRow style={{ paddingTop: '0.8rem', borderTop: '1px solid #e9ecef', flexDirection: 'column', alignItems: 'stretch', gap: '0.5rem' }}>
+                                                                <OrderCardLabel style={{ marginBottom: '0.3rem' }}>↩️ Return Amount:</OrderCardLabel>
+                                                                <input
+                                                                    type="number"
+                                                                    className="form-control form-control-sm"
+                                                                    step="0.01"
+                                                                    placeholder="Enter return amount"
+                                                                    value={this.getReturnInputValue(order)}
+                                                                    disabled={!this.isReturnEditable(order) || Boolean(this.state.returnSaving[order.id])}
+                                                                    onChange={(e) => this.handleReturnInputChange(order.id, e.target.value)}
+                                                                    style={{ fontSize: '12px' }}
+                                                                />
+                                                                {this.calculateReturnedAmountDisplay(order) && (
+                                                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#c62828', marginTop: '0.2rem' }}>
+                                                                        {this.calculateReturnedAmountDisplay(order)}
+                                                                    </div>
+                                                                )}
+                                                                <ActionButton
+                                                                    className="btn-danger-soft"
+                                                                    disabled={Boolean(this.state.returnSaving[order.id])}
+                                                                    onClick={() => this.submitReturn(order)}
+                                                                    style={{ fontSize: '11px', padding: '0.4rem 0.3rem' }}
+                                                                >
+                                                                    ↩️ {langCtx.getText('applyReturn') || 'Apply Return'}
+                                                                </ActionButton>
+                                                            </OrderCardRow>
+                                                        )}
 
                                                         <OrderCardFooter>
                                                             <OrderCardButton onClick={() => this.openModal(order)}>
@@ -1550,20 +2054,68 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 <div className="row g-2 align-items-end mb-3">
                                                     <div className="col-12 col-md-7">
                                                         <label className="form-label small fw-semibold mb-1">{langCtx.getText('product')}</label>
-                                                        <select
-                                                            className="form-select"
-                                                            value={createAddProductId}
-                                                            onChange={(e) => this.setState({ createAddProductId: e.target.value })}
+                                                        <input
+                                                            type="text"
+                                                            className="form-control"
+                                                            placeholder={langCtx.getText('searchProduct')}
+                                                            value={this.state.createProductSearch || ''}
+                                                            onChange={(e) => this.setState({ createProductSearch: e.target.value })}
                                                             disabled={productsLoading}
+                                                            style={{ marginBottom: '0.5rem' }}
+                                                        />
+                                                        <div
+                                                            style={{
+                                                                border: '1px solid #dee2e6',
+                                                                borderRadius: '6px',
+                                                                maxHeight: '200px',
+                                                                overflowY: 'auto',
+                                                                background: '#fff',
+                                                            }}
                                                         >
-                                                            <option value="">{langCtx.getText('selectProduct')}</option>
-                                                            {Array.isArray(products) &&
-                                                                products.map((p) => (
-                                                                <option key={p.id ?? p._id} value={p.id ?? p._id}>
-                                                                    {p.name} — ₹{p.price}
-                                                                </option>
-                                                                ))}
-                                                        </select>
+                                                            {Array.isArray(products) && products.length > 0 ? (
+                                                                searchProducts(products, this.state.createProductSearch)
+                                                                    .map((p) => (
+                                                                        <div
+                                                                            key={p.id ?? p._id}
+                                                                            onClick={() => {
+                                                                                this.setState({ 
+                                                                                    createAddProductId: p.id ?? p._id,
+                                                                                    createProductSearch: ''
+                                                                                });
+                                                                            }}
+                                                                            style={{
+                                                                                padding: '0.75rem 1rem',
+                                                                                cursor: 'pointer',
+                                                                                borderBottom: '1px solid #e9ecef',
+                                                                                transition: 'background 0.15s ease',
+                                                                                background: createAddProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white',
+                                                                            }}
+                                                                            onMouseEnter={(e) => (e.currentTarget.style.background = '#f8f9fa')}
+                                                                            onMouseLeave={(e) => (e.currentTarget.style.background = createAddProductId === (p.id ?? p._id) ? '#e7f5ff' : 'white')}
+                                                                        >
+                                                                            <strong>{p.name}</strong>
+                                                                            {p.teluguName && (
+                                                                                <div style={{ fontSize: '0.7rem', color: '#8B5A3C', marginTop: '0.2rem', fontWeight: '500' }}>
+                                                                                    {p.teluguName}
+                                                                                </div>
+                                                                            )}
+                                                                            <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '0.25rem' }}>
+                                                                                {p.category && <span>{p.category} • </span>}
+                                                                                ₹{p.price}
+                                                                            </div>
+                                                                        </div>
+                                                                    ))
+                                                            ) : (
+                                                                <div style={{ padding: '1rem', textAlign: 'center', color: '#6c757d' }}>
+                                                                    {productsLoading ? langCtx.getText('loading') : langCtx.getText('noProductsFound')}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        {createAddProductId && (
+                                                            <small style={{ display: 'block', marginTop: '0.5rem', color: '#2E7D32', fontWeight: 600 }}>
+                                                                ✓ {products.find(p => (p.id ?? p._id) === createAddProductId)?.name} selected
+                                                            </small>
+                                                        )}
                                                     </div>
                                                     <div className="col-6 col-md-3">
                                                         <label className="form-label small fw-semibold mb-1">{langCtx.getText('quantity')}</label>
@@ -1724,11 +2276,11 @@ class AdminOfflineOrdersPage extends React.Component {
                             {modalOpen && selectedOrder && (
                                 <ModalOverlay onClick={this.closeModal}>
                                     <ModalContent
-                                        style={{ maxWidth: '760px', width: '100%' }}
+                                        style={{ maxWidth: 'calc(100vw - 2rem)', width: '100%' }}
                                         onClick={(e) => e.stopPropagation()}
                                     >
                                         <div className="modal-header">
-                                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: 'clamp(0.9rem, 4vw, 1.15rem)' }}>
                                                 🧾 {langCtx.getText('offlineOrder')} — #{selectedOrder.id}
                                                 <Badge className={this.getStatusBadgeClass(selectedOrder.status)}>
                                                     {this.getStatusIcon(selectedOrder.status)} {langCtx.getText(statusKey(selectedOrder.status))}
@@ -1901,12 +2453,12 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 <table className="table table-hover table-sm mb-0">
                                                     <thead style={{ background: '#f8f9fa' }}>
                                                         <tr>
-                                                            <th className="text-center" style={{ width: '44px' }}>✓</th>
-                                                            <th>{langCtx.getText('productName')}</th>
-                                                            <th className="text-center" style={{ width: '110px' }}>{langCtx.getText('quantity')}</th>
-                                                            <th className="text-center" style={{ width: '80px' }}>{langCtx.getText('price')}</th>
-                                                            <th className="text-end" style={{ width: '100px' }}>{langCtx.getText('total')}</th>
-                                                            <th className="text-center" style={{ width: '80px' }}>{langCtx.getText('remove')}</th>
+                                                            <th className="text-center" style={{ width: 'clamp(30px, 6vw, 44px)' }}>✓</th>
+                                                            <th style={{ minWidth: 'clamp(80px, 25vw, 150px)' }}>{langCtx.getText('productName')}</th>
+                                                            <th className="text-center" style={{ width: 'clamp(60px, 15vw, 110px)' }}>{langCtx.getText('quantity')}</th>
+                                                            <th className="text-center" style={{ width: 'clamp(50px, 12vw, 80px)' }}>{langCtx.getText('price')}</th>
+                                                            <th className="text-end" style={{ width: 'clamp(60px, 15vw, 100px)' }}>{langCtx.getText('total')}</th>
+                                                            <th className="text-center" style={{ width: 'clamp(50px, 12vw, 80px)' }}>{langCtx.getText('remove')}</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -2045,7 +2597,10 @@ class AdminOfflineOrdersPage extends React.Component {
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                                                             {history.map((h, idx) => {
                                                                 const delta = Number(h?.deltaAmount || 0) || 0;
-                                                                const label = delta >= 0 ? 'Amount Paid Added' : 'Amount Paid Reduced';
+                                                                const isReturn = delta < 0;
+                                                                const label = isReturn ? 'Amount Returned' : 'Amount Paid Added';
+                                                                const icon = isReturn ? '-' : '';
+                                                                const color = isReturn ? '#c62828' : '#2E7D32';
                                                                 const amount = Math.abs(delta);
                                                                 const when = this.formatDate(h?.createdAt);
                                                                 return (
@@ -2059,8 +2614,8 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                         }}
                                                                     >
                                                                         <div className="d-flex justify-content-between align-items-center" style={{ gap: '0.75rem' }}>
-                                                                            <div className="fw-semibold" style={{ fontSize: '0.92rem' }}>
-                                                                                {label}: ₹{amount.toFixed(2)}
+                                                                            <div className="fw-semibold" style={{ fontSize: '0.92rem', color }}>
+                                                                                {icon}₹{amount.toFixed(2)} {label}
                                                                             </div>
                                                                             <div className="text-muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                                                                                 {when}

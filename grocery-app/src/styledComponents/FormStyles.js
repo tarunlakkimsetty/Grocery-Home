@@ -70,9 +70,14 @@ export const TableWrapper = styled.div`
       overflow-wrap: break-word;
       white-space: normal;
 
-      @media (max-width: 768px) {
+      @media (max-width: 1024px) {
         padding: 0.75rem 0.6rem;
         font-size: ${({ theme }) => theme.fontSizes.xs};
+      }
+
+      @media (max-width: 768px) {
+        padding: 0.6rem 0.5rem;
+        font-size: 0.65rem;
       }
     }
 
@@ -86,18 +91,79 @@ export const TableWrapper = styled.div`
 
       td {
         padding: 1rem 0.85rem;
-        vertical-align: middle;
+        vertical-align: top;
         border-color: ${({ theme }) => theme.colors.borderLight};
         font-size: ${({ theme }) => theme.fontSizes.sm};
         word-wrap: break-word;
         overflow-wrap: break-word;
         white-space: normal;
 
-        @media (max-width: 768px) {
+        @media (max-width: 1024px) {
           padding: 0.75rem 0.6rem;
-          font-size: ${({ theme }) => theme.fontSizes.xs};
+          font-size: 0.85rem;
+          vertical-align: top;
+        }
+
+        @media (max-width: 768px) {
+          padding: 0.6rem 0.5rem;
+          font-size: 0.75rem;
+          vertical-align: top;
         }
       }
+
+      /* Ensure actions column has ample width on mobile */
+      td.amount-actions-cell {
+        min-width: 160px;
+        
+        @media (max-width: 1200px) {
+          min-width: 140px;
+          padding: 0.75rem 0.5rem;
+        }
+
+        @media (max-width: 992px) {
+          min-width: 130px;
+          padding: 0.7rem 0.4rem;
+        }
+
+        @media (max-width: 768px) {
+          min-width: 120px;
+          padding: 0.6rem 0.4rem;
+        }
+
+        @media (max-width: 576px) {
+          min-width: 110px;
+          padding: 0.5rem 0.3rem;
+        }
+      }
+    }
+  }
+
+  /* Hide non-critical columns on mobile */
+  @media (max-width: 992px) {
+    /* Hide Phone column */
+    thead th:nth-child(3),
+    tbody td:nth-child(3) {
+      display: none;
+    }
+    
+    /* Hide Place column */
+    thead th:nth-child(4),
+    tbody td:nth-child(4) {
+      display: none;
+    }
+    
+    /* Hide Order Type column */
+    thead th:nth-child(9),
+    tbody td:nth-child(9) {
+      display: none;
+    }
+  }
+
+  @media (max-width: 768px) {
+    /* Hide Order Date column on very small screens */
+    thead th:nth-child(5),
+    tbody td:nth-child(5) {
+      display: none;
     }
   }
 `;
@@ -207,6 +273,7 @@ export const ModalContent = styled.div`
 
   .modal-body {
     padding: 1.5rem;
+    overflow-x: auto;
   }
 
   .modal-footer {
@@ -215,6 +282,35 @@ export const ModalContent = styled.div`
     justify-content: flex-end;
     padding: 1rem 1.5rem;
     border-top: 1px solid ${({ theme }) => theme.colors.borderLight};
+  }
+
+  /* Responsive table styling for modal */
+  table {
+    min-width: 100%;
+    
+    @media (max-width: 576px) {
+      font-size: 0.75rem;
+      
+      thead th {
+        padding: 0.4rem 0.3rem !important;
+        font-size: 0.7rem;
+      }
+      
+      tbody td {
+        padding: 0.4rem 0.3rem !important;
+        font-size: 0.7rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      
+      th,
+      td {
+        width: auto !important;
+        max-width: 100% !important;
+        min-width: 40px;
+      }
+    }
   }
 `;
 

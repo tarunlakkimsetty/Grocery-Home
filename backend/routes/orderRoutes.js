@@ -11,6 +11,7 @@ const {
     markOrderPaid,
     markOrderDelivered,
     updateOrderAdvance,
+    updateOrderReturn,
     updateOrderStatus,
     rejectOrder,
     addItemToOrder,
@@ -41,6 +42,7 @@ router.put('/:id/verify', authMiddleware, isAdmin, orderValidators.getById, veri
 router.put('/:id/mark-paid', authMiddleware, isAdmin, orderValidators.getById, markOrderPaid);
 router.put('/:id/deliver', authMiddleware, isAdmin, orderValidators.getById, markOrderDelivered);
 router.put('/:id/advance', authMiddleware, isAdmin, orderValidators.updateAdvance, updateOrderAdvance);
+router.put('/:id/return', authMiddleware, isAdmin, orderValidators.updateReturn, updateOrderReturn);
 router.put('/:id/status', authMiddleware, isAdmin, orderValidators.getById, updateOrderStatus);
 router.put('/:id/reject', authMiddleware, isAdmin, orderValidators.getById, rejectOrder);
 router.post('/:id/add-item', authMiddleware, isAdmin, checkOrderNotLocked, orderValidators.addItem, addItemToOrder);

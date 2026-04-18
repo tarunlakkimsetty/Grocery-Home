@@ -211,6 +211,23 @@ const orderValidators = {
                 return true;
             }),
         validate
+    ],
+    updateReturn: [
+        param('id')
+            .isInt({ min: 1 }).withMessage('Invalid order ID'),
+        body('returnAmount')
+            .custom((value) => {
+                // Allow numeric strings but reject empty/NaN/negative.
+                const num = Number(value);
+                if (!Number.isFinite(num)) {
+                    throw new Error('Return amount must be a valid number');
+                }
+                if (num < 0) {
+                    throw new Error('Return amount cannot be negative');
+                }
+                return true;
+            }),
+        validate
     ]
 };
 

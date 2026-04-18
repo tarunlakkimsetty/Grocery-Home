@@ -294,6 +294,68 @@ const Order = {
     },
 
     /**
+     * Process return amount: reduces advanceAmount and creates history entry
+     */
+    updateReturnAmount: async (orderId, returnAmount, updatedByUserId = null) => {
+        const connection = await promisePool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const [rows] = await connection.query(
+                'SELECT id, status, paymentStatus, isPaid, advanceAmount FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+            if (rows.length === 0) throw new Error('Order not found');
+
+            const order = rows[0];
+            const status = String(order?.status || '').trim();
+            const paymentStatus = String(order?.paymentStatus || '').trim();
+            const isPaid = Boolean(order?.isPaid);
+
+            const statusLower = status.toLowerCase();
+            const isLocked = isPaid || paymentStatus.toLowerCase() === 'paid' || statusLower === 'paid' || statusLower === 'completed' || statusLower === 'mark paid';
+
+            if (isLocked) {
+                throw new Error('Return cannot be processed after Paid/Completed');
+            }
+
+            const num = Number(returnAmount);
+            if (!Number.isFinite(num)) throw new Error('Return amount must be a valid number');
+            if (num < 0) throw new Error('Return amount cannot be negative');
+
+            const currentAdvance = Number(order?.advanceAmount || 0) || 0;
+            if (num > currentAdvance) throw new Error('Return amount cannot exceed paid amount');
+
+            const newAdvance = currentAdvance - num;
+
+            await connection.query(
+                'UPDATE orders SET advanceAmount = ? WHERE id = ?',
+                [newAdvance, orderId]
+            );
+
+            // Track return as negative delta
+            if (num > 0) {
+                try {
+                    await connection.query(
+                        'INSERT INTO order_payment_history (orderId, deltaAmount, updatedByUserId) VALUES (?, ?, ?)',
+                        [orderId, -num, updatedByUserId ? Number(updatedByUserId) : null]
+                    );
+                } catch (e) {
+                    // If the history table doesn't exist yet, don't fail the update.
+                }
+            }
+
+            await connection.commit();
+            return true;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    },
+
+    /**
      * Get orders by customer ID
      */
     findByCustomerId: async (customerId) => {

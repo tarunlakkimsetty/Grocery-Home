@@ -239,6 +239,53 @@ const updateOrderAdvance = async (req, res, next) => {
 };
 
 /**
+ * @desc    Process return amount for an order
+ * @route   PUT /api/orders/:id/return
+ * @access  Admin only
+ */
+const updateOrderReturn = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { returnAmount } = req.body || {};
+
+        const num = Number(returnAmount);
+        if (!Number.isFinite(num)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Return amount must be a valid number',
+            });
+        }
+        if (num < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Return amount cannot be negative',
+            });
+        }
+
+        await Order.updateReturnAmount(id, num, req.user?.id || null);
+        const order = await Order.findById(id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Return processed successfully',
+            order,
+        });
+    } catch (error) {
+        if (
+            error.message.includes('Return') ||
+            error.message.includes('Order not found') ||
+            error.message.includes('cannot exceed')
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+            });
+        }
+        next(error);
+    }
+};
+
+/**
  * @desc    Get all orders (admin view)
  * @route   GET /api/orders/admin
  * @access  Admin only
@@ -994,6 +1041,7 @@ module.exports = {
     markOrderPaid,
     markOrderDelivered,
     updateOrderAdvance,
+    updateOrderReturn,
     updateOrderStatus,
     rejectOrder,
     addItemToOrder,

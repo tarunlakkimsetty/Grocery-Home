@@ -390,7 +390,65 @@ const orderService = {
             const num = Number(advanceAmount);
             if (!Number.isFinite(num) || num < 0) throw new Error('Invalid amount paid');
 
+            const previousAmount = Number(order.advanceAmount || 0) || 0;
+            const delta = num - previousAmount;
+
             order.advanceAmount = num;
+
+            // Initialize paymentHistory if it doesn't exist
+            if (!Array.isArray(order.paymentHistory)) {
+                order.paymentHistory = [];
+            }
+
+            // Add advance entry to history only if delta is not zero
+            if (delta !== 0) {
+                order.paymentHistory.push({
+                    id: Date.now(),
+                    deltaAmount: delta,
+                    createdAt: new Date().toISOString(),
+                });
+            }
+
+            return { success: true, order };
+        }
+    },
+
+    // Admin: process return amount for an order
+    // API: PUT /api/orders/:id/return
+    updateReturnAmount: async (orderId, returnAmount) => {
+        try {
+            const response = await axiosInstance.put('/orders/' + orderId + '/return', { returnAmount });
+            return response.data;
+        } catch {
+            const order = findMockOrderById(orderId);
+            if (!order) throw new Error('Order not found');
+
+            const status = String(order.status || '').trim().toLowerCase();
+            const paymentStatus = String(order.paymentStatus || '').trim().toLowerCase();
+            const isLocked = Boolean(order.isPaid) || paymentStatus === 'paid' || status === 'paid' || status === 'completed' || status === 'mark paid';
+            if (isLocked) throw new Error('Return cannot be processed after Paid/Completed');
+
+            const num = Number(returnAmount);
+            if (!Number.isFinite(num) || num < 0) throw new Error('Invalid return amount');
+
+            const currentAdvance = Number(order.advanceAmount || 0) || 0;
+            if (num > currentAdvance) throw new Error('Return amount cannot exceed paid amount');
+
+            const newAdvance = currentAdvance - num;
+            order.advanceAmount = newAdvance;
+
+            // Initialize paymentHistory if it doesn't exist
+            if (!Array.isArray(order.paymentHistory)) {
+                order.paymentHistory = [];
+            }
+
+            // Add return entry to history with negative delta
+            order.paymentHistory.push({
+                id: Date.now(),
+                deltaAmount: -num,
+                createdAt: new Date().toISOString(),
+            });
+
             return { success: true, order };
         }
     },
