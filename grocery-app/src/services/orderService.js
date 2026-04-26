@@ -180,6 +180,44 @@ const orderService = {
         }
     },
 
+    // Admin: get converted list orders (active)
+    getConvertedOrders: async (search) => {
+        try {
+            const response = await axiosInstance.get('/orders/admin', {
+                params: {
+                    type: 'list_converted',
+                    origin: 'list_orders',
+                    view: 'active',
+                    search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+                },
+            });
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            return data?.orders || data?.data?.orders || data?.data || [];
+        } catch {
+            return [];
+        }
+    },
+
+    // Admin: get converted list orders that are completed (bills)
+    getConvertedBills: async (search) => {
+        try {
+            const response = await axiosInstance.get('/orders/admin', {
+                params: {
+                    type: 'list_converted',
+                    origin: 'list_orders',
+                    view: 'bills',
+                    search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+                },
+            });
+            const data = response.data;
+            if (Array.isArray(data)) return data;
+            return data?.orders || data?.data?.orders || data?.data || [];
+        } catch {
+            return [];
+        }
+    },
+
     // Admin: get printable bill data for any order status
     // API: GET /api/orders/:id/print
     getPrintableBill: async (orderId) => {

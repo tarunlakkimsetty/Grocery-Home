@@ -102,6 +102,14 @@ class Sidebar extends React.Component {
                                                 </SidebarItem>
                                             )}
                                         </NavLink>
+                                        <NavLink to="/upload-grocery-list" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">📸</span>
+                                                    <span className="item-label">Upload List</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
                                     </>
                                 )}
                                 {role === 'admin' && (
@@ -151,6 +159,14 @@ class Sidebar extends React.Component {
                                                 <SidebarItem $active={isActive}>
                                                     <span className="item-icon">🧾</span>
                                                     <span className="item-label">{langCtx.getText('offlineOrders')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/list-orders" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">📋</span>
+                                                    <span className="item-label">List Orders</span>
                                                 </SidebarItem>
                                             )}
                                         </NavLink>

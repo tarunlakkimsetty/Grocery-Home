@@ -141,6 +141,33 @@ const Analytics = {
              LIMIT 8`
         );
 
+        // All products with stock and sales data
+        const [allProductsRows] = await promisePool.query(
+            `SELECT 
+                p.id,
+                p.name,
+                p.emoji,
+                p.category,
+                p.price,
+                p.stock,
+                p.unit,
+                COALESCE(SUM(
+                    CASE WHEN (oi.isSelected IS NULL OR oi.isSelected = TRUE)
+                    THEN COALESCE(oi.quantity, 0)
+                    ELSE 0 END
+                ), 0) AS quantitySold,
+                COALESCE(SUM(
+                    CASE WHEN (oi.isSelected IS NULL OR oi.isSelected = TRUE)
+                    THEN COALESCE(oi.total, (COALESCE(oi.quantity, 0) * COALESCE(oi.price, 0)), 0)
+                    ELSE 0 END
+                ), 0) AS totalRevenue
+            FROM products p
+            LEFT JOIN order_items oi ON oi.productId = p.id
+            LEFT JOIN orders o ON o.id = oi.orderId AND ${completedWhere.replaceAll('o.', '')}
+            GROUP BY p.id, p.name, p.emoji, p.category, p.price, p.stock, p.unit
+            ORDER BY p.category ASC, p.name ASC`
+        );
+
         const totalSales = Number(salesRows?.[0]?.totalSales || 0);
         const totalBillsGenerated = Number(ordersCountRows?.[0]?.totalBillsGenerated || 0);
         const totalStockQty = Number(stockRows?.[0]?.totalStockQty || 0);
@@ -175,6 +202,17 @@ const Analytics = {
                 emoji: p.emoji,
                 stock: Number(p.stock || 0),
                 price: Number(p.price || 0),
+            })),
+            allProducts: (Array.isArray(allProductsRows) ? allProductsRows : []).map((p) => ({
+                id: Number(p.id || 0),
+                name: p.name,
+                emoji: p.emoji,
+                category: p.category,
+                price: Number(p.price || 0),
+                stock: Number(p.stock || 0),
+                unit: p.unit,
+                quantitySold: Number(p.quantitySold || 0),
+                totalRevenue: Number(p.totalRevenue || 0),
             })),
         };
     },

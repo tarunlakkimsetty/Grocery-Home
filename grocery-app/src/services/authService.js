@@ -38,6 +38,32 @@ const authService = {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
     },
+
+    // Password Reset - Step 1: Verify phone
+    verifyPhoneForReset: async (phone) => {
+        const response = await axiosInstance.post('/auth/forgot-password/verify-phone', { phone });
+        return response.data;
+    },
+
+    // Password Reset - Step 2: Verify security answers
+    verifySecurityAnswers: async (phone, favoriteFood, favoritePlace) => {
+        const response = await axiosInstance.post('/auth/forgot-password/verify-answers', {
+            phone,
+            favoriteFood,
+            favoritePlace
+        });
+        return response.data;
+    },
+
+    // Password Reset - Step 3: Reset password
+    resetPassword: async (phone, newPassword, confirmPassword) => {
+        const response = await axiosInstance.post('/auth/forgot-password/reset', {
+            phone,
+            newPassword,
+            confirmPassword
+        });
+        return response.data;
+    },
 };
 
 export default authService;

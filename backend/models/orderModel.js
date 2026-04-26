@@ -597,6 +597,26 @@ const Order = {
             conditions.push('o.orderType = ?');
             params.push(orderType);
             countParams.push(orderType);
+
+            // By default, exclude list-converted orders from regular Offline listings
+            if (String(orderType).toLowerCase() === 'offline' && !options.type) {
+                conditions.push('(o.`type` IS NULL OR o.`type` != ?)');
+                params.push('list_converted');
+                countParams.push('list_converted');
+            }
+        }
+
+        // New filters: `type` and `origin` (for list-converted workflow)
+        if (options.type) {
+            conditions.push('o.`type` = ?');
+            params.push(options.type);
+            countParams.push(options.type);
+        }
+
+        if (options.origin) {
+            conditions.push('o.origin = ?');
+            params.push(options.origin);
+            countParams.push(options.origin);
         }
 
         if (view === 'active') {
@@ -658,6 +678,88 @@ const Order = {
                 totalPages: Math.ceil(countResult[0].total / limit)
             }
         };
+    },
+
+    /**
+     * Create a converted order (originating from list orders).
+     * Creates an order row with optional metadata `type='list_converted'` and `origin='list_orders'`.
+     * Items can be an empty array; admin may edit items later.
+     */
+    createConvertedOrder: async (orderData, items = []) => {
+        const connection = await promisePool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // Do not assert stock here because admin will add items later; keep created order minimal.
+
+            const {
+                customerId = null,
+                customerName,
+                phone,
+                place,
+                address,
+                totalAmount = 0,
+                paymentMethod = null,
+                type = 'list_converted',
+                origin = 'list_orders',
+                status = 'pending'
+            } = orderData;
+
+            // Insert order with optional type/origin columns
+            const insertCols = ['customerId', 'customerName', 'phone', 'place', 'address', 'orderType', 'status', 'paymentStatus', 'totalAmount', 'paymentMethod'];
+            const insertPlaceholders = ['NULL', '?', '?', '?', '?', '?', '?', '?', '?', '?'];
+            const insertValues = [customerName, phone, place, address, 'Offline', status, 'Unpaid', totalAmount, paymentMethod || null];
+
+            // If DB supports `type`/`origin`, include them
+            insertCols.push('`type`', 'origin');
+            insertPlaceholders.push('?', '?');
+            insertValues.push(type, origin);
+
+            const insertSql = `INSERT INTO orders (${insertCols.join(',')}) VALUES (${insertPlaceholders.join(',')})`;
+
+            const [orderResult] = await connection.query(insertSql, insertValues);
+            const orderId = orderResult.insertId;
+
+            // Insert any provided items (optional)
+            let computedTotalAmount = Number(totalAmount || 0) || 0;
+            for (const item of Array.isArray(items) ? items : []) {
+                const quantity = Number(item?.quantity || 0) || 0;
+                const price = Number(item?.price || 0) || 0;
+                const rowTotal = quantity * price;
+                computedTotalAmount += rowTotal;
+                await connection.query(
+                    `INSERT INTO order_items (orderId, productId, productName, price, quantity, isSelected, total) VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
+                    [orderId, item.productId, item.productName, price, quantity, rowTotal]
+                );
+            }
+
+            // Persist computed total
+            await connection.query('UPDATE orders SET totalAmount = ? WHERE id = ?', [computedTotalAmount, orderId]);
+
+            await connection.commit();
+
+            return {
+                id: orderId,
+                customerId: customerId || null,
+                customerName,
+                phone,
+                place,
+                address,
+                totalAmount: computedTotalAmount,
+                advanceAmount: 0,
+                remainingBalance: computedTotalAmount,
+                orderType: 'Offline',
+                status,
+                paymentStatus: 'Unpaid',
+                type,
+                origin
+            };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     },
 
     /**
@@ -1060,8 +1162,8 @@ const Order = {
         const { page = 1, limit = 50, status = null, view = 'active', search = null } = options;
         const offset = (page - 1) * limit;
 
-        let query = "SELECT * FROM orders WHERE orderType = 'Offline'";
-        let countQuery = "SELECT COUNT(*) as total FROM orders WHERE orderType = 'Offline'";
+        let query = "SELECT * FROM orders WHERE orderType = 'Offline' AND (type IS NULL OR type != 'list_converted')";
+        let countQuery = "SELECT COUNT(*) as total FROM orders WHERE orderType = 'Offline' AND (type IS NULL OR type != 'list_converted')";
         const params = [];
         const countParams = [];
 

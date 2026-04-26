@@ -292,7 +292,7 @@ const updateOrderReturn = async (req, res, next) => {
  */
 const getAdminOrders = async (req, res, next) => {
     try {
-        const { page = 1, limit = 50, status, orderType, view, search } = req.query;
+        const { page = 1, limit = 50, status, orderType, view, search, type, origin } = req.query;
 
         // Normalize orderType so frontend can send: online/offline or Online/Offline
         let normalizedOrderType = orderType || null;
@@ -312,6 +312,8 @@ const getAdminOrders = async (req, res, next) => {
             limit: parseInt(limit),
             status: status || null,
             orderType: normalizedOrderType,
+            type: type || null,
+            origin: origin || null,
             sortBy,
             view: view || null,
             search: typeof search === 'string' && search.trim() ? search.trim() : null

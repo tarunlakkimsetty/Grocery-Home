@@ -3,7 +3,8 @@ import styled, { css } from 'styled-components';
 export const SidebarOverlay = styled.div`
   display: none;
 
-  @media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+  /* Show overlay for mobile and tablet (up to 1024px) */
+  @media (max-width: 1024px) {
     display: ${({ $isOpen }) => ($isOpen ? 'block' : 'none')};
     position: fixed;
     top: 0;
@@ -11,7 +12,7 @@ export const SidebarOverlay = styled.div`
     right: 0;
     bottom: 0;
     background: ${({ theme }) => theme.colors.overlay};
-    z-index: 1019;
+    z-index: 50;
   }
 `;
 
@@ -24,7 +25,7 @@ export const SidebarWrapper = styled.aside`
   background: ${({ theme }) => theme.colors.sidebarBg};
   overflow-y: auto;
   overflow-x: hidden;
-  z-index: 1020;
+  z-index: 90;
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   padding: 0.75rem 0;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
@@ -40,7 +41,8 @@ export const SidebarWrapper = styled.aside`
     border-radius: 4px;
   }
 
-  @media (max-width: ${({ theme }) => theme.breakpoints.md}) {
+  /* Hide/overlay sidebar for mobile and tablet (up to 1024px) */
+  @media (max-width: 1024px) {
     transform: translateX(${({ $isOpen }) => ($isOpen ? '0' : '-100%')});
     top: 0;
     padding-top: calc(${({ theme }) => theme.navbar.height} + 0.75rem);

@@ -1,5 +1,7 @@
 import React from 'react';
 import LanguageContext from '../context/LanguageContext';
+import QuantityControl from '../components/QuantityControl';
+import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';
 import orderService from '../services/orderService';
 import productService from '../services/productService';
 import Spinner from '../components/Spinner';
@@ -27,7 +29,6 @@ import {
     OrderStatusBadge,
 } from '../styledComponents/FormStyles';
 import { searchOrders, searchProducts } from '../utils/searchUtils';
-import BillScannerModal from '../components/BillScannerModal';
 
 // ─── Styled Components (match AdminOnlineOrdersPage look) ────────────────────
 
@@ -422,9 +423,6 @@ class AdminOfflineOrdersPage extends React.Component {
             createAddQty: '1',
             createAddQtyError: '',
             createCategoryFilter: '', // Category filter for product selection (empty = all products)
-
-            // Bill Scanner Modal
-            billScannerOpen: false,
 
             // View Order Details Modal
             modalOpen: false,
@@ -986,69 +984,6 @@ class AdminOfflineOrdersPage extends React.Component {
         });
     };
 
-    handleBillScannerConfirm = (scannedData) => {
-        const { customerDetails, detectedProducts } = scannedData;
-        const { createItems } = this.state;
-
-        // Auto-fill customer details if not already filled
-        let newState = {
-            billScannerOpen: false,
-            customerName: customerDetails.name || this.state.customerName,
-            phone: customerDetails.phone || this.state.phone,
-            place: customerDetails.place || this.state.place,
-        };
-
-        // Add detected CUSTOM products to create items (NO database matching)
-        let updatedItems = [...createItems];
-        let newSelectedProducts = [...this.state.selectedProducts];
-        let addedCount = 0;
-
-        for (let ocrItem of detectedProducts) {
-            // Check if this item already exists (by name for custom items)
-            const existingIdx = updatedItems.findIndex((i) => 
-                i.name && ocrItem.name && i.name.toLowerCase() === ocrItem.name.toLowerCase()
-            );
-
-            if (existingIdx !== -1) {
-                // Product already exists, merge quantities
-                updatedItems[existingIdx].quantity += ocrItem.quantity;
-                updatedItems[existingIdx].total = updatedItems[existingIdx].quantity * updatedItems[existingIdx].price;
-                console.log(`📦 Merged: ${ocrItem.name} (now qty: ${updatedItems[existingIdx].quantity})`);
-            } else {
-                // Add new CUSTOM product (from OCR, not from database)
-                const newItem = {
-                    productId: ocrItem.id, // Use OCR item ID
-                    name: ocrItem.name,
-                    price: 0, // Default: user can edit
-                    quantity: ocrItem.quantity,
-                    unit: ocrItem.unit || 'unit',
-                    total: 0, // Will update when price is set
-                    isOCR: true, // Mark as OCR-created
-                    isCustom: true, // Mark as custom (not from DB)
-                };
-
-                updatedItems.push(newItem);
-                addedCount++;
-                
-                // Auto-select new OCR items for quick billing
-                if (!newSelectedProducts.includes(ocrItem.id)) {
-                    newSelectedProducts.push(ocrItem.id);
-                }
-                
-                console.log(`✅ Added custom product: ${ocrItem.name} x${ocrItem.quantity}${ocrItem.unit}`);
-            }
-        }
-
-        newState.createItems = updatedItems;
-        newState.selectedProducts = newSelectedProducts;
-
-        this.setState(newState, () => {
-            if (addedCount > 0) {
-                toast.success(`✅ Created ${addedCount} custom product(s) from bill`);
-            }
-        });
-    };
-
     toggleCreateCheck = (productId) => {
         const { selectedProducts } = this.state;
         const isSelected = selectedProducts.includes(productId);
@@ -1079,28 +1014,88 @@ class AdminOfflineOrdersPage extends React.Component {
         this.setState({ createItems: nextItems, selectedProducts: [] });
     };
 
-    updateCreateItemPrice = (productId, newPrice) => {
-        const price = Number(newPrice) || 0;
-        const nextItems = this.state.createItems.map((i) => {
-            if (i.productId !== productId) return i;
-            const qty = Number(i.quantity || 0) || 0;
-            return { ...i, price, total: price * qty };
-        });
-        this.setState({ createItems: nextItems });
-    };
+    // CRITICAL: Validate quantity against stock before updating
+    updateCreateItemQuantityValidated = (productId, newQty) => {
+        const { createItems } = this.state;
+        const item = createItems.find(i => i.productId === productId);
+        
+        if (!item) return;
+        
+        const stock = Number(item.stock || 0);
+        // IMPORTANT: For offline create flow, each item is from THIS order only
+        const available = stock;
+        
+        // Debug logging
+        console.log({ stock, available, attemptedQty: newQty, currentQty: item.quantity, productId });
+        
+        // Block quantities exceeding available
+        if (newQty > available) {
+            toast.error(`Only ${available} available`);
+            return;
+        }
+        
+        // Block zero or negative
+        if (newQty <= 0) {
+            toast.error('Quantity must be greater than 0');
+            return;
+        }
+        
+        // Proceed with update
+        const updated = createItems.map(i =>
+          i.productId === productId
+            ? { ...i, quantity: newQty, total: (Number(i.price || 0) || 0) * newQty }
+            : i
+        );
+        this.setState({ createItems: updated });
+    }
 
-    updateCreateItemUnit = (productId, newUnit) => {
-        const nextItems = this.state.createItems.map((i) => {
-            if (i.productId !== productId) return i;
-            return { ...i, unit: newUnit };
-        });
-        this.setState({ createItems: nextItems });
-    };
+    // CRITICAL: Validate quantity against stock for modal items
+    updateModalItemQuantityValidated = (productId, newQty) => {
+        const { modalItems } = this.state;
+        const item = modalItems.find(i => i.productId === productId);
+        
+        if (!item) return;
+        
+        const stock = Number(item.stock || 0);
+        // IMPORTANT: For offline edit flow, each item is from THIS order only
+        const available = stock;
+        
+        // Debug logging
+        console.log({ stock, available, attemptedQty: newQty, currentQty: item.quantity, productId });
+        
+        // Block quantities exceeding available
+        if (newQty > available) {
+            toast.error(`Only ${available} available`);
+            return;
+        }
+        
+        // Block zero or negative
+        if (newQty <= 0) {
+            toast.error('Quantity must be greater than 0');
+            return;
+        }
+        
+        // Proceed with update
+        const updated = modalItems.map(i =>
+          i.productId === productId
+            ? { ...i, quantity: newQty, total: (Number(i.price || 0) || 0) * newQty }
+            : i
+        );
+        this.setState({ modalItems: updated });
+    }
 
     removeCreateItem = (productId) => {
         const nextItems = this.state.createItems.filter((i) => i.productId !== productId);
         // Reset all selections after product list updates
         this.setState({ createItems: nextItems, selectedProducts: [] });
+    };
+
+    handleUnSelectCreateProduct = () => {
+        this.setState({
+            createAddProductId: '',
+            createAddQty: '1',
+            createAddQtyError: ''
+        });
     };
 
     getCreateSelectedTotal = () => {
@@ -1385,7 +1380,14 @@ class AdminOfflineOrdersPage extends React.Component {
     };
 
     onChangeAddProductId = (e) => {
-        this.setState({ addProductId: e.target.value });
+        this.setState({ addProductId: e.target.value, addProductQty: 1 });
+    };
+
+    handleUnSelectEditProduct = () => {
+        this.setState({
+            addProductId: '',
+            addProductQty: 1
+        });
     };
 
     onChangeAddProductQty = (e) => {
@@ -2069,15 +2071,15 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 style={{
                                                     background: '#f8f9fa',
                                                     borderRadius: '8px',
-                                                    padding: '0.9rem 1rem',
-                                                    marginBottom: '1rem',
+                                                    padding: '0.6rem 0.8rem',
+                                                    marginBottom: '0.8rem',
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
                                                 <SectionTitle>{langCtx.getText('step1CustomerDetails')}</SectionTitle>
-                                                <div className="row g-3 g-lg-4">
+                                                <div className="row g-2 g-md-3">
                                                     <div className="col-12 col-md-6 col-lg-4">
-                                                        <label className="form-label small fw-semibold mb-1">
+                                                        <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.8rem' }}>
                                                             {langCtx.getText('customerName')} <span className="text-danger">*</span>
                                                         </label>
                                                         <input
@@ -2141,40 +2143,26 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 style={{
                                                     background: '#fff',
                                                     borderRadius: '8px',
-                                                    padding: '0.9rem 1rem',
-                                                    marginBottom: '1rem',
+                                                    padding: '0.6rem 0.8rem',
+                                                    marginBottom: '0.8rem',
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
                                                 <SectionTitle>{langCtx.getText('step2AddItems')}</SectionTitle>
-
-                                                {/* Scan Bill Button */}
-                                                <div style={{ marginBottom: '1rem' }}>
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-outline-primary btn-sm"
-                                                        onClick={() => this.setState({ billScannerOpen: true })}
-                                                        style={{ fontWeight: '700' }}
-                                                    >
-                                                        📸 {langCtx.getText('scanBill')}
-                                                    </button>
-                                                    <small style={{ display: 'block', marginTop: '0.5rem', color: '#6c757d' }}>
-                                                        Automatically extract customer details and products from a bill image using OCR
-                                                    </small>
-                                                </div>
                                                 
                                                 {/* Category Filter */}
-                                                <div className="mb-3">
-                                                    <label className="form-label small fw-semibold mb-1">Category Filter</label>
+                                                <div className="mb-2">
+                                                    <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.8rem' }}>Category Filter</label>
                                                     <select
                                                         className="form-select form-select-sm"
                                                         value={createCategoryFilter || ''}
                                                         onChange={(e) => this.setState({ createCategoryFilter: e.target.value })}
                                                         disabled={productsLoading}
                                                         style={{
-                                                            fontSize: '0.9rem',
+                                                            fontSize: '0.85rem',
                                                             borderRadius: '6px',
                                                             border: '1px solid #dee2e6',
+                                                            height: '32px',
                                                         }}
                                                     >
                                                         <option value="">All Products</option>
@@ -2188,25 +2176,26 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     </select>
                                                 </div>
 
-                                                <div className="row g-2 align-items-end mb-3">
-                                                    <div className="col-12 col-md-7">
-                                                        <label className="form-label small fw-semibold mb-1">{langCtx.getText('product')}</label>
+                                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+                                                    <div style={{ flex: 1, minWidth: '200px' }}>
+                                                        <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.8rem' }}>{langCtx.getText('product')}</label>
                                                         <input
                                                             type="text"
-                                                            className="form-control"
+                                                            className="form-control form-control-sm"
                                                             placeholder={langCtx.getText('searchProduct')}
                                                             value={createProductSearch || ''}
                                                             onChange={(e) => this.setState({ createProductSearch: e.target.value })}
                                                             disabled={productsLoading}
-                                                            style={{ marginBottom: '0.5rem' }}
+                                                            style={{ fontSize: '0.85rem', height: '32px' }}
                                                         />
                                                         <div
                                                             style={{
                                                                 border: '1px solid #dee2e6',
                                                                 borderRadius: '6px',
-                                                                maxHeight: '200px',
+                                                                maxHeight: '150px',
                                                                 overflowY: 'auto',
                                                                 background: '#fff',
+                                                                marginTop: '0.3rem',
                                                             }}
                                                         >
                                                             {Array.isArray(products) && products.length > 0 ? (
@@ -2257,48 +2246,86 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             )}
                                                         </div>
                                                         {createAddProductId && (
-                                                            <small style={{ display: 'block', marginTop: '0.5rem', color: '#2E7D32', fontWeight: 600 }}>
-                                                                ✓ {products.find(p => (p.id ?? p._id) === createAddProductId)?.name} selected
-                                                            </small>
+                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.4rem', padding: '0.5rem', background: '#e7f5ff', borderRadius: '4px', gap: '0.5rem' }}>
+                                                                <small style={{ color: '#2E7D32', fontWeight: 600, margin: 0 }}>
+                                                                    ✓ {products.find(p => (p.id ?? p._id) === createAddProductId)?.name} selected
+                                                                </small>
+                                                                <button
+                                                                    onClick={this.handleUnSelectCreateProduct}
+                                                                    type="button"
+                                                                    title="Remove selection"
+                                                                    style={{
+                                                                        background: '#dc3545',
+                                                                        color: 'white',
+                                                                        border: 'none',
+                                                                        borderRadius: '4px',
+                                                                        width: '24px',
+                                                                        height: '24px',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        cursor: 'pointer',
+                                                                        fontWeight: 'bold',
+                                                                        fontSize: '14px',
+                                                                        padding: 0,
+                                                                        flexShrink: 0,
+                                                                        transition: 'all 0.2s'
+                                                                    }}
+                                                                    onMouseEnter={(e) => e.target.style.background = '#bb2d3b'}
+                                                                    onMouseLeave={(e) => e.target.style.background = '#dc3545'}
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            </div>
                                                         )}
+                                                        {createAddProductId && (() => {
+                                                            const selectedProduct = products.find(p => (p.id ?? p._id) === createAddProductId);
+                                                            const stock = Number(selectedProduct?.stock || 0);
+                                                            const alreadyInCreate = createItems.find(i => i.productId === createAddProductId)?.quantity || 0;
+                                                            const available = Math.max(0, stock - alreadyInCreate);
+                                                            return (
+                                                                <small style={{ display: 'block', marginTop: '0.4rem', color: '#6c757d', fontSize: '0.75rem' }}>
+                                                                    📦 {available} available ({alreadyInCreate} already added)
+                                                                </small>
+                                                            );
+                                                        })()}
                                                     </div>
-                                                    <div className="col-6 col-md-3">
-                                                        <label className="form-label small fw-semibold mb-1">{langCtx.getText('quantity')}</label>
+                                                    <div style={{ minWidth: '100px', flex: 0.5 }}>
+                                                        <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.8rem' }}>{langCtx.getText('quantity')}</label>
                                                         <input
                                                             type="text"
                                                             inputMode="numeric"
                                                             pattern="[0-9]*"
-                                                            className={`form-control ${this.state.createAddQtyError ? 'is-invalid' : ''}`}
+                                                            className={`form-control form-control-sm ${this.state.createAddQtyError ? 'is-invalid' : ''}`}
                                                             value={createAddQty}
                                                             onChange={this.onCreateAddQtyChange}
+                                                            style={{ fontSize: '0.85rem', height: '32px' }}
                                                         />
                                                         {this.state.createAddQtyError && (
-                                                            <div className="invalid-feedback">{this.state.createAddQtyError}</div>
+                                                            <div className="invalid-feedback" style={{ fontSize: '0.7rem', display: 'block', marginTop: '0.2rem' }}>{this.state.createAddQtyError}</div>
                                                         )}
                                                     </div>
-                                                    <div className="col-6 col-md-2 d-grid">
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn-primary btn-sm"
-                                                            onClick={this.addItemToCreate}
-                                                            disabled={productsLoading}
-                                                            style={{ fontWeight: '700' }}
-                                                        >
-                                                            {langCtx.getText('add')}
-                                                        </button>
-                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary btn-sm"
+                                                        onClick={this.addItemToCreate}
+                                                        disabled={productsLoading}
+                                                        style={{ fontWeight: '700', height: '32px', padding: '0 0.6rem', fontSize: '0.85rem', flexShrink: 0 }}
+                                                    >
+                                                        {langCtx.getText('add')}
+                                                    </button>
                                                 </div>
 
-                                                <div style={{ border: '1px solid #e9ecef', borderRadius: '8px', overflow: 'hidden' }}>
-                                                    <table className="table table-hover table-sm mb-0">
-                                                        <thead style={{ background: '#f8f9fa' }}>
-                                                            <tr>
-                                                                <th className="text-center" style={{ width: '44px' }}>✓</th>
-                                                                <th>{langCtx.getText('productName')}</th>
-                                                                <th className="text-center" style={{ width: '90px' }}>{langCtx.getText('price')}</th>
-                                                                <th className="text-center" style={{ width: '120px' }}>{langCtx.getText('quantity')}</th>
-                                                                <th className="text-end" style={{ width: '110px' }}>{langCtx.getText('total')}</th>
-                                                                <th className="text-center" style={{ width: '90px' }}>{langCtx.getText('remove')}</th>
+                                                <div style={{ border: '1px solid #e9ecef', borderRadius: '8px', overflow: 'hidden', maxHeight: '320px', overflowY: 'auto' }}>
+                                                    <table className="table table-hover table-sm mb-0" style={{ marginBottom: 0 }}>
+                                                        <thead style={{ background: '#f8f9fa', position: 'sticky', top: 0, zIndex: 10 }}>
+                                                            <tr style={{ fontSize: '0.8rem' }}>
+                                                                <th className="text-center" style={{ width: '44px', padding: '0.35rem' }}>✓</th>
+                                                                <th style={{ padding: '0.35rem' }}>{langCtx.getText('productName')}</th>
+                                                                <th className="text-center" style={{ width: '80px', padding: '0.35rem' }}>{langCtx.getText('price')}</th>
+                                                                <th className="text-center" style={{ width: '100px', padding: '0.35rem' }}>{langCtx.getText('quantity')}</th>
+                                                                <th className="text-end" style={{ width: '90px', padding: '0.35rem' }}>{langCtx.getText('total')}</th>
+                                                                <th className="text-center" style={{ width: '80px', padding: '0.35rem' }}>{langCtx.getText('remove')}</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -2314,12 +2341,9 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 return (
                                                                     <tr
                                                                         key={item.productId}
-                                                                        style={{ 
-                                                                            background: checked ? 'rgba(67,160,71,0.06)' : (item.isOCR ? 'rgba(33, 150, 243, 0.04)' : 'white'),
-                                                                            borderLeft: item.isOCR ? '4px solid #2196F3' : 'none',
-                                                                        }}
+                                                                        style={{ background: checked ? 'rgba(67,160,71,0.06)' : 'white', fontSize: '0.85rem' }}
                                                                     >
-                                                                        <td className="text-center">
+                                                                        <td className="text-center" style={{ padding: '0.35rem' }}>
                                                                             <input
                                                                                 type="checkbox"
                                                                                 className="form-check-input m-0"
@@ -2328,89 +2352,50 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                 style={{ accentColor: '#2E7D32' }}
                                                                             />
                                                                         </td>
-                                                                        <td style={{ fontWeight: checked ? 600 : 400 }}>
-                                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                                                <span>{item.name || langCtx.getText('productNameMissing')}</span>
-                                                                                {item.isOCR && (
-                                                                                    <span style={{
-                                                                                        display: 'inline-block',
-                                                                                        background: '#2196F3',
-                                                                                        color: 'white',
-                                                                                        fontSize: '0.65rem',
-                                                                                        fontWeight: '700',
-                                                                                        padding: '0.2rem 0.45rem',
-                                                                                        borderRadius: '12px',
-                                                                                        textTransform: 'uppercase',
-                                                                                        letterSpacing: '0.4px',
-                                                                                    }}>
-                                                                                        📸 OCR
-                                                                                    </span>
-                                                                                )}
-                                                                                {item.isUnknown && (
-                                                                                    <span title="Price not found - please verify" style={{
-                                                                                        display: 'inline-block',
-                                                                                        fontSize: '1rem',
-                                                                                        cursor: 'help',
-                                                                                    }}>
-                                                                                        ⚠️
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
+                                                                        <td style={{ fontWeight: checked ? 600 : 400, padding: '0.35rem' }}>{item.name || langCtx.getText('productNameMissing')}</td>
+                                                                        <td className="text-center" style={{ padding: '0.35rem' }}>₹{item.price}</td>
+                                                                        <td className="text-center" style={{ padding: '0.35rem' }}>
+                                                                            <QuantityControl
+                                                                                value={item.quantity || 0}
+                                                                                onIncrease={() => {
+                                                                                    const unit = item.unit || 'piece';
+                                                                                    const stock = Number(item.stock || 0);
+                                                                                    const next = getNextQuantity(item.quantity, { unit, stock });
+                                                                                    const updated = createItems.map(i =>
+                                                                                      i.productId === item.productId
+                                                                                        ? { ...i, quantity: next, total: (Number(i.price || 0) || 0) * next }
+                                                                                        : i
+                                                                                    );
+                                                                                    this.setState({ createItems: updated });
+                                                                                }}
+                                                                                onDecrease={() => {
+                                                                                    const unit = item.unit || 'piece';
+                                                                                    const prev = getPreviousQuantity(item.quantity, { unit });
+                                                                                    const updated = createItems.map(i =>
+                                                                                      i.productId === item.productId
+                                                                                        ? { ...i, quantity: prev, total: (Number(i.price || 0) || 0) * prev }
+                                                                                        : i
+                                                                                    );
+                                                                                    this.setState({ createItems: updated });
+                                                                                }}
+                                                                                onChange={(newQty) => {
+                                                                                    this.updateCreateItemQuantityValidated(item.productId, newQty);
+                                                                                }}
+                                                                                unit={item.unit || 'piece'}
+                                                                                stock={Number(item.stock || 0)}
+                                                                                title="Adjust quantity"
+                                                                                showStockWarning={item.stock !== undefined}
+                                                                            />
                                                                         </td>
-                                                                        <td className="text-center">
-                                                                            {item.isOCR || item.isCustom ? (
-                                                                                <input
-                                                                                    type="number"
-                                                                                    min="0"
-                                                                                    step="0.01"
-                                                                                    value={item.price || 0}
-                                                                                    onChange={(e) => this.updateCreateItemPrice(item.productId, e.target.value)}
-                                                                                    style={{
-                                                                                        width: '70px',
-                                                                                        padding: '4px',
-                                                                                        border: '1px solid #ccc',
-                                                                                        borderRadius: '4px',
-                                                                                        textAlign: 'center'
-                                                                                    }}
-                                                                                    placeholder="₹"
-                                                                                />
-                                                                            ) : (
-                                                                                `₹${item.price}`
-                                                                            )}
-                                                                        </td>
-                                                                        <td className="text-center">
-                                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                                                                                <QtyControl>
-                                                                                    <button
-                                                                                        className="qty-btn"
-                                                                                        onClick={() => this.updateCreateQuantity(item.productId, -1)}
-                                                                                        disabled={(Number(item.quantity || 0) || 0) <= 0}
-                                                                                    >
-                                                                                        −
-                                                                                    </button>
-                                                                                    <span className="qty-value">{item.quantity}</span>
-                                                                                    <button
-                                                                                        className="qty-btn"
-                                                                                        onClick={() => this.updateCreateQuantity(item.productId, +1)}
-                                                                                    >
-                                                                                        +
-                                                                                    </button>
-                                                                                </QtyControl>
-                                                                                {(item.isOCR || item.isCustom) && item.unit && (
-                                                                                    <span style={{ fontSize: '0.85rem', color: '#666', minWidth: '35px' }}>
-                                                                                        {item.unit}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                        </td>
-                                                                        <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
+                                                                        <td className="text-end fw-bold" style={{ color: '#2E7D32', padding: '0.35rem' }}>
                                                                             ₹{(Number(item.total) || 0).toFixed(2)}
                                                                         </td>
-                                                                        <td className="text-center">
+                                                                        <td className="text-center" style={{ padding: '0.35rem' }}>
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn btn-outline-danger btn-sm"
                                                                                 onClick={() => this.removeCreateItem(item.productId)}
+                                                                                style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
                                                                             >
                                                                                 ✕
                                                                             </button>
@@ -2428,37 +2413,37 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 style={{
                                                     background: '#f8f9fa',
                                                     borderRadius: '8px',
-                                                    padding: '0.9rem 1rem',
+                                                    padding: '0.6rem 0.8rem',
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
                                                 <SectionTitle>{langCtx.getText('step3TotalCalculation')}</SectionTitle>
-                                                <div className="d-flex flex-column gap-2">
-                                                    <TotalBar style={{ marginBottom: 0 }}>
-                                                        <span className="total-label">✓ {langCtx.getText('selectedTotal')}</span>
-                                                        <span className="total-value">₹{(Number(createSelectedTotal) || 0).toFixed(2)}</span>
+                                                <div className="d-flex flex-column gap-1">
+                                                    <TotalBar style={{ marginBottom: 0, padding: '0.5rem 0.6rem' }}>
+                                                        <span className="total-label" style={{ fontSize: '0.85rem' }}>✓ {langCtx.getText('selectedTotal')}</span>
+                                                        <span className="total-value" style={{ fontSize: '0.95rem' }}>₹{(Number(createSelectedTotal) || 0).toFixed(2)}</span>
                                                     </TotalBar>
-                                                    <div className="d-flex justify-content-between align-items-center px-2">
-                                                        <span className="text-muted fw-semibold" style={{ fontSize: '0.9rem' }}>
+                                                    <div className="d-flex justify-content-between align-items-center px-2" style={{ gap: '0.5rem' }}>
+                                                        <span className="text-muted fw-semibold" style={{ fontSize: '0.8rem' }}>
                                                             {langCtx.getText('grandTotalAllItems')}
                                                         </span>
-                                                        <span className="fw-bold" style={{ color: '#2E7D32', fontSize: '1.05rem' }}>
+                                                        <span className="fw-bold" style={{ color: '#2E7D32', fontSize: '1rem' }}>
                                                             ₹{(Number(createGrandTotal) || 0).toFixed(2)}
                                                         </span>
                                                     </div>
-                                                    <small className="text-muted" style={{ fontSize: '0.78rem' }}>
+                                                    <small className="text-muted" style={{ fontSize: '0.7rem', lineHeight: '1.3' }}>
                                                         {langCtx.getText('onlyCheckedItemsBilled')}
                                                     </small>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div className="modal-footer" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+                                        <div className="modal-footer" style={{ flexWrap: 'wrap', gap: '0.4rem', padding: '0.6rem 1rem' }}>
                                             <button
                                                 className="btn btn-outline-secondary btn-sm"
                                                 onClick={this.closeCreateModal}
                                                 disabled={actionLoading}
-                                                style={{ fontSize: '0.82rem', fontWeight: '600' }}
+                                                style={{ fontSize: '0.8rem', fontWeight: '600', padding: '0.35rem 0.6rem' }}
                                             >
                                                 {langCtx.getText('close')}
                                             </button>
@@ -2466,7 +2451,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 className="btn btn-success btn-sm"
                                                 onClick={this.saveOfflineOrder}
                                                 disabled={actionLoading}
-                                                style={{ fontSize: '0.82rem', fontWeight: '700' }}
+                                                style={{ fontSize: '0.8rem', fontWeight: '700', padding: '0.35rem 0.8rem' }}
                                             >
                                                 {actionLoading ? langCtx.getText('saving') : langCtx.getText('saveOrder')}
                                             </button>
@@ -2528,16 +2513,16 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 style={{
                                                     background: '#f8f9fa',
                                                     borderRadius: '8px',
-                                                    padding: '0.9rem 1rem',
-                                                    marginBottom: '1rem',
+                                                    padding: '0.6rem 0.8rem',
+                                                    marginBottom: '0.8rem',
                                                     border: '1px solid #e9ecef',
                                                 }}
                                             >
                                                 <SectionTitle>{langCtx.getText('customerDetails')}</SectionTitle>
-                                                <div className="row g-3 g-lg-4">
+                                                <div className="row g-2 g-md-3">
                                                     <div className="col-12 col-md-6 col-lg-4">
-                                                        <div className="d-flex justify-content-between py-2" style={{ fontSize: '0.9rem', flexDirection: 'column' }}>
-                                                            <span className="text-muted mb-1">👤 {langCtx.getText('name')}</span>
+                                                        <div className="d-flex justify-content-between py-1" style={{ fontSize: '0.8rem', flexDirection: 'column' }}>
+                                                            <span className="text-muted mb-1" style={{ fontSize: '0.75rem' }}>👤 {langCtx.getText('name')}</span>
                                                             <span className="fw-semibold">{selectedOrder.customerName}</span>
                                                         </div>
                                                     </div>
@@ -2582,25 +2567,26 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     style={{
                                                         background: '#f8f9fa',
                                                         borderRadius: '8px',
-                                                        padding: '0.9rem 1rem',
-                                                        marginBottom: '1rem',
+                                                        padding: '0.6rem 0.8rem',
+                                                        marginBottom: '0.8rem',
                                                         border: '1px solid #e9ecef',
                                                     }}
                                                 >
                                                     <SectionTitle>{langCtx.getText('addProductToOrder')}</SectionTitle>
                                                     
                                                     {/* Category Filter */}
-                                                    <div className="mb-3">
-                                                        <label className="form-label small fw-semibold mb-1">Category Filter</label>
+                                                    <div className="mb-2">
+                                                        <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.8rem' }}>Category Filter</label>
                                                         <select
                                                             className="form-select form-select-sm"
                                                             value={addCategoryFilter || ''}
                                                             onChange={(e) => this.setState({ addCategoryFilter: e.target.value })}
                                                             disabled={actionLoading || productsLoading}
                                                             style={{
-                                                                fontSize: '0.9rem',
+                                                                fontSize: '0.85rem',
                                                                 borderRadius: '6px',
                                                                 border: '1px solid #dee2e6',
+                                                                height: '32px',
                                                             }}
                                                         >
                                                             <option value="">All Products</option>
@@ -2683,34 +2669,72 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 )}
                                                             </div>
                                                             {addProductId && (
-                                                                <small style={{ display: 'block', marginTop: '0.5rem', color: '#2E7D32', fontWeight: 600 }}>
-                                                                    ✓ {products.find(p => (p.id ?? p._id) === addProductId)?.name} selected
-                                                                </small>
+                                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.4rem', padding: '0.5rem', background: '#e7f5ff', borderRadius: '4px', gap: '0.5rem' }}>
+                                                                    <small style={{ color: '#2E7D32', fontWeight: 600, margin: 0 }}>
+                                                                        ✓ {products.find(p => (p.id ?? p._id) === addProductId)?.name} selected
+                                                                    </small>
+                                                                    <button
+                                                                        onClick={this.handleUnSelectEditProduct}
+                                                                        type="button"
+                                                                        title="Remove selection"
+                                                                        style={{
+                                                                            background: '#dc3545',
+                                                                            color: 'white',
+                                                                            border: 'none',
+                                                                            borderRadius: '4px',
+                                                                            width: '24px',
+                                                                            height: '24px',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            cursor: 'pointer',
+                                                                            fontWeight: 'bold',
+                                                                            fontSize: '14px',
+                                                                            padding: 0,
+                                                                            flexShrink: 0,
+                                                                            transition: 'all 0.2s'
+                                                                        }}
+                                                                        onMouseEnter={(e) => e.target.style.background = '#bb2d3b'}
+                                                                        onMouseLeave={(e) => e.target.style.background = '#dc3545'}
+                                                                    >
+                                                                        ✕
+                                                                    </button>
+                                                                </div>
                                                             )}
-                                                        </div>
-                                                        <div className="col-6 col-md-3">
-                                                            <label className="form-label small fw-semibold mb-1">{langCtx.getText('quantity')}</label>
-                                                            <input
-                                                                type="number"
-                                                                className="form-control"
-                                                                min="1"
-                                                                value={addProductQty}
-                                                                onChange={this.onChangeAddProductQty}
-                                                                disabled={actionLoading}
-                                                            />
-                                                        </div>
-                                                        <div className="col-6 col-md-2 d-grid">
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-primary btn-sm"
-                                                                onClick={this.handleAddProductToOrder}
-                                                                disabled={actionLoading || productsLoading}
-                                                                style={{ fontWeight: '700' }}
-                                                            >
-                                                                {langCtx.getText('add')}
-                                                            </button>
-                                                        </div>
+                                                            {addProductId && (() => {
+                                                                const selectedProduct = products.find(p => (p.id ?? p._id) === addProductId);
+                                                                const stock = Number(selectedProduct?.stock || 0);
+                                                                const alreadyInEdit = modalItems.find(i => i.productId === addProductId)?.quantity || 0;
+                                                                const available = Math.max(0, stock - alreadyInEdit);
+                                                                return (
+                                                                    <small style={{ display: 'block', marginTop: '0.4rem', color: '#6c757d', fontSize: '0.75rem' }}>
+                                                                        📦 {available} available ({alreadyInEdit} already added)
+                                                                    </small>
+                                                                );
+                                                            })()}
                                                     </div>
+                                                    <div style={{ minWidth: '100px', flex: 0.5 }}>
+                                                        <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.8rem' }}>{langCtx.getText('quantity')}</label>
+                                                        <input
+                                                            type="number"
+                                                            className="form-control form-control-sm"
+                                                            min="1"
+                                                            value={addProductQty}
+                                                            onChange={this.onChangeAddProductQty}
+                                                            disabled={actionLoading}
+                                                            style={{ fontSize: '0.85rem', height: '32px' }}
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary btn-sm"
+                                                        onClick={this.handleAddProductToOrder}
+                                                        disabled={actionLoading || productsLoading}
+                                                        style={{ fontWeight: '700', height: '32px', padding: '0 0.6rem', fontSize: '0.85rem', flexShrink: 0 }}
+                                                    >
+                                                        {langCtx.getText('add')}
+                                                    </button>
+                                                </div>
                                                 </div>
                                             )}
 
@@ -2741,17 +2765,19 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     borderRadius: '8px',
                                                     overflow: 'hidden',
                                                     opacity: isLocked ? 0.82 : 1,
+                                                    maxHeight: '360px',
+                                                    overflowY: 'auto',
                                                 }}
                                             >
                                                 <table className="table table-hover table-sm mb-0">
-                                                    <thead style={{ background: '#f8f9fa' }}>
-                                                        <tr>
-                                                            <th className="text-center" style={{ width: 'clamp(30px, 6vw, 44px)' }}>✓</th>
-                                                            <th style={{ minWidth: 'clamp(80px, 25vw, 150px)' }}>{langCtx.getText('productName')}</th>
-                                                            <th className="text-center" style={{ width: 'clamp(60px, 15vw, 110px)' }}>{langCtx.getText('quantity')}</th>
-                                                            <th className="text-center" style={{ width: 'clamp(50px, 12vw, 80px)' }}>{langCtx.getText('price')}</th>
-                                                            <th className="text-end" style={{ width: 'clamp(60px, 15vw, 100px)' }}>{langCtx.getText('total')}</th>
-                                                            <th className="text-center" style={{ width: 'clamp(50px, 12vw, 80px)' }}>{langCtx.getText('remove')}</th>
+                                                    <thead style={{ background: '#f8f9fa', position: 'sticky', top: 0, zIndex: 10 }}>
+                                                        <tr style={{ fontSize: '0.8rem' }}>
+                                                            <th className="text-center" style={{ width: '44px', padding: '0.35rem' }}>✓</th>
+                                                            <th style={{ minWidth: '120px', padding: '0.35rem' }}>{langCtx.getText('productName')}</th>
+                                                            <th className="text-center" style={{ width: '90px', padding: '0.35rem' }}>{langCtx.getText('quantity')}</th>
+                                                            <th className="text-center" style={{ width: '70px', padding: '0.35rem' }}>{langCtx.getText('price')}</th>
+                                                            <th className="text-end" style={{ width: '80px', padding: '0.35rem' }}>{langCtx.getText('total')}</th>
+                                                            <th className="text-center" style={{ width: '70px', padding: '0.35rem' }}>{langCtx.getText('remove')}</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -2760,9 +2786,9 @@ class AdminOfflineOrdersPage extends React.Component {
                                                             return (
                                                                 <tr
                                                                     key={item.productId}
-                                                                    style={{ background: checked ? 'rgba(67,160,71,0.06)' : 'white' }}
+                                                                    style={{ background: checked ? 'rgba(67,160,71,0.06)' : 'white', fontSize: '0.85rem' }}
                                                                 >
-                                                                    <td className="text-center">
+                                                                    <td className="text-center" style={{ padding: '0.35rem' }}>
                                                                         <input
                                                                             type="checkbox"
                                                                             className="form-check-input m-0"
@@ -2775,36 +2801,52 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             }}
                                                                         />
                                                                     </td>
-                                                                    <td style={{ fontWeight: checked ? 600 : 400 }}>{item.name || langCtx.getText('productNameMissing')}</td>
-                                                                    <td className="text-center">
-                                                                        <QtyControl>
-                                                                            <button
-                                                                                className="qty-btn"
-                                                                                onClick={() => this.updateItemQuantity(item.productId, -1)}
-                                                                                disabled={isLocked || (Number(item.quantity || 0) || 0) <= 0}
-                                                                            >
-                                                                                −
-                                                                            </button>
-                                                                            <span className="qty-value">{item.quantity}</span>
-                                                                            <button
-                                                                                className="qty-btn"
-                                                                                onClick={() => this.updateItemQuantity(item.productId, +1)}
-                                                                                disabled={isLocked}
-                                                                            >
-                                                                                +
-                                                                            </button>
-                                                                        </QtyControl>
+                                                                    <td style={{ fontWeight: checked ? 600 : 400, padding: '0.35rem' }}>{item.name || langCtx.getText('productNameMissing')}</td>
+                                                                    <td className="text-center" style={{ padding: '0.35rem' }}>
+                                                                        <QuantityControl
+                                                                            value={item.quantity || 0}
+                                                                            onIncrease={() => {
+                                                                                const unit = item.unit || 'piece';
+                                                                                const stock = Number(item.stock || 0);
+                                                                                const next = getNextQuantity(item.quantity, { unit, stock });
+                                                                                const updated = modalItems.map(i =>
+                                                                                  i.productId === item.productId
+                                                                                    ? { ...i, quantity: next, total: (Number(i.price || 0) || 0) * next }
+                                                                                    : i
+                                                                                );
+                                                                                this.setState({ modalItems: updated });
+                                                                            }}
+                                                                            onDecrease={() => {
+                                                                                const unit = item.unit || 'piece';
+                                                                                const prev = getPreviousQuantity(item.quantity, { unit });
+                                                                                const updated = modalItems.map(i =>
+                                                                                  i.productId === item.productId
+                                                                                    ? { ...i, quantity: prev, total: (Number(i.price || 0) || 0) * prev }
+                                                                                    : i
+                                                                                );
+                                                                                this.setState({ modalItems: updated });
+                                                                            }}
+                                                                            onChange={(newQty) => {
+                                                                                this.updateModalItemQuantityValidated(item.productId, newQty);
+                                                                            }}
+                                                                            unit={item.unit || 'piece'}
+                                                                            stock={Number(item.stock || 0)}
+                                                                            disabled={isLocked}
+                                                                            title={isLocked ? 'Order locked' : 'Adjust quantity'}
+                                                                            showStockWarning={item.stock !== undefined}
+                                                                        />
                                                                     </td>
-                                                                    <td className="text-center">₹{item.price}</td>
-                                                                    <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
+                                                                    <td className="text-center" style={{ padding: '0.35rem' }}>₹{item.price}</td>
+                                                                    <td className="text-end fw-bold" style={{ color: '#2E7D32', padding: '0.35rem' }}>
                                                                         ₹{(Number(item.total) || 0).toFixed(2)}
                                                                     </td>
-                                                                    <td className="text-center">
+                                                                    <td className="text-center" style={{ padding: '0.35rem' }}>
                                                                         <button
                                                                             type="button"
                                                                             className="btn btn-outline-danger btn-sm"
                                                                             onClick={() => this.removeModalItem(item.productId)}
                                                                             disabled={isLocked}
+                                                                            style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
                                                                         >
                                                                             ✕
                                                                         </button>
@@ -2994,15 +3036,6 @@ class AdminOfflineOrdersPage extends React.Component {
                                     </ModalContent>
                                 </ModalOverlay>
                             )}
-
-                            {/* Bill Scanner Modal */}
-                            <BillScannerModal
-                                isOpen={this.state.billScannerOpen}
-                                onClose={() => this.setState({ billScannerOpen: false })}
-                                products={this.state.products}
-                                onConfirm={this.handleBillScannerConfirm}
-                                langCtx={langCtx}
-                            />
                         </div>
                     );
                 }}

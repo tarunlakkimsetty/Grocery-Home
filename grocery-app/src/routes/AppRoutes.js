@@ -4,6 +4,7 @@ import ProtectedRoute from './ProtectedRoute';
 import RoleBasedRoute from './RoleBasedRoute';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
+import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ProductsPage from '../pages/ProductsPage';
 import CartPage from '../pages/CartPage';
 import BillHistoryPage from '../pages/BillHistoryPage';
@@ -16,6 +17,8 @@ import AdminOnlineOrdersPage from '../pages/AdminOnlineOrdersPage';
 import AdminOfflineOrdersPage from '../pages/AdminOfflineOrdersPage';
 import AdminCustomerDetailsPage from '../pages/AdminCustomerDetailsPage';
 import AdminCustomerViewPage from '../pages/AdminCustomerViewPage';
+import ListOrdersUploadPage from '../pages/ListOrdersUploadPage';
+import AdminListOrdersPage from '../pages/AdminListOrdersPage';
 import PrivacyPolicyPage from '../pages/PrivacyPolicyPage';
 import TermsConditionsPage from '../pages/TermsConditionsPage';
 import ContactPage from '../pages/ContactPage';
@@ -54,6 +57,7 @@ class AppRoutes extends React.Component {
                 {/* Auth Routes */}
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
                 {/* Protected Routes */}
                 <Route
@@ -88,6 +92,14 @@ class AppRoutes extends React.Component {
                         <ProtectedRoute>
                             <BillDetailsWrapper />
                         </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/upload-grocery-list"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <ListOrdersUploadPage />
+                        </RoleBasedRoute>
                     }
                 />
 
@@ -145,6 +157,14 @@ class AppRoutes extends React.Component {
                     element={
                         <RoleBasedRoute allowedRoles={['admin']}>
                             <AdminOfflineOrdersPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/list-orders"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminListOrdersPage />
                         </RoleBasedRoute>
                     }
                 />

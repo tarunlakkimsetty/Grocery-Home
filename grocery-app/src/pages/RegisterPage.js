@@ -32,6 +32,8 @@ class RegisterPage extends React.Component {
             showPassword: false,
             showConfirmPassword: false,
             place: '',
+            favoriteFood: '',
+            favoritePlace: '',
             agreedToPolicies: false,
             errors: {},
             loading: false,
@@ -41,12 +43,20 @@ class RegisterPage extends React.Component {
 
     validate = () => {
         const errors = {};
-        const { name, phone, password, confirmPassword, place } = this.state;
+        const { name, phone, password, confirmPassword, place, favoriteFood, favoritePlace } = this.state;
 
         errors.name = validators.validateName(name, this.languageContext.getText);
         errors.phone = validators.validatePhone(phone, this.languageContext.getText);
         errors.password = validators.validatePassword(password, this.languageContext.getText);
         errors.place = validators.validatePlace(place, this.languageContext.getText);
+
+        if (!favoriteFood || favoriteFood.trim().length < 2) {
+            errors.favoriteFood = 'Favorite food must be at least 2 characters';
+        }
+
+        if (!favoritePlace || favoritePlace.trim().length < 2) {
+            errors.favoritePlace = 'Favorite place must be at least 2 characters';
+        }
 
         if (!confirmPassword) {
             errors.confirmPassword = this.languageContext.getText('confirmPasswordRequired');
@@ -72,8 +82,8 @@ class RegisterPage extends React.Component {
 
         this.setState({ loading: true });
         try {
-            const { name, phone, password, place } = this.state;
-            await this.context.register({ fullName: name, phone, place, password });
+            const { name, phone, password, place, favoriteFood, favoritePlace } = this.state;
+            await this.context.register({ fullName: name, phone, place, password, favoriteFood, favoritePlace });
             toast.success(this.languageContext.getText('registrationSuccess') + ' 🎉');
         } catch (err) {
             toast.error(err.message || this.languageContext.getText('registrationFailed'));
@@ -89,8 +99,8 @@ class RegisterPage extends React.Component {
         if (field === 'phone') {
             value = value.replace(/\D/g, '').slice(0, 10);
         }
-        // Enforce name and place to alphabets and spaces only
-        if (field === 'name' || field === 'place') {
+        // Enforce name, place, favoriteFood, and favoritePlace to alphabets and spaces only
+        if (['name', 'place', 'favoriteFood', 'favoritePlace'].includes(field)) {
             value = value.replace(/[^a-zA-Z\s]/g, '');
         }
         this.setState({ [field]: value });
@@ -117,6 +127,8 @@ class RegisterPage extends React.Component {
             showPassword,
             showConfirmPassword,
             place,
+            favoriteFood,
+            favoritePlace,
             agreedToPolicies,
             errors,
             loading,
@@ -279,6 +291,38 @@ class RegisterPage extends React.Component {
                                                             {passwordsMismatch && !errors.confirmPassword && (
                                                                 <div className="text-danger mt-1" style={{ fontSize: '0.85rem' }}>
                                                                     ⚠ {langCtx.getText('passwordsDoNotMatch')}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="mb-3">
+                                                            <label className="form-label fw-semibold">🍜 Favorite Food</label>
+                                                            <input
+                                                                type="text"
+                                                                className="form-control rounded-3"
+                                                                placeholder="e.g., Biryani, Pizza, Idli"
+                                                                value={this.state.favoriteFood}
+                                                                onChange={this.handleChange('favoriteFood')}
+                                                            />
+                                                            {errors.favoriteFood && (
+                                                                <div className="text-danger mt-1" style={{ fontSize: '0.85rem' }}>
+                                                                    ⚠ {errors.favoriteFood}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="mb-3">
+                                                            <label className="form-label fw-semibold">📍 Favorite Place</label>
+                                                            <input
+                                                                type="text"
+                                                                className="form-control rounded-3"
+                                                                placeholder="e.g., Beach, Mountains, Home"
+                                                                value={this.state.favoritePlace}
+                                                                onChange={this.handleChange('favoritePlace')}
+                                                            />
+                                                            {errors.favoritePlace && (
+                                                                <div className="text-danger mt-1" style={{ fontSize: '0.85rem' }}>
+                                                                    ⚠ {errors.favoritePlace}
                                                                 </div>
                                                             )}
                                                         </div>

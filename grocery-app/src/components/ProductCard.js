@@ -2,12 +2,17 @@ import React from 'react';
 import AuthContext from '../context/AuthContext';
 import CartContext from '../context/CartContext';
 import LanguageContext from '../context/LanguageContext';
+import QuantityControl from './QuantityControl';
+import { getNextQuantity, getPreviousQuantity, validateQuantity } from '../utils/quantityValidator';
 import { toast } from 'react-toastify';
 import {
     ProductCardWrapper,
     CardImage,
     CardBody,
     CardActions,
+    QuantitySection,
+    ButtonSection,
+    StockBadge,
 } from '../styledComponents/CardStyles';
 import { PrimaryButton, SecondaryButton, WarningButton, DangerButton } from '../styledComponents/ButtonStyles';
 import { ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
@@ -69,22 +74,27 @@ class ProductCard extends React.Component {
 
     handleAddToCart = (cartCtx, langCtx) => {
         const { product } = this.props;
-        const isWeightBased = product?.unit === 'kg';
+        const unit = product?.unit || 'piece';
         
-        // Parse quantity based on unit
-        let qty = isWeightBased ? parseFloat(this.state.quantity) : parseInt(this.state.quantity);
+        // Validate quantity
+        const validation = validateQuantity(this.state.quantity, {
+            unit,
+            stock: product.stock
+        });
         
-        // Validate based on unit
-        const minQty = isWeightBased ? 0.1 : 1;
-        if (qty < minQty || qty > product.stock) {
-            toast.warning(langCtx.getText('quantityInvalid'));
+        if (!validation.isValid) {
+            toast.error(validation.message);
             return;
         }
         
+        const qty = validation.correctedValue;
         cartCtx.addToCart(product, qty);
         const translatedName = langCtx.getText(product.name) || product.name;
         toast.success(`${translatedName} ${langCtx.getText('addToCart')}🛒`);
-        this.setState({ quantity: isWeightBased ? 0.1 : 1 });
+        
+        // Reset quantity to minimum
+        const minQty = unit === 'kg' ? 0.1 : 1;
+        this.setState({ quantity: minQty });
     };
 
     handleSaveEdit = (langCtx) => {
@@ -149,7 +159,7 @@ class ProductCard extends React.Component {
                                 </CardBody>
                                 <CardActions>
                                     {isAdmin ? (
-                                        <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                                        <ButtonSection $adminMode={true}>
                                             <WarningButton
                                                 onClick={() =>
                                                     this.setState({
@@ -160,43 +170,73 @@ class ProductCard extends React.Component {
                                                         editErrors: {},
                                                     })
                                                 }
-                                                style={{ flex: 1 }}
                                             >
                                                 ✏️ {langCtx.getText('edit')}
                                             </WarningButton>
                                             <DangerButton
                                                 onClick={() => this.handleDeleteProduct(langCtx)}
-                                                style={{ flex: 1 }}
                                             >
                                                 🗑️ {langCtx.getText('delete')}
                                             </DangerButton>
-                                        </div>
+                                        </ButtonSection>
                                     ) : (
                                         <>
-                                            {(() => {
-                                                const isWeightBased = product?.unit === 'kg';
-                                                return (
-                                                    <input
-                                                        type="number"
-                                                        className="qty-input"
-                                                        min={isWeightBased ? "0.1" : "1"}
-                                                        step={isWeightBased ? "0.1" : "1"}
-                                                        max={product.stock}
-                                                        value={this.state.quantity}
-                                                        onChange={(e) => this.setState({ quantity: e.target.value })}
-                                                        disabled={product.stock <= 0}
-                                                    />
-                                                );
-                                            })()}
                                             <CartContext.Consumer>
-                                                {(cartCtx) => (
-                                                    <PrimaryButton
-                                                        onClick={() => this.handleAddToCart(cartCtx, langCtx)}
-                                                        disabled={product.stock <= 0}
-                                                    >
-                                                        🛒 {langCtx.getText('addToCart')}
-                                                    </PrimaryButton>
-                                                )}
+                                                {(cartCtx) => {
+                                                    const unit = product?.unit || 'piece';
+                                                    // CRITICAL: Calculate available = stock - alreadyInCart
+                                                    const alreadyInCart = (cartCtx.cart || []).find(item => item.productId === product.id)?.quantity || 0;
+                                                    const available = Math.max(0, product.stock - alreadyInCart);
+                                                    const isOutOfStock = available <= 0;
+                                                    const stockStatus = isOutOfStock ? 'outOfStock' : available <= 3 ? 'lowStock' : 'available';
+
+                                                    // Debug logging
+                                                    console.log({ productId: product.id, stock: product.stock, alreadyInCart, available });
+
+                                                    return (
+                                                        <>
+                                                            {/* Quantity Section */}
+                                                            <QuantitySection>
+                                                                <label>Qty: {unit}</label>
+                                                                <QuantityControl
+                                                                    value={this.state.quantity}
+                                                                    onIncrease={() => {
+                                                                        const next = getNextQuantity(this.state.quantity, { unit, stock: available });
+                                                                        this.setState({ quantity: next });
+                                                                    }}
+                                                                    onDecrease={() => {
+                                                                        const prev = getPreviousQuantity(this.state.quantity, { unit });
+                                                                        this.setState({ quantity: prev });
+                                                                    }}
+                                                                    onChange={(value) => this.setState({ quantity: value })}
+                                                                    unit={unit}
+                                                                    stock={available}
+                                                                    disabled={isOutOfStock}
+                                                                    title={unit === 'kg' ? 'Adjust weight (kg)' : 'Adjust quantity'}
+                                                                    showStockWarning={true}
+                                                                />
+                                                            </QuantitySection>
+
+                                                            {/* Button Section */}
+                                                            <ButtonSection $adminMode={false}>
+                                                                <PrimaryButton
+                                                                    onClick={() => this.handleAddToCart(cartCtx, langCtx)}
+                                                                    disabled={isOutOfStock}
+                                                                    title={isOutOfStock ? 'Out of stock' : 'Add to cart'}
+                                                                >
+                                                                    🛒 {langCtx.getText('addToCart')}
+                                                                </PrimaryButton>
+                                                            </ButtonSection>
+
+                                                            {/* Stock Badge - Show ONLY available quantity */}
+                                                            <StockBadge $status={stockStatus}>
+                                                                {isOutOfStock
+                                                                    ? `❌ ${outOfStockText}`
+                                                                    : `Only ${available} available`}
+                                                            </StockBadge>
+                                                        </>
+                                                    );
+                                                }}
                                             </CartContext.Consumer>
                                         </>
                                     )}

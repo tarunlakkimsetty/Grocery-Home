@@ -4,6 +4,7 @@ import AuthContext from '../context/AuthContext';
 import LanguageContext from '../context/LanguageContext';
 import billService from '../services/billService';
 import orderService from '../services/orderService';
+import listOrderService from '../services/listOrderService';
 import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
@@ -50,12 +51,14 @@ class BillHistoryPage extends React.Component {
             bills: [],
             orders: [],
             offlineOrders: [],
+            listOrders: [],
             loading: true,
             error: null,
             currentPage: 1,
             redirectTo: null,
             activeTab: 'bills',
             offlineOrdersLoaded: false,
+            listOrdersLoaded: false,
             // Customer Order Details Modal
             orderModalOpen: false,
             selectedOrder: null,
@@ -73,11 +76,11 @@ class BillHistoryPage extends React.Component {
             const { user } = this.context;
             const userId = user ? user.id : 2;
 
-            const [billsResult, ordersResult, offlineResult] = await Promise.allSettled([
+            const [billsResult, ordersResult, offlineResult, listOrdersResult] = await Promise.allSettled([
                 billService.getBillHistory(userId),
                 orderService.getCustomerOrders(userId),
-                // Offline bills/orders: prefetch for accurate count on first render
                 orderService.getUserOfflineOrders(),
+                listOrderService.getCustomerUploads(),
             ]);
 
             if (billsResult.status === 'rejected' || ordersResult.status === 'rejected') {
@@ -103,7 +106,15 @@ class BillHistoryPage extends React.Component {
                     : (resp?.data || resp?.orders || []);
             }
 
-            this.setState({ bills, orders, offlineOrders, offlineOrdersLoaded: true, loading: false });
+            let listOrders = [];
+            if (listOrdersResult.status === 'fulfilled') {
+                const resp = listOrdersResult.value;
+                listOrders = Array.isArray(resp)
+                    ? resp
+                    : (resp?.data || resp?.orders || []);
+            }
+
+            this.setState({ bills, orders, offlineOrders, listOrders, offlineOrdersLoaded: true, listOrdersLoaded: true, loading: false });
         } catch (err) {
             this.setState({ error: t('failedToLoadHistory'), loading: false });
             toast.error(t('failedToLoadHistory'));
@@ -127,7 +138,29 @@ class BillHistoryPage extends React.Component {
             if (tab === 'offlineOrders' && !this.state.offlineOrdersLoaded) {
                 this.fetchOfflineOrders();
             }
+            if (tab === 'listOrders' && !this.state.listOrdersLoaded) {
+                this.fetchListOrders();
+            }
         });
+    };
+
+    fetchListOrders = async () => {
+        try {
+            const resp = await listOrderService.getCustomerUploads();
+            // Handle both nested and direct array responses
+            let listOrders = [];
+            if (resp?.data) {
+                listOrders = Array.isArray(resp.data) ? resp.data : [resp.data];
+            } else if (Array.isArray(resp)) {
+                listOrders = resp;
+            } else if (resp?.success && resp?.data) {
+                listOrders = Array.isArray(resp.data) ? resp.data : [];
+            }
+            this.setState({ listOrders, listOrdersLoaded: true });
+        } catch (err) {
+            console.error('Failed to fetch list orders:', err);
+            this.setState({ listOrders: [], listOrdersLoaded: true });
+        }
     };
 
     openOrderModal = async (order) => {
@@ -228,11 +261,13 @@ class BillHistoryPage extends React.Component {
             bills,
             orders,
             offlineOrders,
+            listOrders,
             loading,
             error,
             currentPage,
             activeTab,
             offlineOrdersLoaded,
+            listOrdersLoaded,
             orderModalOpen,
             selectedOrder,
             orderModalLoading,
@@ -242,12 +277,13 @@ class BillHistoryPage extends React.Component {
         const safeBills = Array.isArray(bills) ? bills : [];
         const safeOrders = Array.isArray(orders) ? orders : [];
         const safeOfflineOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
+        const safeListOrders = Array.isArray(listOrders) ? listOrders : [];
         const activeList = activeTab === 'bills'
             ? safeBills
-            : (activeTab === 'offlineOrders' ? safeOfflineOrders : safeOrders);
-        const totalPages = Math.ceil(activeList.length / ITEMS_PER_PAGE);
+            : (activeTab === 'offlineOrders' ? safeOfflineOrders : (activeTab === 'listOrders' ? safeListOrders : safeOrders));
+        const totalPages = Math.ceil((activeList && activeList.length) ? activeList.length / ITEMS_PER_PAGE : 0);
         const startIdx = (currentPage - 1) * ITEMS_PER_PAGE;
-        const visibleItems = activeList.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+        const visibleItems = (activeList && Array.isArray(activeList)) ? activeList.slice(startIdx, startIdx + ITEMS_PER_PAGE) : [];
 
         return (
             <LanguageContext.Consumer>
@@ -255,7 +291,7 @@ class BillHistoryPage extends React.Component {
                     <div>
                         <PageHeader>
                             <h1>📋 {langCtx.getText('purchaseHistory')}</h1>
-                            <p>{safeBills.length + safeOrders.length + safeOfflineOrders.length} {langCtx.getText('items')} total transactions</p>
+                            <p>{safeBills.length + safeOrders.length + safeOfflineOrders.length + safeListOrders.length} {langCtx.getText('items')} total transactions</p>
                         </PageHeader>
 
                         {loading && <Spinner fullPage text={langCtx.getText('loadingHistory')} />}
@@ -287,6 +323,14 @@ class BillHistoryPage extends React.Component {
                                             onClick={() => this.setActiveTab('offlineOrders')}
                                         >
                                             🧾 {langCtx.getText('offlineOrders')} ({safeOfflineOrders.length})
+                                        </button>
+                                    </li>
+                                    <li className="nav-item">
+                                        <button
+                                            className={'nav-link' + (activeTab === 'listOrders' ? ' active fw-bold' : '')}
+                                            onClick={() => this.setActiveTab('listOrders')}
+                                        >
+                                            📸 List Orders ({safeListOrders.length})
                                         </button>
                                     </li>
                                 </ul>
@@ -665,6 +709,136 @@ class BillHistoryPage extends React.Component {
                                     </MobileHistoryWrapper>
                                 )}
 
+                                {/* List Orders Tab - Empty State */}
+                                {activeTab === 'listOrders' && !listOrdersLoaded && (
+                                    <EmptyState>
+                                        <div className="empty-icon">📸</div>
+                                        <p>Loading grocery lists...</p>
+                                    </EmptyState>
+                                )}
+
+                                {activeTab === 'listOrders' && listOrdersLoaded && (!safeListOrders || safeListOrders.length === 0) && (
+                                    <EmptyState>
+                                        <div className="empty-icon">📸</div>
+                                        <h3>No Grocery Lists</h3>
+                                        <p>You haven't uploaded any grocery lists yet.</p>
+                                    </EmptyState>
+                                )}
+
+                                {/* List Orders - Desktop View */}
+                                {activeTab === 'listOrders' && safeListOrders && safeListOrders.length > 0 && visibleItems && visibleItems.length > 0 && (
+                                    <DesktopHistoryWrapper>
+                                        <TableWrapper $clickable>
+                                            <table className="table table-hover">
+                                                <thead>
+                                                    <tr>
+                                                        <th>List ID</th>
+                                                        <th>Upload Date</th>
+                                                        <th>Place</th>
+                                                        <th>Images</th>
+                                                        <th>Status</th>
+                                                        <th>Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {visibleItems.map((list) => {
+                                                        if (!list || !list.id) return null;
+                                                        const imageCount = (Array.isArray(list.imagePaths) ? list.imagePaths.length : (list.imagePath ? 1 : 0)) || 1;
+                                                        return (
+                                                        <tr key={list.id}>
+                                                            <td className="fw-bold">#{list.id}</td>
+                                                            <td>{this.formatDate(list.createdAt || list.uploadDate)}</td>
+                                                            <td>{list.place || '-'}</td>
+                                                            <td>
+                                                                <Badge className="badge-info">
+                                                                    {imageCount} {imageCount === 1 ? 'image' : 'images'}
+                                                                </Badge>
+                                                            </td>
+                                                            <td>
+                                                                <HistoryStatusBadge $status={list.status}>
+                                                                    {list.status === 'pending' && '⏳ Pending'}
+                                                                    {list.status === 'converted' && '✅ Converted'}
+                                                                    {list.status === 'completed' && '📦 Completed'}
+                                                                    {!list.status && '⏳ Pending'}
+                                                                </HistoryStatusBadge>
+                                                            </td>
+                                                            <td>
+                                                                <button
+                                                                    className="btn btn-sm btn-outline-primary"
+                                                                    onClick={() => this.openOrderModal(list)}
+                                                                >
+                                                                    View
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </TableWrapper>
+                                    </DesktopHistoryWrapper>
+                                )}
+
+                                {/* List Orders - Mobile View */}
+                                {activeTab === 'listOrders' && safeListOrders && safeListOrders.length > 0 && visibleItems && visibleItems.length > 0 && (
+                                    <MobileHistoryWrapper>
+                                        <div>
+                                            {visibleItems.map((list) => {
+                                                if (!list || !list.id) return null;
+                                                const imageCount = (Array.isArray(list.imagePaths) ? list.imagePaths.length : (list.imagePath ? 1 : 0)) || 1;
+                                                return (
+                                                <HistoryCard key={list.id} onClick={() => this.openOrderModal(list)}>
+                                                    <HistoryCardHeader>
+                                                        <HistoryCardTitle>
+                                                            <div className="order-id">📸 Grocery List #{list.id}</div>
+                                                            <div className="order-date">
+                                                                {this.formatDate(list.createdAt || list.uploadDate)}
+                                                            </div>
+                                                        </HistoryCardTitle>
+                                                    </HistoryCardHeader>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>📍 Place:</HistoryCardLabel>
+                                                        <HistoryCardValue>{list.place || '-'}</HistoryCardValue>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>🖼️ Images:</HistoryCardLabel>
+                                                        <Badge className="badge-info">
+                                                            {imageCount} image(s)
+                                                        </Badge>
+                                                    </HistoryCardRow>
+
+                                                    <HistoryCardRow>
+                                                        <HistoryCardLabel>📊 Status:</HistoryCardLabel>
+                                                        <HistoryStatusBadge $status={list.status}>
+                                                            {list.status === 'pending' && '⏳ Pending'}
+                                                            {list.status === 'converted' && '✅ Converted'}
+                                                            {list.status === 'completed' && '📦 Completed'}
+                                                            {!list.status && '⏳ Pending'}
+                                                        </HistoryStatusBadge>
+                                                    </HistoryCardRow>
+
+                                                    {list.offlineOrderId && (
+                                                        <HistoryCardRow>
+                                                            <Badge className="badge-success">✅ Converted to Order #{list.offlineOrderId}</Badge>
+                                                        </HistoryCardRow>
+                                                    )}
+
+                                                    <HistoryCardFooter>
+                                                        <HistoryCardButton onClick={() => this.openOrderModal(list)}>
+                                                            👁️ View Details
+                                                        </HistoryCardButton>
+                                                    </HistoryCardFooter>
+                                                </HistoryCard>
+                                                );
+                                            })}
+                                            {totalPages > 1 && this.renderPagination(langCtx, currentPage, totalPages)}
+                                        </div>
+                                    </MobileHistoryWrapper>
+                                )}
+
                                 {/* ── Customer Order Details Modal (Read-only) ── */}
                                 {orderModalOpen && selectedOrder && (
                                     <ModalOverlay onClick={this.closeOrderModal}>
@@ -742,7 +916,7 @@ class BillHistoryPage extends React.Component {
                                                                     </tr>
                                                                 </thead>
                                                                 <tbody>
-                                                                    {selectedOrder.items.map((item) => (
+                                                                    {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item) => (
                                                                         <tr key={item.productId}>
                                                                             <td style={{ fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                                                                 <span style={{ fontSize: '1.2rem', flexShrink: 0 }}>

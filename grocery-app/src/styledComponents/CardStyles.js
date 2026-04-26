@@ -30,13 +30,13 @@ export const CardBody = styled.div`
   flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 0.5rem;
 
   .card-title {
     font-family: ${({ theme }) => theme.fonts.heading};
-    font-weight: 600;
-    font-size: 1rem;
+    font-weight: 700;
+    font-size: 1.05rem;
     color: ${({ theme }) => theme.colors.textPrimary};
-    margin-bottom: 0.25rem;
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-word;
@@ -44,9 +44,10 @@ export const CardBody = styled.div`
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    min-height: 1.5rem;
 
     .card-category-icon {
-      font-size: 1.2rem;
+      font-size: 1.3rem;
       flex-shrink: 0;
       line-height: 1;
     }
@@ -55,7 +56,6 @@ export const CardBody = styled.div`
   .card-category {
     font-size: ${({ theme }) => theme.fontSizes.xs};
     color: ${({ theme }) => theme.colors.textSecondary};
-    margin-bottom: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     word-wrap: break-word;
@@ -64,14 +64,14 @@ export const CardBody = styled.div`
   }
 
   .card-price {
-    font-size: 1.25rem;
+    font-size: 1.3rem;
     font-weight: 700;
     color: ${({ theme }) => theme.colors.primary};
-    margin-bottom: 0.25rem;
+    margin-top: 0.25rem;
     
     .unit {
-      font-size: 0.9rem;
-      font-weight: 700;
+      font-size: 0.85rem;
+      font-weight: 600;
       color: ${({ theme }) => theme.colors.primary};
       word-wrap: break-word;
       overflow-wrap: break-word;
@@ -81,7 +81,6 @@ export const CardBody = styled.div`
   .card-stock {
     font-size: ${({ theme }) => theme.fontSizes.xs};
     color: ${({ theme }) => theme.colors.textSecondary};
-    margin-bottom: 0.75rem;
     word-wrap: break-word;
     overflow-wrap: break-word;
     display: none;
@@ -89,94 +88,150 @@ export const CardBody = styled.div`
 
   @media (max-width: 768px) {
     padding: 0.75rem;
+    gap: 0.35rem;
 
     .card-title {
       font-size: 0.95rem;
-      margin-bottom: 0.15rem;
 
       .card-category-icon {
-        font-size: 1rem;
+        font-size: 1.1rem;
       }
     }
 
     .card-category {
       font-size: 0.65rem;
-      margin-bottom: 0.5rem;
     }
 
     .card-price {
       font-size: 1.1rem;
-      margin-bottom: 0.15rem;
+      margin-top: 0.15rem;
 
       .unit {
-        font-size: 0.85rem;
-        font-weight: 700;
+        font-size: 0.8rem;
       }
     }
 
     .card-stock {
       display: block !important;
       font-size: 0.7rem;
-      margin-bottom: 0.5rem;
       font-weight: 500;
     }
   }
 `;
 
 export const CardActions = styled.div`
-  padding: 0 1rem 1rem;
+  padding: 0.75rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+
+  @media (max-width: 768px) {
+    padding: 0.5rem 0.75rem 0.75rem;
+    gap: 0.65rem;
+  }
+`;
+
+export const QuantitySection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+
+  label {
+    font-size: ${({ theme }) => theme.fontSizes.xs};
+    font-weight: 600;
+    color: ${({ theme }) => theme.colors.textSecondary};
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* QuantityControl container */
+  > div {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  @media (max-width: 768px) {
+    gap: 0.4rem;
+
+    label {
+      font-size: 0.65rem;
+    }
+  }
+`;
+
+export const ButtonSection = styled.div`
   display: flex;
   gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
   width: 100%;
-  min-height: 45px;
+  flex-direction: ${({ $adminMode }) => $adminMode ? 'row' : 'column'};
 
   button {
-    flex: 1;
-    min-width: 80px;
     white-space: normal;
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-word;
     line-height: 1.3;
-    padding: 0.55rem 0.75rem !important;
-    font-size: 0.8rem !important;
-  }
-
-  .qty-input {
-    width: 70px;
-    padding: 0.4rem 0.5rem;
-    border: 1.5px solid ${({ theme }) => theme.colors.border};
+    padding: 0.6rem 1rem !important;
+    font-size: 0.85rem !important;
+    font-weight: 600;
     border-radius: ${({ theme }) => theme.borderRadius.sm};
-    font-size: ${({ theme }) => theme.fontSizes.sm};
-    text-align: center;
-    outline: none;
-    transition: ${({ theme }) => theme.transitions.fast};
+    transition: ${({ theme }) => theme.transitions.normal};
+    flex: ${({ $adminMode }) => $adminMode ? '1' : '1'};
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
 
-    &:focus {
-      border-color: ${({ theme }) => theme.colors.primaryLight};
-      box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+    &:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
   }
 
   @media (max-width: 768px) {
-    padding: 0.5rem;
-    gap: 0.35rem;
-    min-height: 40px;
+    gap: 0.4rem;
 
     button {
-      font-size: 0.7rem !important;
-      padding: 0.4rem 0.35rem !important;
-      min-width: 60px;
-      line-height: 1.2;
+      padding: 0.55rem 0.8rem !important;
+      font-size: 0.8rem !important;
     }
+  }
+`;
 
-    .qty-input {
-      width: 60px;
-      padding: 0.35rem 0.4rem;
-      font-size: 0.75rem;
-    }
+export const StockBadge = styled.div`
+  font-size: ${({ theme }) => theme.fontSizes.xs};
+  color: ${({ $status }) => {
+    if ($status === 'outOfStock') return '#dc3545';
+    if ($status === 'lowStock') return '#ff9800';
+    return '#666';
+  }};
+  font-weight: ${({ $status }) => $status !== 'available' ? '600' : '500'};
+  text-align: center;
+  padding: 0.4rem 0.75rem;
+  background: ${({ $status }) => {
+    if ($status === 'outOfStock') return 'rgba(220, 53, 69, 0.08)';
+    if ($status === 'lowStock') return 'rgba(255, 152, 0, 0.08)';
+    return 'rgba(102, 102, 102, 0.05)';
+  }};
+  border-radius: ${({ theme }) => theme.borderRadius.sm};
+  margin-top: 0.5rem;
+
+  @media (max-width: 768px) {
+    font-size: 0.7rem;
+    padding: 0.35rem 0.6rem;
+    margin-top: 0.35rem;
   }
 `;
 

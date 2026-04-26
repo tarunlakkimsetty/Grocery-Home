@@ -11,21 +11,39 @@ export const NavbarWrapper = styled.nav`
   align-items: center;
   justify-content: space-between;
   padding: 0;
-  z-index: 1030;
+  z-index: 100;
   box-shadow: ${({ theme }) => theme.shadows.md};
   transition: ${({ theme }) => theme.transitions.normal};
   height: ${({ theme }) => theme.navbar.height};
+  width: 100vw;
+  flex-wrap: nowrap;
+  overflow: hidden;
 
-  @media (max-width: 768px) {
+  @media (max-width: 767px) {
     height: auto;
     flex-direction: column;
     padding: 0.5rem;
     gap: 0.5rem;
+    width: 100vw;
+    overflow: visible;
   }
 
   @media (max-width: 576px) {
     padding: 0.4rem;
     gap: 0.4rem;
+  }
+`;
+
+export const DesktopLayout = styled.div`
+  display: none;
+  width: 100%;
+  flex-wrap: nowrap;
+
+  @media (min-width: 768px) {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
   }
 `;
 
@@ -36,6 +54,7 @@ export const NavBrand = styled.div`
   cursor: pointer;
   flex-shrink: 1;
   min-width: 0;
+  flex-wrap: nowrap;
 
   .logo-icon {
     width: 36px;
@@ -62,9 +81,18 @@ export const NavBrand = styled.div`
     word-break: break-word;
     line-height: 1.3;
     max-width: 400px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
     
     span {
       color: ${({ theme }) => theme.colors.secondaryLight};
+      white-space: nowrap;
+    }
+
+    @media (max-width: 1024px) {
+      font-size: ${({ theme }) => theme.fontSizes.lg};
+      max-width: 300px;
     }
 
     @media (max-width: 768px) {
@@ -74,7 +102,7 @@ export const NavBrand = styled.div`
 
     @media (max-width: 576px) {
       font-size: ${({ theme }) => theme.fontSizes.md};
-      max-width: 150px;
+      max-width: 120px;
     }
   }
 `;
@@ -84,12 +112,23 @@ export const NavActions = styled.div`
   align-items: center;
   gap: 1rem;
   flex-shrink: 0;
+  flex-wrap: nowrap;
+
+  @media (max-width: 1024px) {
+    gap: 0.75rem;
+  }
 
   @media (max-width: 768px) {
     width: 100%;
     justify-content: space-around;
     gap: 0.5rem;
     padding: 0 0.5rem;
+    flex-wrap: nowrap;
+  }
+
+  @media (max-width: 576px) {
+    gap: 0.4rem;
+    padding: 0 0.3rem;
   }
 `;
 
@@ -230,10 +269,16 @@ export const HamburgerButton = styled.button`
     background: rgba(255, 255, 255, 0.1);
   }
 
-  @media (max-width: 768px) {
+  /* Show hamburger for mobile and tablet (up to 1024px) */
+  @media (max-width: 1024px) {
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* Hide on desktop (1025px+) */
+  @media (min-width: 1025px) {
+    display: none !important;
   }
 `;
 
@@ -244,7 +289,7 @@ export const NavTopRow = styled.div`
   justify-content: space-between;
   gap: 0.5rem;
 
-  @media (max-width: 768px) {
+  @media (max-width: 767px) {
     display: flex;
   }
 `;
@@ -256,7 +301,7 @@ export const NavBottomRow = styled.div`
   justify-content: space-around;
   gap: 0.5rem;
 
-  @media (max-width: 768px) {
+  @media (max-width: 767px) {
     display: flex;
     padding: 0 0.5rem;
   }
@@ -270,7 +315,7 @@ export const NavBrandMobile = styled.div`
   flex: 1;
   min-width: 0;
 
-  @media (max-width: 768px) {
+  @media (max-width: 767px) {
     display: flex;
   }
 

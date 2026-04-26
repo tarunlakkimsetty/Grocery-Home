@@ -9,23 +9,37 @@ export const AppContainer = styled.div`
 `;
 
 export const MainContent = styled.main`
-  margin-left: ${({ theme }) => theme.sidebar.width};
+  margin-left: 0;
   margin-top: ${({ theme }) => theme.navbar.height};
   padding: 1.5rem 2rem;
   min-height: calc(100vh - ${({ theme }) => theme.navbar.height});
   flex: 1;
   transition: margin-left 0.3s ease;
 
-  @media (max-width: ${({ theme }) => theme.breakpoints.md}) {
-    margin-left: 0;
-    margin-top: 120px;
-    padding: 1rem;
-    min-height: calc(100vh - 120px);
+  /* Desktop: Apply sidebar margin only for large screens (1025px+) */
+  @media (min-width: 1025px) {
+    margin-left: ${({ theme }) => theme.sidebar.width};
   }
 
-  @media (max-width: ${({ theme }) => theme.breakpoints.sm}) {
-    margin-top: 110px;
-    min-height: calc(100vh - 110px);
+  /* Tablet: Full width, no sidebar space */
+  @media (max-width: 1024px) and (min-width: 768px) {
+    margin-left: 0 !important;
+    width: 100% !important;
+    padding: 1rem 1rem;
+  }
+
+  /* Mobile: Full width with optimized padding */
+  @media (max-width: 767px) {
+    margin-left: 0;
+    margin-top: calc(${({ theme }) => theme.navbar.height} + 3rem);
+    padding: 1rem 0.75rem;
+    min-height: calc(100vh - ${({ theme }) => theme.navbar.height} - 3rem);
+  }
+
+  @media (max-width: 576px) {
+    margin-top: calc(${({ theme }) => theme.navbar.height} + 2.8rem);
+    min-height: calc(100vh - ${({ theme }) => theme.navbar.height} - 2.8rem);
+    padding: 0.75rem 0.5rem;
   }
 `;
 

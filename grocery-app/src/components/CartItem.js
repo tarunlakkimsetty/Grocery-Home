@@ -1,9 +1,9 @@
 import React from 'react';
 import { DangerButton, GhostButton } from '../styledComponents/ButtonStyles';
 import LanguageContext from '../context/LanguageContext';
+import QuantityControl from './QuantityControl';
+import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';
 import { toast } from 'react-toastify';
-
-const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
 const CATEGORY_ICONS = {
     grains: '🌾',
@@ -19,6 +19,32 @@ const CATEGORY_ICONS = {
 class CartItem extends React.Component {
     static contextType = LanguageContext;
 
+    // CRITICAL: Validate quantity before updating
+    handleQuantityUpdate = (productId, newQty) => {
+        const { item } = this.props;
+        const stock = Number(item?.stock || 0);
+        
+        // NOTE: For cart items, stock represents total available in inventory
+        // Available for adjustment = stock (item can be increased or decreased as needed)
+        // Debug logging
+        console.log({ stock, newQty, currentQty: item.quantity, productId });
+        
+        // Block quantities that exceed stock
+        if (newQty > stock) {
+            toast.error(`Only ${stock} available`);
+            return;
+        }
+        
+        // Block zero or negative
+        if (newQty <= 0) {
+            toast.error('Quantity must be greater than 0');
+            return;
+        }
+        
+        // Proceed with update
+        this.props.onUpdateQuantity(productId, newQty);
+    }
+
     render() {
         const { item, onUpdateQuantity, onRemove } = this.props;
         const langCtx = this.context;
@@ -31,34 +57,23 @@ class CartItem extends React.Component {
         const rawTotal = Number(item?.total);
         const total = Number.isFinite(rawTotal) ? rawTotal : price * quantity;
 
-        // Check if weight-based
-        const isWeightBased = item?.unit === 'kg';
-        const increment = isWeightBased ? 0.1 : 1;
-        const minQty = isWeightBased ? 0.1 : 1;
+        // Get unit and stock
+        const unit = item?.unit || 'piece';
+        const stock = Number(item?.stock || 0);
 
         const handleIncrease = () => {
-            if (item.quantity >= item.stock) {
-                toast.error(STOCK_LIMIT_MESSAGE);
-                return;
+            const newQty = getNextQuantity(item.quantity, { unit, stock });
+            if (newQty > item.quantity) {
+                onUpdateQuantity(item.productId, newQty);
             }
-            const newQty = isWeightBased 
-                ? Math.round((item.quantity + increment) * 10) / 10 
-                : item.quantity + increment;
-            onUpdateQuantity(item.productId, newQty);
         };
 
         const handleDecrease = () => {
-            if (item.quantity <= minQty) {
-                return;
+            const newQty = getPreviousQuantity(item.quantity, { unit });
+            if (newQty < item.quantity) {
+                onUpdateQuantity(item.productId, newQty);
             }
-            const newQty = isWeightBased 
-                ? Math.round((item.quantity - increment) * 10) / 10 
-                : item.quantity - increment;
-            onUpdateQuantity(item.productId, newQty);
         };
-
-        const isIncreaseDisabled = item.quantity >= item.stock;
-        const isDecreaseDisabled = item.quantity <= minQty;
 
         return (
             <React.Fragment>
@@ -72,44 +87,17 @@ class CartItem extends React.Component {
                 </td>
                 <td className="text-center" style={{ width: '120px', verticalAlign: 'middle' }}>₹{price.toFixed(2)}</td>
                 <td className="text-center" style={{ width: '170px', verticalAlign: 'middle' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}>
-                        <GhostButton
-                            onClick={handleDecrease}
-                            disabled={isDecreaseDisabled}
-                            style={{
-                                padding: '0.2rem 0.4rem',
-                                minWidth: '28px',
-                                fontSize: '0.75rem',
-                                opacity: isDecreaseDisabled ? 0.5 : 1,
-                                cursor: isDecreaseDisabled ? 'not-allowed' : 'pointer'
-                            }}
-                            title={isDecreaseDisabled ? `Quantity cannot be less than ${minQty}` : 'Decrease quantity'}
-                        >
-                            −
-                        </GhostButton>
-                        <span className="fw-bold" style={{ minWidth: '25px', textAlign: 'center', fontSize: '0.9rem' }}>
-                            {isWeightBased ? item.quantity.toFixed(1) : Math.floor(item.quantity)}
-                        </span>
-                        <GhostButton
-                            onClick={handleIncrease}
-                            disabled={isIncreaseDisabled}
-                            style={{
-                                padding: '0.2rem 0.4rem',
-                                minWidth: '28px',
-                                fontSize: '0.75rem',
-                                opacity: isIncreaseDisabled ? 0.5 : 1,
-                                cursor: isIncreaseDisabled ? 'not-allowed' : 'pointer'
-                            }}
-                            title={isIncreaseDisabled ? `Stock limit reached (${item.stock} available)` : 'Increase quantity'}
-                        >
-                            +
-                        </GhostButton>
-                    </div>
-                    {isIncreaseDisabled && (
-                        <div style={{ fontSize: '0.7rem', color: '#dc3545', marginTop: '0.2rem' }}>
-                            Max: {item.stock}
-                        </div>
-                    )}
+                    <QuantityControl
+                        value={item.quantity}
+                        onIncrease={handleIncrease}
+                        onDecrease={handleDecrease}
+                        onChange={(newQty) => this.handleQuantityUpdate(item.productId, newQty)}
+                        unit={unit}
+                        stock={stock}
+                        disabled={false}
+                        title={unit === 'kg' ? 'Adjust weight (kg)' : 'Adjust quantity'}
+                        showStockWarning={true}
+                    />
                 </td>
                 <td className="fw-bold text-center text-success" style={{ width: '130px', verticalAlign: 'middle' }}>₹{total.toFixed(2)}</td>
                 <td className="text-center" style={{ width: '90px', verticalAlign: 'middle' }}>

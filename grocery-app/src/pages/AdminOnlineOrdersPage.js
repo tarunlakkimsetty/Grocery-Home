@@ -1,5 +1,7 @@
 import React from 'react';
 import LanguageContext from '../context/LanguageContext';
+import QuantityControl from '../components/QuantityControl';
+import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';
 import orderService from '../services/orderService';
 import productService from '../services/productService';
 import Spinner from '../components/Spinner';
@@ -949,6 +951,42 @@ class AdminOnlineOrdersPage extends React.Component {
 
     // ─── Quantity Editing (PART 2) ─────────────────────────────────────────────
 
+    // CRITICAL: Validate quantity against stock before updating
+    updateModalItemQuantity = (productId, newQty) => {
+        const { modalItems } = this.state;
+        const item = modalItems.find(i => i.productId === productId);
+        
+        if (!item) return;
+        
+        const stock = Number(item.stock || 0);
+        // IMPORTANT: For online orders, we DON'T subtract already-added qty
+        // because each item in modalItems is from THIS order only
+        const available = stock;
+        
+        // Debug logging
+        console.log({ stock, available, attemptedQty: newQty, currentQty: item.quantity, productId });
+        
+        // Block quantities exceeding available
+        if (newQty > available) {
+            toast.error(`Only ${available} available`);
+            return;
+        }
+        
+        // Block zero or negative
+        if (newQty <= 0) {
+            toast.error('Quantity must be greater than 0');
+            return;
+        }
+        
+        // Proceed with update
+        const updatedItems = modalItems.map(i => 
+          i.productId === productId 
+            ? { ...i, quantity: newQty, total: (Number(i.price || 0) || 0) * newQty }
+            : i
+        );
+        this.setState({ modalItems: updatedItems });
+    }
+
     updateItemQuantity = (productId, delta) => {
         const { selectedOrder } = this.state;
         // Lock: online order changes are allowed only after acceptance.
@@ -1045,7 +1083,15 @@ class AdminOnlineOrdersPage extends React.Component {
     // ─── Add Product to Order (Pending Only) ─────────────────────────────────
 
     onChangeAddProductId = (e) => {
-        this.setState({ addProductId: e.target.value });
+        this.setState({ addProductId: e.target.value, addProductQty: '1', addProductQtyError: '' });
+    };
+
+    handleUnSelectAddProduct = () => {
+        this.setState({
+            addProductId: '',
+            addProductQty: '1',
+            addProductQtyError: ''
+        });
     };
 
     onChangeAddProductQty = (e) => {
@@ -2015,10 +2061,49 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                 )}
                                                             </div>
                                                             {addProductId && (
-                                                                <small style={{ display: 'block', marginTop: '0.5rem', color: '#2E7D32', fontWeight: 600 }}>
-                                                                    ✓ {products.find(p => p.id === addProductId)?.name} selected
-                                                                </small>
+                                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.4rem', padding: '0.5rem', background: '#e7f5ff', borderRadius: '4px', gap: '0.5rem' }}>
+                                                                    <small style={{ color: '#2E7D32', fontWeight: 600, margin: 0 }}>
+                                                                        ✓ {products.find(p => p.id === addProductId)?.name} selected
+                                                                    </small>
+                                                                    <button
+                                                                        onClick={this.handleUnSelectAddProduct}
+                                                                        type="button"
+                                                                        title="Remove selection"
+                                                                        style={{
+                                                                            background: '#dc3545',
+                                                                            color: 'white',
+                                                                            border: 'none',
+                                                                            borderRadius: '4px',
+                                                                            width: '24px',
+                                                                            height: '24px',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            cursor: 'pointer',
+                                                                            fontWeight: 'bold',
+                                                                            fontSize: '14px',
+                                                                            padding: 0,
+                                                                            flexShrink: 0,
+                                                                            transition: 'all 0.2s'
+                                                                        }}
+                                                                        onMouseEnter={(e) => e.target.style.background = '#bb2d3b'}
+                                                                        onMouseLeave={(e) => e.target.style.background = '#dc3545'}
+                                                                    >
+                                                                        ✕
+                                                                    </button>
+                                                                </div>
                                                             )}
+                                                            {addProductId && (() => {
+                                                                const selectedProduct = products.find(p => p.id === addProductId);
+                                                                const stock = Number(selectedProduct?.stock || 0);
+                                                                const alreadyInOrder = modalItems.find(i => i.productId === addProductId)?.quantity || 0;
+                                                                const available = Math.max(0, stock - alreadyInOrder);
+                                                                return (
+                                                                    <small style={{ display: 'block', marginTop: '0.4rem', color: '#6c757d', fontSize: '0.75rem' }}>
+                                                                        📦 {available} available ({alreadyInOrder} already added)
+                                                                    </small>
+                                                                );
+                                                            })()}
                                                         </div>
                                                         <div className="col-6 col-md-3">
                                                             <label className="form-label small fw-semibold mb-1">
@@ -2185,31 +2270,38 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                         className="text-center"
                                                                         style={{ padding: '0.4rem 0.5rem' }}
                                                                     >
-                                                                        <QtyControl>
-                                                                            <button
-                                                                                className="qty-btn"
-                                                                                onClick={() =>
-                                                                                    this.updateItemQuantity(item.productId, -1)
-                                                                                }
-                                                                                disabled={isLocked || (Number(item.quantity || 0) || 0) <= 0}
-                                                                                title={isLocked ? langCtx.getText('orderLocked') : langCtx.getText('decreaseQuantity')}
-                                                                            >
-                                                                                −
-                                                                            </button>
-                                                                            <span className="qty-value">
-                                                                                {item.quantity}
-                                                                            </span>
-                                                                            <button
-                                                                                className="qty-btn"
-                                                                                onClick={() =>
-                                                                                    this.updateItemQuantity(item.productId, +1)
-                                                                                }
-                                                                                disabled={isLocked}
-                                                                                title={isLocked ? langCtx.getText('orderLocked') : langCtx.getText('increaseQuantity')}
-                                                                            >
-                                                                                +
-                                                                            </button>
-                                                                        </QtyControl>
+                                                                        <QuantityControl
+                                                                            value={item.quantity || 0}
+                                                                            onIncrease={() => {
+                                                                                const unit = item.unit || 'piece';
+                                                                                const stock = Number(item.stock || 0);
+                                                                                const next = getNextQuantity(item.quantity, { unit, stock });
+                                                                                const updatedItems = modalItems.map(i => 
+                                                                                  i.productId === item.productId 
+                                                                                    ? { ...i, quantity: next, total: (Number(i.price || 0) || 0) * next }
+                                                                                    : i
+                                                                                );
+                                                                                this.setState({ modalItems: updatedItems });
+                                                                            }}
+                                                                            onDecrease={() => {
+                                                                                const unit = item.unit || 'piece';
+                                                                                const prev = getPreviousQuantity(item.quantity, { unit });
+                                                                                const updatedItems = modalItems.map(i => 
+                                                                                  i.productId === item.productId 
+                                                                                    ? { ...i, quantity: prev, total: (Number(i.price || 0) || 0) * prev }
+                                                                                    : i
+                                                                                );
+                                                                                this.setState({ modalItems: updatedItems });
+                                                                            }}
+                                                                            onChange={(newQty) => {
+                                                                                this.updateModalItemQuantity(item.productId, newQty);
+                                                                            }}
+                                                                            unit={item.unit || 'piece'}
+                                                                            stock={Number(item.stock || 0)}
+                                                                            disabled={isLocked}
+                                                                            title={isLocked ? langCtx.getText('orderLocked') : 'Adjust quantity'}
+                                                                            showStockWarning={item.stock !== undefined}
+                                                                        />
                                                                     </td>
 
                                                                     {/* Unit Price */}

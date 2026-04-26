@@ -188,6 +188,12 @@ class LoginPage extends React.Component {
                                                         </button>
                                                     </form>
 
+                                                    <div className="mt-2 text-center">
+                                                        <Link to="/forgot-password" className="text-decoration-none small">
+                                                            🔐 Forgot Password?
+                                                        </Link>
+                                                    </div>
+
                                                     <div className="mt-3 text-center">
                                                         <span className="text-muted">{langCtx.getText('dontHaveAccount')} </span>
                                                         <Link to="/register">{langCtx.getText('createOne')}</Link>

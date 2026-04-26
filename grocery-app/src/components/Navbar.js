@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import LanguageToggle from './LanguageToggle';
 import {
     NavbarWrapper,
+    DesktopLayout,
     NavBrand,
     NavActions,
     CartLink,
@@ -31,8 +32,8 @@ class Navbar extends React.Component {
                 {(langCtx) => (
                     <React.Fragment>
                         <NavbarWrapper>
-                            {/* Desktop Layout - Hide on mobile */}
-                            <div className="d-flex d-none d-md-flex justify-content-between align-items-center" style={{ width: '100%' }}>
+                            {/* Desktop Layout - Show on tablet + desktop (≥768px) */}
+                            <DesktopLayout>
                                 <div className="d-flex align-items-center gap-2" style={{ minWidth: 0, maxWidth: isAuthenticated ? '60%' : '100%' }}>
                                     {isAuthenticated && (
                                         <HamburgerButton onClick={onToggleSidebar} aria-label="Toggle sidebar">
@@ -81,19 +82,21 @@ class Navbar extends React.Component {
                                     <NavActions className="d-flex align-items-center gap-3 flex-shrink-0">
                                         <LanguageToggle />
 
-                                        <CartContext.Consumer>
-                                            {(cartCtx) => (
-                                                (() => {
-                                                    const count = cartCtx.getItemCount();
-                                                    return (
-                                                        <CartLink to="/cart" aria-label="Cart">
-                                                            <span style={{ fontSize: '1.5rem', color: 'white', cursor: 'pointer' }}>🛒</span>
-                                                            {count > 0 && <CartBadge>{count}</CartBadge>}
-                                                        </CartLink>
-                                                    );
-                                                })()
-                                            )}
-                                        </CartContext.Consumer>
+                                        {role !== 'admin' && (
+                                            <CartContext.Consumer>
+                                                {(cartCtx) => (
+                                                    (() => {
+                                                        const count = cartCtx.getItemCount();
+                                                        return (
+                                                            <CartLink to="/cart" aria-label="Cart">
+                                                                <span style={{ fontSize: '1.5rem', color: 'white', cursor: 'pointer' }}>🛒</span>
+                                                                {count > 0 && <CartBadge>{count}</CartBadge>}
+                                                            </CartLink>
+                                                        );
+                                                    })()
+                                                )}
+                                            </CartContext.Consumer>
+                                        )}
 
                                         <UserInfo>
                                             <div className="user-avatar">
@@ -108,9 +111,9 @@ class Navbar extends React.Component {
                                         <LogoutButton onClick={logout}>⏻ {langCtx.getText('logout')}</LogoutButton>
                                     </NavActions>
                                 )}
-                            </div>
+                            </DesktopLayout>
 
-                            {/* Mobile Layout - Show only on mobile (≤768px) */}
+                            {/* Mobile Layout - Show only on mobile (<768px) */}
                             {isAuthenticated && (
                                 <>
                                     {/* Top Row: Hamburger + Shop Name */}
@@ -131,19 +134,21 @@ class Navbar extends React.Component {
                                     <NavBottomRow>
                                         <LanguageToggle />
 
-                                        <CartContext.Consumer>
-                                            {(cartCtx) => (
-                                                (() => {
-                                                    const count = cartCtx.getItemCount();
-                                                    return (
-                                                        <CartLink to="/cart" aria-label="Cart" style={{ position: 'relative' }}>
-                                                            <NavIconButton as="span">🛒</NavIconButton>
-                                                            {count > 0 && <CartBadge>{count}</CartBadge>}
-                                                        </CartLink>
-                                                    );
-                                                })()
-                                            )}
-                                        </CartContext.Consumer>
+                                        {role !== 'admin' && (
+                                            <CartContext.Consumer>
+                                                {(cartCtx) => (
+                                                    (() => {
+                                                        const count = cartCtx.getItemCount();
+                                                        return (
+                                                            <CartLink to="/cart" aria-label="Cart" style={{ position: 'relative' }}>
+                                                                <NavIconButton as="span">🛒</NavIconButton>
+                                                                {count > 0 && <CartBadge>{count}</CartBadge>}
+                                                            </CartLink>
+                                                        );
+                                                    })()
+                                                )}
+                                            </CartContext.Consumer>
+                                        )}
 
                                         <UserInfo style={{ padding: '0.4rem 0.75rem', background: 'transparent', border: 'none' }}>
                                             <div className="user-avatar">

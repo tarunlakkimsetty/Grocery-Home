@@ -15,6 +15,7 @@ const billRoutes = require('./routes/billRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const userRoutes = require('./routes/userRoutes');
 const feedbackRoutes = require('./routes/feedbackRoutes');
+const listOrderRoutes = require('./routes/listOrderRoutes');
 
 const app = express();
 
@@ -72,6 +73,9 @@ app.use(getLogger(config.env));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
+// Serve uploaded files as static
+app.use('/uploads', express.static('uploads'));
+
 // Health check route
 app.get('/', (req, res) => {
     res.json({ message: 'Grocery Billing System API is running' });
@@ -88,6 +92,7 @@ app.use('/api/admin/analytics', analyticsRoutes);
 app.use('/api/admin/customers', customerRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/feedback', feedbackRoutes);
+app.use('/api/list-orders', listOrderRoutes);
 
 // Error handling middleware (must be last)
 app.use(notFound);

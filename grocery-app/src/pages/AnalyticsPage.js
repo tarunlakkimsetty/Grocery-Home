@@ -41,6 +41,7 @@ class AnalyticsPage extends React.Component {
         const categoryRows = Array.isArray(dashboard?.categoryAnalytics) ? dashboard.categoryAnalytics : [];
         const paymentMethods = Array.isArray(dashboard?.paymentMethods) ? dashboard.paymentMethods : [];
         const lowStockProducts = Array.isArray(dashboard?.lowStockProducts) ? dashboard.lowStockProducts : [];
+        const allProducts = Array.isArray(dashboard?.allProducts) ? dashboard.allProducts : [];
 
         const CATEGORY_NAMES = {
             grains: 'Grains & Pulses',
@@ -232,6 +233,70 @@ class AnalyticsPage extends React.Component {
                                                     ))}
                                                 </tbody>
                                             </table>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* All Products Inventory */}
+                        <div className="row g-4 mt-2">
+                            <div className="col-12">
+                                <div style={{ background: 'white', borderRadius: '10px', padding: '1.5rem', boxShadow: '0 2px 4px rgba(0,0,0,0.08)', border: '1px solid #e9ecef' }}>
+                                    <h5 className="fw-bold mb-3" style={{ fontFamily: "'Outfit', sans-serif" }}>
+                                        📋 {langCtx.getText('allProducts') || 'All Products Inventory'}
+                                    </h5>
+                                    {(() => {
+                                        if (!Array.isArray(allProducts) || allProducts.length === 0) {
+                                            return <p className="text-muted">{langCtx.getText('noAnalyticsData')}</p>;
+                                        }
+                                        return (
+                                            <div style={{ overflowX: 'auto' }}>
+                                                <table className="table table-sm">
+                                                    <thead>
+                                                        <tr style={{ background: '#f5f5f5' }}>
+                                                            <th style={{ fontSize: '0.85rem' }}>{langCtx.getText('productName') || 'Product'}</th>
+                                                            <th style={{ fontSize: '0.85rem' }} className="text-center">{langCtx.getText('selectCategory') || 'Category'}</th>
+                                                            <th style={{ fontSize: '0.85rem' }} className="text-center">{langCtx.getText('stock') || 'Stock'}</th>
+                                                            <th style={{ fontSize: '0.85rem' }} className="text-center">{langCtx.getText('quantity') || 'Sold'}</th>
+                                                            <th style={{ fontSize: '0.85rem' }} className="text-end">{langCtx.getText('price') || 'Price'}</th>
+                                                            <th style={{ fontSize: '0.85rem' }} className="text-end">{langCtx.getText('totalSales') || 'Revenue'}</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {allProducts.map((p) => (
+                                                            <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                                                                <td style={{ fontSize: '0.9rem' }}>
+                                                                    {p.emoji || '📦'} {p.name}
+                                                                </td>
+                                                                <td style={{ fontSize: '0.9rem' }} className="text-center">
+                                                                    {CATEGORY_NAMES[p.category] || p.category}
+                                                                </td>
+                                                                <td style={{ fontSize: '0.9rem' }} className="text-center">
+                                                                    <span style={{
+                                                                        color: p.stock < 30 ? '#c62828' : p.stock < 50 ? '#e65100' : '#2E7D32',
+                                                                        fontWeight: '600',
+                                                                        backgroundColor: p.stock < 30 ? '#ffebee' : p.stock < 50 ? '#ffe0b2' : '#e8f5e9',
+                                                                        padding: '0.25rem 0.5rem',
+                                                                        borderRadius: '4px'
+                                                                    }}>
+                                                                        {p.stock}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={{ fontSize: '0.9rem' }} className="text-center">
+                                                                    {Number(p.quantitySold || 0)}
+                                                                </td>
+                                                                <td style={{ fontSize: '0.9rem' }} className="text-end">
+                                                                    ₹{Number(p.price || 0).toFixed(2)}
+                                                                </td>
+                                                                <td style={{ fontSize: '0.9rem', fontWeight: '600', color: '#2E7D32' }} className="text-end">
+                                                                    ₹{Number(p.totalRevenue || 0).toFixed(2)}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         );
                                     })()}
                                 </div>

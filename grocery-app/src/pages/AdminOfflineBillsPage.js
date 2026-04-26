@@ -42,7 +42,13 @@ class AdminOfflineBillsPage extends React.Component {
     fetchBills = async () => {
         this.setState({ loading: true });
         try {
-            const bills = await orderService.getBillsOrders('Offline');
+            const orderTypeProp = String(this.props.orderType || '').trim().toLowerCase();
+            let bills;
+            if (orderTypeProp === 'list_converted') {
+                bills = await orderService.getConvertedBills();
+            } else {
+                bills = await orderService.getBillsOrders('Offline');
+            }
             this.setState({ bills: Array.isArray(bills) ? bills : [], loading: false });
         } catch (err) {
             this.setState({ error: 'Failed to load offline bills', loading: false });
