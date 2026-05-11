@@ -10,12 +10,12 @@ const config = {
     env: process.env.NODE_ENV || 'development',
     port: parseInt(process.env.PORT, 10) || 5000,
     
-    // Database
+    // Database - prefer explicit environment variables; fall back to sensible dev defaults
     db: {
-        host: process.env.DB_HOST || 'localhost',
-        user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '',
-        name: process.env.DB_NAME || 'grocery_db',
+        host: process.env.DB_HOST || (process.env.NODE_ENV === 'development' ? 'localhost' : undefined),
+        user: process.env.DB_USER || (process.env.NODE_ENV === 'development' ? 'root' : undefined),
+        password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'development' ? '' : undefined),
+        name: process.env.DB_NAME || (process.env.NODE_ENV === 'development' ? 'grocery_db' : undefined),
         connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 10
     },
     
@@ -63,9 +63,16 @@ if (process.env.NODE_ENV === 'production' || process.env.DEBUG_CONFIG) {
     console.log('📋 Server Configuration:');
     console.log(`   NODE_ENV: ${config.env}`);
     console.log(`   PORT: ${config.port}`);
-    console.log(`   DB_HOST: ${config.db.host}`);
-    console.log(`   DB_NAME: ${config.db.name}`);
+    console.log(`   DB_HOST: ${config.db.host || '✗ Not set'}`);
+    console.log(`   DB_NAME: ${config.db.name || '✗ Not set'}`);
     console.log(`   JWT_SECRET: ${config.jwt.secret ? '✓ Set' : '✗ Not set'}`);
+}
+
+// Warn if DB details missing in production
+if (config.env === 'production') {
+    if (!config.db.host || !config.db.user || !config.db.name) {
+        console.warn('⚠️  Database environment variables (DB_HOST, DB_USER, DB_NAME) are not fully set for production');
+    }
 }
 
 module.exports = config;
