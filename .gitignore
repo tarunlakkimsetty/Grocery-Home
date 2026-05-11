@@ -80,3 +80,7 @@ tmpclaude-*
 grocery-app/tmpclaude-*
 
 backend/uploads/
+
+backend/check*.js
+backend/debug*.js
+backend/test*.js
