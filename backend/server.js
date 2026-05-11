@@ -161,54 +161,64 @@ const ensureTypeOriginColumns = async () => {
 
 // Start server after testing database connection
 const startServer = async () => {
-    // Test database connection
+    // Test database connection (non-blocking for startup)
     const isConnected = await testConnection();
     
     if (!isConnected) {
-        console.error('Failed to connect to database. Server not started.');
-        process.exit(1);
+        console.warn('⚠️  Warning: Could not connect to database during startup');
+        console.warn('    Server will still start, but database operations will fail');
+        console.warn('    Check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME environment variables');
     }
 
-    // Best-effort: keep schema compatible with workflow statuses like 'Completed'
-    await ensureOrdersStatusVarchar();
+    // Best-effort: only run schema updates if connected
+    if (isConnected) {
+        // Best-effort: keep schema compatible with workflow statuses like 'Completed'
+        await ensureOrdersStatusVarchar();
 
-    // Best-effort: advance payment support
-    await ensureAdvanceAmountColumn();
+        // Best-effort: advance payment support
+        await ensureAdvanceAmountColumn();
 
-    // Best-effort: store payment method for analytics
-    await ensurePaymentMethodColumn();
+        // Best-effort: store payment method for analytics
+        await ensurePaymentMethodColumn();
 
-    // Best-effort: track advance payment updates
-    await ensureOrderPaymentHistoryTable();
+        // Best-effort: track advance payment updates
+        await ensureOrderPaymentHistoryTable();
 
-    // Best-effort: store uploaded order images
-    await ensureOrderImagesTable();
+        // Best-effort: store uploaded order images
+        await ensureOrderImagesTable();
 
-    // Best-effort: add flexible type/origin columns to support list-converted workflow
-    await ensureTypeOriginColumns();
+        // Best-effort: add flexible type/origin columns to support list-converted workflow
+        await ensureTypeOriginColumns();
 
-    // Best-effort: backfill origin for existing converted orders
-    try {
-        // Check if type column exists first
-        const [columns] = await promisePool.query(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'type'"
-        );
-        
-        if (columns && columns.length > 0) {
-            await promisePool.query("UPDATE orders SET origin = 'list_orders' WHERE `type` = 'list_converted' AND (origin IS NULL OR origin = '')");
-            console.log('✓ backfilled origin for list_converted orders');
-        }
-    } catch (err) {
-        // Silently fail - columns not ready yet or query not supported
-        const msg = String(err && err.message ? err.message : err);
-        if (!msg.includes('Unknown column')) {
-            console.log('! Could not backfill converted origins:', msg);
+        // Best-effort: backfill origin for existing converted orders
+        try {
+            // Check if type column exists first
+            const [columns] = await promisePool.query(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'type'"
+            );
+            
+            if (columns && columns.length > 0) {
+                await promisePool.query("UPDATE orders SET origin = 'list_orders' WHERE `type` = 'list_converted' AND (origin IS NULL OR origin = '')");
+                console.log('✓ backfilled origin for list_converted orders');
+            }
+        } catch (err) {
+            // Silently fail - columns not ready yet or query not supported
+            const msg = String(err && err.message ? err.message : err);
+            if (!msg.includes('Unknown column')) {
+                console.log('! Could not backfill converted origins:', msg);
+            }
         }
     }
 
-    // Start Express server
+    // Start Express server regardless of database connection
     app.listen(config.port, () => {
-        console.log(`Server running in ${config.env} mode on port ${config.port}`);
+        console.log(`✅ Server running in ${config.env} mode on port ${config.port}`);
+        console.log(`📝 API available at http://localhost:${config.port}/`);
+        if (isConnected) {
+            console.log(`✓ Database: Connected`);
+        } else {
+            console.log(`⚠️  Database: Not connected`);
+        }
     });
 };
 

@@ -62,7 +62,7 @@ app.use(helmet({
 }));
 
 // ============================================
-// Rate limiting - relaxed for development
+// Rate limiting - relaxed for development/startup
 // ============================================
 const limiter = rateLimit({
     windowMs: config.env === 'development' ? 1 * 60 * 1000 : config.rateLimit.windowMs, // 1 min in dev
@@ -73,7 +73,13 @@ const limiter = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => config.env === 'development' && req.path === '/api/products' // Skip for products in dev
+    skip: (req) => {
+        // Skip rate limiting for health check and root
+        if (req.path === '/' || req.path === '/api/health') return true;
+        // Skip for products in dev
+        if (config.env === 'development' && req.path === '/api/products') return true;
+        return false;
+    }
 });
 app.use('/api', limiter);
 

@@ -37,20 +37,35 @@ const config = {
     }
 };
 
-// Validate required environment variables
-const requiredVars = ['JWT_SECRET'];
+// Validate required environment variables (JWT_SECRET optional on startup, will be needed for auth)
+const requiredVars = [];
 const missingVars = requiredVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
-    console.error(`Missing required environment variables: ${missingVars.join(', ')}`);
-    process.exit(1);
+    console.warn(`⚠️  Missing environment variables: ${missingVars.join(', ')}`);
+}
+
+// Check if JWT_SECRET is set
+if (!process.env.JWT_SECRET) {
+    console.warn('⚠️  JWT_SECRET not set - authentication routes will fail');
+    console.warn('    Set JWT_SECRET in environment variables for production');
 }
 
 // Development warnings
 if (config.env === 'development') {
     if (config.jwt.secret === 'grocery_billing_secret_key_2026') {
-        console.warn('Warning: Using default JWT secret. Change in production!');
+        console.warn('⚠️  Using default JWT secret. Change in production!');
     }
+}
+
+// Log configuration on startup
+if (process.env.NODE_ENV === 'production' || process.env.DEBUG_CONFIG) {
+    console.log('📋 Server Configuration:');
+    console.log(`   NODE_ENV: ${config.env}`);
+    console.log(`   PORT: ${config.port}`);
+    console.log(`   DB_HOST: ${config.db.host}`);
+    console.log(`   DB_NAME: ${config.db.name}`);
+    console.log(`   JWT_SECRET: ${config.jwt.secret ? '✓ Set' : '✗ Not set'}`);
 }
 
 module.exports = config;
