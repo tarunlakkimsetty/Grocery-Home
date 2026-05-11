@@ -24,10 +24,19 @@ const app = express();
 // ============================================
 // CORS - MUST BE FIRST (before any other middleware)
 // ============================================
+const getCorsAllowedOrigins = () => {
+    const localOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+    if (process.env.ALLOWED_ORIGINS) {
+        // Support comma-separated list of origins from environment
+        return [...localOrigins, ...process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())];
+    }
+    return localOrigins;
+};
+
 const corsOptions = {
     origin: function (origin, callback) {
         // Allow requests with no origin (mobile apps, curl, Postman)
-        const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+        const allowedOrigins = getCorsAllowedOrigins();
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else if (config.env === 'development') {
