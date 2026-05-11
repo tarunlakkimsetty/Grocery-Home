@@ -129,3 +129,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 module.exports = app;
+
+if (require.main === module) {
+    require('./start').startServer();
+}

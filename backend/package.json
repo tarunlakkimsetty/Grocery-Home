@@ -1,14 +1,14 @@
 {
   "name": "grocery-backend",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "index.js",
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
+    "start": "node index.js",
+    "dev": "node index.js",
     "migrate": "node migrate.js",
     "seed": "node seed.js",
     "recalc-totals": "node scripts/recalcOrderTotals.js"
