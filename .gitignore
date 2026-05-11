@@ -78,3 +78,5 @@ coverage/
 tmpclaude_*
 tmpclaude-*
 grocery-app/tmpclaude-*
+
+backend/uploads/
