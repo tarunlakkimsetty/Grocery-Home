@@ -24,13 +24,34 @@ const app = express();
 // ============================================
 // CORS - MUST BE FIRST (before any other middleware)
 // ============================================
+const normalizeOrigin = (origin) => {
+    const value = String(origin || '').trim();
+    if (!value) return null;
+
+    if (/^https?:\/\//i.test(value)) {
+        return value.replace(/\/$/, '');
+    }
+
+    if (value.includes('localhost') || value.includes('127.0.0.1')) {
+        return `http://${value.replace(/^\/+/, '').replace(/\/$/, '')}`;
+    }
+
+    return `https://${value.replace(/^\/+/, '').replace(/\/$/, '')}`;
+};
+
 const getCorsAllowedOrigins = () => {
     const localOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
-    if (process.env.ALLOWED_ORIGINS) {
-        // Support comma-separated list of origins from environment
-        return [...localOrigins, ...process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())];
+    const envOrigins = process.env.ALLOWED_ORIGINS
+        ? process.env.ALLOWED_ORIGINS.split(',').map(normalizeOrigin).filter(Boolean)
+        : [];
+    const allowedOrigins = [...new Set([...localOrigins, ...envOrigins])];
+
+    if (!getCorsAllowedOrigins.logged) {
+        console.log('Parsed allowed origins:', allowedOrigins);
+        getCorsAllowedOrigins.logged = true;
     }
-    return localOrigins;
+
+    return allowedOrigins;
 };
 
 const corsOptions = {
@@ -43,6 +64,7 @@ const corsOptions = {
             // Allow all origins in development
             callback(null, true);
         } else {
+            console.warn('Blocked origin by CORS:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -53,6 +75,7 @@ const corsOptions = {
     maxAge: 86400 // 24 hours - cache preflight response
 };
 app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // ============================================
 // Security middleware (after CORS)
