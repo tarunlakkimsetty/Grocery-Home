@@ -2,6 +2,18 @@ const config = require('./config/config');
 const app = require('./app');
 const { testConnection, promisePool } = require('./config/db');
 
+const tableExists = async (tableName) => {
+        const [rows] = await promisePool.query(
+                `SELECT 1
+                 FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = DATABASE()
+                     AND TABLE_NAME = ?
+                 LIMIT 1`,
+                [tableName]
+        );
+        return rows.length > 0;
+};
+
 const runMigrationStep = async (label, fn) => {
     try {
         console.log(`Migration started: ${label}`);
@@ -13,7 +25,78 @@ const runMigrationStep = async (label, fn) => {
     }
 };
 
+const ensureUsersTable = async () => {
+    if (await tableExists('users')) {
+        return;
+    }
+
+    console.log('Creating users table...');
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            fullName VARCHAR(100) NOT NULL,
+            phone VARCHAR(15) UNIQUE NOT NULL,
+            place VARCHAR(100),
+            password VARCHAR(255) NOT NULL,
+            role ENUM('admin', 'customer') DEFAULT 'customer',
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+};
+
+const ensureOrdersTable = async () => {
+    if (await tableExists('orders')) {
+        return;
+    }
+
+    console.log('Creating orders table...');
+    const usersExist = await tableExists('users');
+
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS orders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            customerId INT NULL,
+            customerName VARCHAR(100),
+            phone VARCHAR(15),
+            place VARCHAR(100),
+            address TEXT,
+            orderType ENUM('Online', 'Offline') NOT NULL,
+            isVerified BOOLEAN DEFAULT FALSE,
+            isPaid BOOLEAN DEFAULT FALSE,
+            isDelivered BOOLEAN DEFAULT FALSE,
+            isArchived BOOLEAN DEFAULT FALSE,
+            status VARCHAR(50) DEFAULT 'Pending',
+            paymentStatus ENUM('Unpaid', 'Paid') DEFAULT 'Unpaid',
+            totalAmount DECIMAL(12,2) DEFAULT 0.00,
+            advanceAmount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+            orderDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            acceptedAt TIMESTAMP NULL,
+            verifiedAt TIMESTAMP NULL,
+            deliveredAt TIMESTAMP NULL,
+            INDEX idx_orders_customerId (customerId)
+            ${usersExist ? ', CONSTRAINT fk_orders_customerId_users FOREIGN KEY (customerId) REFERENCES users(id) ON DELETE SET NULL ON UPDATE RESTRICT' : ''}
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+};
+
+const ensureTableExistsIfPossible = async (tableName, createFn) => {
+    if (await tableExists(tableName)) return true;
+    try {
+        await createFn();
+        return await tableExists(tableName);
+    } catch (err) {
+        console.log(`! Could not create ${tableName}:`, String(err && err.message ? err.message : err));
+        return false;
+    }
+};
+
 const ensureOrdersStatusVarchar = async () => {
+    if (!(await tableExists('orders'))) {
+        console.log('! Skipping orders.status migration because orders table is missing');
+        return;
+    }
     try {
         await promisePool.query(`
             ALTER TABLE orders
@@ -30,6 +113,10 @@ const ensureOrdersStatusVarchar = async () => {
 };
 
 const ensureAdvanceAmountColumn = async () => {
+    if (!(await tableExists('orders'))) {
+        console.log('! Skipping orders.advanceAmount migration because orders table is missing');
+        return;
+    }
     try {
         await promisePool.query(
             'ALTER TABLE orders ADD COLUMN advanceAmount DECIMAL(12,2) NOT NULL DEFAULT 0.00'
@@ -48,6 +135,10 @@ const ensureAdvanceAmountColumn = async () => {
 };
 
 const ensurePaymentMethodColumn = async () => {
+    if (!(await tableExists('orders'))) {
+        console.log('! Skipping orders.paymentMethod migration because orders table is missing');
+        return;
+    }
     try {
         await promisePool.query(
             "ALTER TABLE orders ADD COLUMN paymentMethod ENUM('Cash','Card','UPI','Other') NULL DEFAULT NULL"
@@ -66,6 +157,10 @@ const ensurePaymentMethodColumn = async () => {
 };
 
 const ensureOrderPaymentHistoryTable = async () => {
+    if (!(await tableExists('orders')) || !(await tableExists('users'))) {
+        console.log('! Skipping order_payment_history table because orders/users table is missing');
+        return;
+    }
     try {
         await promisePool.query(`
             CREATE TABLE IF NOT EXISTS order_payment_history (
@@ -90,6 +185,10 @@ const ensureOrderPaymentHistoryTable = async () => {
 };
 
 const ensureOrderImagesTable = async () => {
+    if (!(await tableExists('users'))) {
+        console.log('! Skipping order_images table because users table is missing');
+        return;
+    }
     try {
         await promisePool.query(`
             CREATE TABLE IF NOT EXISTS order_images (
@@ -118,6 +217,10 @@ const ensureOrderImagesTable = async () => {
 };
 
 const ensureTypeOriginColumns = async () => {
+    if (!(await tableExists('orders'))) {
+        console.log('! Skipping orders.type/origin migrations because orders table is missing');
+        return;
+    }
     try {
         try {
             await promisePool.query(
@@ -173,12 +276,19 @@ const startServer = async () => {
     if (isConnected) {
         console.log('Migration started');
 
+        await runMigrationStep('ensureUsersTable', ensureUsersTable);
+        await runMigrationStep('ensureOrdersTable', ensureOrdersTable);
+
+        console.log('Running column migrations...');
+
         await runMigrationStep('ensureOrdersStatusVarchar', ensureOrdersStatusVarchar);
         await runMigrationStep('ensureAdvanceAmountColumn', ensureAdvanceAmountColumn);
         await runMigrationStep('ensurePaymentMethodColumn', ensurePaymentMethodColumn);
+        await runMigrationStep('ensureTypeOriginColumns', ensureTypeOriginColumns);
+
+        console.log('Creating dependent tables...');
         await runMigrationStep('ensureOrderPaymentHistoryTable', ensureOrderPaymentHistoryTable);
         await runMigrationStep('ensureOrderImagesTable', ensureOrderImagesTable);
-        await runMigrationStep('ensureTypeOriginColumns', ensureTypeOriginColumns);
 
         await runMigrationStep('backfillConvertedOrigins', async () => {
             const [columns] = await promisePool.query(
