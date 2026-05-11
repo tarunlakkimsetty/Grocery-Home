@@ -2,6 +2,17 @@ const config = require('./config/config');
 const app = require('./app');
 const { testConnection, promisePool } = require('./config/db');
 
+const runMigrationStep = async (label, fn) => {
+    try {
+        console.log(`Migration started: ${label}`);
+        await fn();
+        console.log(`Migration completed: ${label}`);
+    } catch (err) {
+        console.error(`Migration failed: ${label}`);
+        console.error(err && err.stack ? err.stack : err);
+    }
+};
+
 const ensureOrdersStatusVarchar = async () => {
     try {
         await promisePool.query(`
@@ -160,14 +171,16 @@ const startServer = async () => {
     }
 
     if (isConnected) {
-        await ensureOrdersStatusVarchar();
-        await ensureAdvanceAmountColumn();
-        await ensurePaymentMethodColumn();
-        await ensureOrderPaymentHistoryTable();
-        await ensureOrderImagesTable();
-        await ensureTypeOriginColumns();
+        console.log('Migration started');
 
-        try {
+        await runMigrationStep('ensureOrdersStatusVarchar', ensureOrdersStatusVarchar);
+        await runMigrationStep('ensureAdvanceAmountColumn', ensureAdvanceAmountColumn);
+        await runMigrationStep('ensurePaymentMethodColumn', ensurePaymentMethodColumn);
+        await runMigrationStep('ensureOrderPaymentHistoryTable', ensureOrderPaymentHistoryTable);
+        await runMigrationStep('ensureOrderImagesTable', ensureOrderImagesTable);
+        await runMigrationStep('ensureTypeOriginColumns', ensureTypeOriginColumns);
+
+        await runMigrationStep('backfillConvertedOrigins', async () => {
             const [columns] = await promisePool.query(
                 "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'type'"
             );
@@ -176,23 +189,24 @@ const startServer = async () => {
                 await promisePool.query("UPDATE orders SET origin = 'list_orders' WHERE `type` = 'list_converted' AND (origin IS NULL OR origin = '')");
                 console.log('✓ backfilled origin for list_converted orders');
             }
-        } catch (err) {
-            const msg = String(err && err.message ? err.message : err);
-            if (!msg.includes('Unknown column')) {
-                console.log('! Could not backfill converted origins:', msg);
-            }
-        }
+        });
+
+        console.log('Migration completed');
     }
 
-    app.listen(config.port, () => {
-        console.log(`✅ Server running in ${config.env} mode on port ${config.port}`);
-        console.log(`📝 API available at http://localhost:${config.port}/`);
-        if (isConnected) {
-            console.log('✓ Database: Connected');
-        } else {
-            console.log('⚠️  Database: Not connected');
-        }
-    });
+    try {
+        app.listen(config.port, () => {
+            console.log(`✅ Server running in ${config.env} mode on port ${config.port}`);
+            console.log(`📝 API available at http://localhost:${config.port}/`);
+            if (isConnected) {
+                console.log('✓ Database: Connected');
+            } else {
+                console.log('⚠️  Database: Not connected');
+            }
+        });
+    } catch (err) {
+        console.error('Server startup failed:', err && err.stack ? err.stack : err);
+    }
 };
 
 module.exports = { startServer };

@@ -343,6 +343,7 @@ const ensureCompatibilityViews = async () => {
 
 const runMigration = async () => {
     try {
+        console.log('Migration started');
         console.log('Running database schema verification and migration...');
 
         await createCoreTables();
@@ -495,9 +496,10 @@ const runMigration = async () => {
         await ensureCompatibilityViews();
 
         console.log('Schema verification completed successfully!');
+        console.log('Migration completed');
         process.exit(0);
     } catch (error) {
-        console.error('Migration failed:', error.message);
+        console.error('Migration failed:', error);
         process.exit(1);
     }
 };

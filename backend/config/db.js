@@ -16,15 +16,25 @@ const baseOptions = {
     queueLimit: 0
 };
 
-// Helper to create pool and promisePool
+// Helper to create pool and promisePool. Keep stable wrapper objects so destructured
+// imports stay usable even if we swap the underlying pool at runtime.
 let poolOptions = { ...baseOptions };
-let pool = mysql.createPool(poolOptions);
-let promisePool = pool.promise();
+let activePool = mysql.createPool(poolOptions);
+let activePromisePool = activePool.promise();
+
+const createPromisePoolWrapper = () => ({
+    query: (...args) => activePromisePool.query(...args),
+    execute: (...args) => activePromisePool.execute(...args),
+    getConnection: (...args) => activePromisePool.getConnection(...args),
+});
+
+const pool = createPromisePoolWrapper();
+const promisePool = createPromisePoolWrapper();
 
 const replacePool = (newOptions) => {
     poolOptions = { ...newOptions };
-    pool = mysql.createPool(poolOptions);
-    promisePool = pool.promise();
+    activePool = mysql.createPool(poolOptions);
+    activePromisePool = activePool.promise();
 };
 
 // Masked debug helper
@@ -92,4 +102,4 @@ const testConnection = async () => {
     }
 };
 
-module.exports = { getPool: () => pool, getPromisePool: () => promisePool, testConnection };
+module.exports = { pool, promisePool, getPool: () => pool, getPromisePool: () => promisePool, testConnection };

@@ -1,5 +1,5 @@
 const Product = require('../models/productModel');
-const { pool: db } = require('../config/db');
+const { promisePool } = require('../config/db');
 
 /**
  * @desc    Create new product
@@ -265,8 +265,22 @@ const deleteProduct = (req, res) => {
 
     const query = 'DELETE FROM products WHERE id = ?';
 
-    db.query(query, [productId], (err, result) => {
-        if (err) {
+    promisePool
+        .query(query, [productId])
+        .then(([result]) => {
+            if (result.affectedRows === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Product not found'
+                });
+            }
+
+            res.status(200).json({
+                success: true,
+                message: 'Product deleted successfully'
+            });
+        })
+        .catch((err) => {
             // Common case: product is referenced by order_items / bill_items
             if (err.code === 'ER_ROW_IS_REFERENCED_2') {
                 return res.status(409).json({
@@ -280,20 +294,7 @@ const deleteProduct = (req, res) => {
                 success: false,
                 message: 'Database delete failed'
             });
-        }
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Product not found'
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: 'Product deleted successfully'
         });
-    });
 };
 
 /**
