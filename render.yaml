@@ -29,3 +29,5 @@ services:
         value: 100
       - key: DB_CONNECTION_LIMIT
         value: 10
+      - key: ALLOWED_ORIGINS
+        value: https://grocery-home.vercel.app
