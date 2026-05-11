@@ -25,6 +25,38 @@ const runMigrationStep = async (label, fn) => {
     }
 };
 
+const addUsersColumnBestEffort = async (columnSql, columnNameForLogs) => {
+    try {
+        await promisePool.query(`ALTER TABLE users ADD COLUMN ${columnSql}`);
+        console.log(`✓ users.${columnNameForLogs} column ensured`);
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (msg.includes('Duplicate column')) return;
+        if (msg.includes("doesn't exist") || msg.includes('Unknown table')) return;
+        console.log(`! Could not ensure users.${columnNameForLogs} column:`, msg);
+    }
+};
+
+const ensureUsersRegistrationColumns = async () => {
+    if (!(await tableExists('users'))) {
+        console.log('! Skipping users registration columns migration because users table is missing');
+        return;
+    }
+
+    console.log('Running users registration column migrations...');
+
+    await addUsersColumnBestEffort('favoriteFood VARCHAR(100) DEFAULT NULL', 'favoriteFood');
+    await addUsersColumnBestEffort('favoritePlace VARCHAR(100) DEFAULT NULL', 'favoritePlace');
+    await addUsersColumnBestEffort('passwordResetAttempts INT DEFAULT 0', 'passwordResetAttempts');
+    await addUsersColumnBestEffort('passwordResetAttemptedAt TIMESTAMP NULL', 'passwordResetAttemptedAt');
+
+    // Legal agreement fields for compliance/audit tracking
+    await addUsersColumnBestEffort('agreedToPolicies BOOLEAN DEFAULT FALSE', 'agreedToPolicies');
+    await addUsersColumnBestEffort('agreedToTerms BOOLEAN DEFAULT FALSE', 'agreedToTerms');
+    await addUsersColumnBestEffort('agreedToPrivacy BOOLEAN DEFAULT FALSE', 'agreedToPrivacy');
+    await addUsersColumnBestEffort('legalAcceptedAt TIMESTAMP NULL', 'legalAcceptedAt');
+};
+
 const ensureUsersTable = async () => {
     if (await tableExists('users')) {
         return;
@@ -277,6 +309,7 @@ const startServer = async () => {
         console.log('Migration started');
 
         await runMigrationStep('ensureUsersTable', ensureUsersTable);
+        await runMigrationStep('ensureUsersRegistrationColumns', ensureUsersRegistrationColumns);
         await runMigrationStep('ensureOrdersTable', ensureOrdersTable);
 
         console.log('Running column migrations...');

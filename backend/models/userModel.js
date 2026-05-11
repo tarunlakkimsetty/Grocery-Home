@@ -3,6 +3,17 @@ const bcrypt = require('bcrypt');
 
 const SALT_ROUNDS = 10;
 
+const getUsersColumnSet = async () => {
+    const [columns] = await promisePool.query(
+        `SELECT COLUMN_NAME
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'users'`
+    );
+
+    return new Set((columns || []).map((c) => c.COLUMN_NAME));
+};
+
 const User = {
     /**
      * Find user by phone number
@@ -30,23 +41,94 @@ const User = {
      * Create new user with hashed password
      */
     create: async (userData) => {
-        const { fullName, phone, place, password, role = 'customer', favoriteFood, favoritePlace } = userData;
-        
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-        
-        const [result] = await promisePool.query(
-            'INSERT INTO users (fullName, phone, place, password, role, favoriteFood, favoritePlace) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [fullName, phone, place, hashedPassword, role, favoriteFood?.trim().toLowerCase() || null, favoritePlace?.trim().toLowerCase() || null]
-        );
-        
-        return {
-            id: result.insertId,
+        const {
             fullName,
             phone,
             place,
-            role
-        };
+            password,
+            role = 'customer',
+            favoriteFood,
+            favoritePlace,
+            agreedToPolicies,
+            agreedToTerms,
+            agreedToPrivacy,
+        } = userData;
+
+        try {
+            // Hash password
+            const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+            const usersColumns = await getUsersColumnSet();
+            const nameColumn = usersColumns.has('fullName') ? 'fullName' : (usersColumns.has('name') ? 'name' : null);
+
+            if (!nameColumn) {
+                throw new Error('users table is missing both fullName and name columns');
+            }
+
+            const insertColumns = [nameColumn, 'phone', 'password'];
+            const insertValues = [fullName, phone, hashedPassword];
+
+            if (usersColumns.has('place')) {
+                insertColumns.push('place');
+                insertValues.push(place || null);
+            }
+
+            if (usersColumns.has('role')) {
+                insertColumns.push('role');
+                insertValues.push(role);
+            }
+
+            if (usersColumns.has('favoriteFood')) {
+                insertColumns.push('favoriteFood');
+                insertValues.push(favoriteFood?.trim().toLowerCase() || null);
+            }
+
+            if (usersColumns.has('favoritePlace')) {
+                insertColumns.push('favoritePlace');
+                insertValues.push(favoritePlace?.trim().toLowerCase() || null);
+            }
+
+            if (usersColumns.has('agreedToPolicies')) {
+                insertColumns.push('agreedToPolicies');
+                insertValues.push(Boolean(agreedToPolicies));
+            }
+
+            if (usersColumns.has('agreedToTerms')) {
+                insertColumns.push('agreedToTerms');
+                insertValues.push(Boolean(agreedToTerms ?? agreedToPolicies));
+            }
+
+            if (usersColumns.has('agreedToPrivacy')) {
+                insertColumns.push('agreedToPrivacy');
+                insertValues.push(Boolean(agreedToPrivacy ?? agreedToPolicies));
+            }
+
+            if (usersColumns.has('legalAcceptedAt')) {
+                insertColumns.push('legalAcceptedAt');
+                insertValues.push(Boolean(agreedToPolicies) ? new Date() : null);
+            }
+
+            const placeholders = insertColumns.map(() => '?').join(', ');
+            const sql = `INSERT INTO users (${insertColumns.join(', ')}) VALUES (${placeholders})`;
+
+            const [result] = await promisePool.query(sql, insertValues);
+
+            return {
+                id: result.insertId,
+                fullName,
+                phone,
+                place,
+                role
+            };
+        } catch (error) {
+            console.error('User.create failed:', {
+                message: error?.message,
+                code: error?.code,
+                sqlMessage: error?.sqlMessage,
+                sqlState: error?.sqlState,
+            });
+            throw error;
+        }
     },
 
     /**

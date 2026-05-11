@@ -24,7 +24,17 @@ const generateToken = (user) => {
  */
 const register = async (req, res, next) => {
     try {
-        const { fullName, phone, place, password, favoriteFood, favoritePlace } = req.body;
+        const {
+            fullName,
+            phone,
+            place,
+            password,
+            favoriteFood,
+            favoritePlace,
+            agreedToPolicies,
+            agreedToTerms,
+            agreedToPrivacy,
+        } = req.body;
 
         // Validate required fields
         if (!fullName || !phone || !password || !favoriteFood || !favoritePlace) {
@@ -76,6 +86,9 @@ const register = async (req, res, next) => {
             password,
             favoriteFood,
             favoritePlace,
+            agreedToPolicies,
+            agreedToTerms,
+            agreedToPrivacy,
             role: 'customer'
         });
 
@@ -95,6 +108,22 @@ const register = async (req, res, next) => {
             }
         });
     } catch (error) {
+        console.error('Registration failed:', {
+            message: error?.message,
+            code: error?.code,
+            sqlMessage: error?.sqlMessage,
+            sqlState: error?.sqlState,
+            stack: error?.stack,
+            body: {
+                fullName: req.body?.fullName,
+                phone: req.body?.phone,
+                place: req.body?.place,
+                hasPassword: Boolean(req.body?.password),
+                favoriteFood: req.body?.favoriteFood,
+                favoritePlace: req.body?.favoritePlace,
+                agreedToPolicies: req.body?.agreedToPolicies,
+            }
+        });
         next(error);
     }
 };
