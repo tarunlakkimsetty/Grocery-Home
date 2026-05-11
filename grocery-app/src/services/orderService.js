@@ -12,8 +12,8 @@ let mockOrders = [
         place: 'Tatipaka',
         address: 'Kirana Street, Tatipaka, Razole Mandalam',
         items: [
-            { productId: 1, name: 'Basmati Rice (5kg)', price: 420, quantity: 2, total: 840 },
-            { productId: 7, name: 'Full Cream Milk (1L)', price: 62, quantity: 3, total: 186 },
+            { productId: 1, name: 'Basmati Rice (5kg)', price: 420, quantity: 2, total: 840, stock: 100 },
+            { productId: 7, name: 'Full Cream Milk (1L)', price: 62, quantity: 3, total: 186, stock: 50 },
         ],
         grandTotal: 1026,
         advanceAmount: 0,
@@ -30,8 +30,8 @@ let mockOrders = [
         place: 'Tatipaka',
         address: 'Kirana Street, Tatipaka, Razole Mandalam',
         items: [
-            { productId: 19, name: 'Turmeric Powder (200g)', price: 55, quantity: 2, total: 110 },
-            { productId: 25, name: 'Sunflower Oil (1L)', price: 145, quantity: 1, total: 145 },
+            { productId: 19, name: 'Turmeric Powder (200g)', price: 55, quantity: 2, total: 110, stock: 200 },
+            { productId: 25, name: 'Sunflower Oil (1L)', price: 145, quantity: 1, total: 145, stock: 30 },
         ],
         grandTotal: 255,
         advanceAmount: 0,
@@ -54,6 +54,37 @@ const findMockOrderById = (orderId) => {
     const id = parseInt(orderId);
     return mockOrders.find((o) => o.id === id) || mockOfflineOrders.find((o) => o.id === id);
 };
+
+const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+const isConvertedListOrder = (order) => {
+    const status = normalizeText(order?.status);
+    const type = normalizeText(order?.type);
+    const origin = normalizeText(order?.origin);
+    return status === 'converted' || type === 'list_converted' || origin === 'list_orders';
+};
+
+const mergeOrdersById = (orderGroups) => {
+    const merged = new Map();
+
+    orderGroups.forEach((group) => {
+        if (!Array.isArray(group)) return;
+        group.forEach((order) => {
+            if (!order || order.id == null) return;
+            if (!merged.has(order.id)) {
+                merged.set(order.id, order);
+            }
+        });
+    });
+
+    return Array.from(merged.values());
+};
+
+const sortOrdersByDateDesc = (orders) => [...orders].sort((left, right) => {
+    const leftTime = new Date(left?.orderDate || left?.createdAt || left?.updatedAt || 0).getTime();
+    const rightTime = new Date(right?.orderDate || right?.createdAt || right?.updatedAt || 0).getTime();
+    return rightTime - leftTime;
+});
 
 // ============================================================
 // Order Service
@@ -143,27 +174,45 @@ const orderService = {
     },
 
     // Customer: fetch updated orders (final verified view)
-    // API: GET /api/orders/customer/:customerId
-    getCustomerOrders: async (customerId) => {
+    // API: GET /api/orders/customer/:customerId?view=active|bills
+    getCustomerOrders: async (customerId, view = 'active') => {
         try {
-            const response = await axiosInstance.get('/orders/customer/' + customerId);
+            const response = await axiosInstance.get('/orders/customer/' + customerId, {
+                params: { view }
+            });
             return response.data;
         } catch {
             // Fallback to existing mock/user endpoint behavior
             return mockOrders
                 .filter((o) => o.userId === customerId)
+                .filter((o) => {
+                    if (String(view || '').trim().toLowerCase() === 'bills') {
+                        const status = String(o.status || '').trim().toLowerCase();
+                        return status === 'completed' || status === 'rejected';
+                    }
+                    const status = String(o.status || '').trim().toLowerCase();
+                    return status !== 'completed' && status !== 'rejected';
+                })
                 .sort((a, b) => new Date(b.date) - new Date(a.date));
         }
     },
 
     // Customer: get offline orders for the logged-in user
-    // API: GET /api/user/offline-orders
-    getUserOfflineOrders: async () => {
+    // API: GET /api/user/offline-orders?view=active|bills
+    getUserOfflineOrders: async (view = 'active') => {
         try {
-            const response = await axiosInstance.get('/user/offline-orders');
+            const response = await axiosInstance.get('/user/offline-orders', {
+                params: { view }
+            });
             return response.data;
         } catch {
             // No mock fallback to avoid leaking/mixing offline data.
+            if (String(view || '').trim().toLowerCase() === 'bills') {
+                return { success: true, orders: mockOfflineOrders.filter((o) => {
+                    const status = String(o.status || '').trim().toLowerCase();
+                    return status === 'completed' || status === 'rejected';
+                }) };
+            }
             return { success: true, orders: [] };
         }
     },
@@ -183,17 +232,34 @@ const orderService = {
     // Admin: get converted list orders (active)
     getConvertedOrders: async (search) => {
         try {
-            const response = await axiosInstance.get('/orders/admin', {
-                params: {
-                    type: 'list_converted',
-                    origin: 'list_orders',
-                    view: 'active',
-                    search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
-                },
-            });
-            const data = response.data;
-            if (Array.isArray(data)) return data;
-            return data?.orders || data?.data?.orders || data?.data || [];
+            const searchValue = typeof search === 'string' && search.trim() ? search.trim() : undefined;
+            const [convertedByType, convertedByOrigin] = await Promise.all([
+                axiosInstance.get('/orders/admin', {
+                    params: {
+                        type: 'list_converted',
+                        view: 'active',
+                        search: searchValue,
+                    },
+                }),
+                axiosInstance.get('/orders/admin', {
+                    params: {
+                        origin: 'list_orders',
+                        view: 'active',
+                        search: searchValue,
+                    },
+                }),
+            ]);
+
+            const typeOrders = Array.isArray(convertedByType.data)
+                ? convertedByType.data
+                : convertedByType.data?.orders || convertedByType.data?.data?.orders || convertedByType.data?.data || [];
+            const originOrders = Array.isArray(convertedByOrigin.data)
+                ? convertedByOrigin.data
+                : convertedByOrigin.data?.orders || convertedByOrigin.data?.data?.orders || convertedByOrigin.data?.data || [];
+
+            return sortOrdersByDateDesc(
+                mergeOrdersById([typeOrders, originOrders]).filter(isConvertedListOrder)
+            );
         } catch {
             return [];
         }
@@ -202,17 +268,37 @@ const orderService = {
     // Admin: get converted list orders that are completed (bills)
     getConvertedBills: async (search) => {
         try {
-            const response = await axiosInstance.get('/orders/admin', {
-                params: {
-                    type: 'list_converted',
-                    origin: 'list_orders',
-                    view: 'bills',
-                    search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
-                },
-            });
-            const data = response.data;
-            if (Array.isArray(data)) return data;
-            return data?.orders || data?.data?.orders || data?.data || [];
+            const searchValue = typeof search === 'string' && search.trim() ? search.trim() : undefined;
+            const [convertedByType, convertedByOrigin] = await Promise.all([
+                axiosInstance.get('/orders/admin', {
+                    params: {
+                        type: 'list_converted',
+                        view: 'bills',
+                        search: searchValue,
+                    },
+                }),
+                axiosInstance.get('/orders/admin', {
+                    params: {
+                        origin: 'list_orders',
+                        view: 'bills',
+                        search: searchValue,
+                    },
+                }),
+            ]);
+
+            const typeOrders = Array.isArray(convertedByType.data)
+                ? convertedByType.data
+                : convertedByType.data?.orders || convertedByType.data?.data?.orders || convertedByType.data?.data || [];
+            const originOrders = Array.isArray(convertedByOrigin.data)
+                ? convertedByOrigin.data
+                : convertedByOrigin.data?.orders || convertedByOrigin.data?.data?.orders || convertedByOrigin.data?.data || [];
+
+            return sortOrdersByDateDesc(
+                mergeOrdersById([typeOrders, originOrders]).filter((order) => {
+                    const status = normalizeText(order?.status);
+                    return isConvertedListOrder(order) && (status === 'completed' || status === 'rejected');
+                })
+            );
         } catch {
             return [];
         }
@@ -273,10 +359,26 @@ const orderService = {
         };
 
         try {
+            try {
+                const printResponse = await axiosInstance.get('/orders/' + orderId + '/print');
+                if (printResponse?.data?.bill) {
+                    const printableItems = Array.isArray(printResponse.data.bill.items) ? printResponse.data.bill.items : [];
+                    if (printableItems.length > 0) {
+                        return printResponse.data;
+                    }
+                }
+            } catch {
+                // continue to the regular order fetch and mock fallback
+            }
+
             const response = await axiosInstance.get('/orders/' + orderId);
             const apiOrder = response?.data?.order || response?.data;
             if (apiOrder) {
-                return mapOrderToPrintableBill(apiOrder);
+                const printable = mapOrderToPrintableBill(apiOrder);
+                if (Array.isArray(printable?.bill?.items) && printable.bill.items.length > 0) {
+                    return printable;
+                }
+                return printable;
             }
         } catch {
             try {
@@ -291,6 +393,92 @@ const orderService = {
 
             return mapOrderToPrintableBill(order);
         }
+    },
+
+    // Customer: get printable bill data for own order
+    // API: GET /api/orders/customer/:id/print
+    getCustomerPrintableBill: async (orderId, sourceOrder = null) => {
+        const mapOrderToPrintableBill = (order) => {
+            const safeOrder = order || {};
+            const items = Array.isArray(safeOrder.items)
+                ? safeOrder.items.map((item) => {
+                    const quantity = Number(item?.quantity || 0) || 0;
+                    const price = Number(item?.price || 0) || 0;
+                    const subtotal = Number(item?.subtotal || item?.total || quantity * price || 0) || 0;
+                    return {
+                        productId: item?.productId,
+                        productName: item?.name || item?.productName || '',
+                        quantity,
+                        price,
+                        subtotal,
+                    };
+                })
+                : [];
+
+            const computedTotal = items.reduce((sum, item) => sum + (Number(item?.subtotal || 0) || 0), 0);
+            const totalAmount = Number(safeOrder.totalAmount ?? safeOrder.grandTotal ?? computedTotal ?? 0) || 0;
+            const advanceAmount = Number(safeOrder.advanceAmount || 0) || 0;
+
+            return {
+                success: true,
+                bill: {
+                    shop: {
+                        name: 'Om Sri Satya Sai Rama Kirana And General Merchants',
+                        address: 'Kirana Street, Tatipaka, Razole Mandalam, Dr. B.R. Ambedkar Konaseema District',
+                        phone: '9441754505',
+                        gst: null,
+                    },
+                    order: {
+                        id: safeOrder.id,
+                        orderType: safeOrder.orderType || 'Online',
+                        orderDate: safeOrder.orderDate || safeOrder.date || safeOrder.createdAt || new Date().toISOString(),
+                        status: safeOrder.status || 'Pending',
+                        paymentStatus: safeOrder.paymentStatus || 'Unpaid',
+                        customerName: safeOrder.customerName || '',
+                        customerPhone: safeOrder.phone || safeOrder.customerPhone || '',
+                        customerAddress: safeOrder.address || '',
+                        place: safeOrder.place || '',
+                    },
+                    items,
+                    totals: {
+                        totalAmount,
+                        advanceAmount,
+                        remainingBalance: totalAmount - advanceAmount,
+                    },
+                },
+            };
+        };
+
+        try {
+            const printResponse = await axiosInstance.get('/orders/customer/' + orderId + '/print');
+            if (printResponse?.data?.bill) {
+                const printableItems = Array.isArray(printResponse.data.bill.items) ? printResponse.data.bill.items : [];
+                if (printableItems.length > 0) {
+                    return printResponse.data;
+                }
+            }
+        } catch (error) {
+            const status = error?.response?.status;
+            if (status === 403) {
+                throw error;
+            }
+            if (status === 404 && sourceOrder) {
+                return mapOrderToPrintableBill(sourceOrder);
+            }
+            if (sourceOrder) {
+                return mapOrderToPrintableBill(sourceOrder);
+            }
+            throw error;
+        }
+
+        if (sourceOrder) {
+            return mapOrderToPrintableBill(sourceOrder);
+        }
+
+        const order = findMockOrderById(orderId);
+        if (!order) throw new Error('Order not found');
+
+        return mapOrderToPrintableBill(order);
     },
 
     // Admin: mark order as Verified
@@ -532,6 +720,10 @@ const orderService = {
         } catch {
             const nowIso = new Date().toISOString();
             const orderDate = payload.orderDate || nowIso;
+            const normalizedStatus = String(payload.status || 'Pending').trim() || 'Pending';
+            const normalizedPaymentStatus = String(payload.paymentStatus || '').trim().toLowerCase() === 'paid'
+                ? 'Paid'
+                : (String(payload.paymentStatus || '').trim().toLowerCase() === 'pending' ? 'Unpaid' : 'Unpaid');
             const newOrder = {
                 id: offlineOrderNextId++,
                 customerName: payload.customerName,
@@ -542,8 +734,8 @@ const orderService = {
                 grandTotal: payload.totalAmount || 0,
                 advanceAmount: 0,
                 paymentType: 'Cash',
-                paymentStatus: payload.status === 'Paid' ? 'Paid' : 'Pending Payment',
-                status: payload.status || 'Pending',
+                paymentStatus: normalizedPaymentStatus,
+                status: normalizedStatus,
                 orderType: payload.orderType || 'Offline',
                 // Backend should return `orderDate`; keep `date` for compatibility with existing code.
                 orderDate: orderDate,
@@ -603,6 +795,29 @@ const orderService = {
                 order.grandTotal = grandTotal;
             }
             return order;
+        }
+    },
+
+    // === LIST ORDERS WORKFLOW: STRICT SEPARATION ===
+
+    // Get list orders converted (active)
+    // Filter by the list-order workflow metadata so the page shows converted
+    // list orders without mixing in regular orders.
+    getListOrdersConverted: async (search) => {
+        try {
+            return await orderService.getConvertedOrders(search);
+        } catch {
+            return [];
+        }
+    },
+
+    // Get list order bills (completed or rejected converted orders)
+    // Filter: origin='list_orders' AND type='list_converted' AND (status='completed' OR status='rejected')
+    getListOrderBills: async (search) => {
+        try {
+            return await orderService.getConvertedBills(search);
+        } catch {
+            return [];
         }
     },
 };

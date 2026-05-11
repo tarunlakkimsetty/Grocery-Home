@@ -19,6 +19,8 @@ import AdminCustomerDetailsPage from '../pages/AdminCustomerDetailsPage';
 import AdminCustomerViewPage from '../pages/AdminCustomerViewPage';
 import ListOrdersUploadPage from '../pages/ListOrdersUploadPage';
 import AdminListOrdersPage from '../pages/AdminListOrdersPage';
+import AdminListOrdersConvertedPage from '../pages/AdminListOrdersConvertedPage';
+import AdminListOrderBillsPage from '../pages/AdminListOrderBillsPage';
 import PrivacyPolicyPage from '../pages/PrivacyPolicyPage';
 import TermsConditionsPage from '../pages/TermsConditionsPage';
 import ContactPage from '../pages/ContactPage';
@@ -165,6 +167,24 @@ class AppRoutes extends React.Component {
                     element={
                         <RoleBasedRoute allowedRoles={['admin']}>
                             <AdminListOrdersPage />
+                        </RoleBasedRoute>
+                    }
+                />
+
+                <Route
+                    path="/admin/list-orders-converted"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminListOrdersConvertedPage />
+                        </RoleBasedRoute>
+                    }
+                />
+
+                <Route
+                    path="/admin/list-order-bills"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminListOrderBillsPage />
                         </RoleBasedRoute>
                     }
                 />

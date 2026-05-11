@@ -4,10 +4,7 @@ import {
   supportsDecimal,
   getMinQuantity,
   getInputStep,
-  validateQuantity,
-  formatQuantity,
-  getNextQuantity,
-  getPreviousQuantity
+  validateQuantity
 } from '../utils/quantityValidator';
 
 const Container = styled.div`
@@ -193,11 +190,21 @@ const QuantityControl = React.forwardRef(({
       onChange(validation.correctedValue);
     } else {
       setError(validation.message);
-      // Auto-correct after brief delay if user stops typing
-      setTimeout(() => {
-        const corrected = formatQuantity(inputStr, unit);
-        onChange(corrected);
-      }, 1500);
+
+      // If the invalid value is above the stock limit, clamp immediately.
+      if (validation.correctedValue !== Number(inputStr)) {
+        setInputValue(String(validation.correctedValue));
+        onChange(validation.correctedValue);
+      }
+    }
+  };
+
+  const handleInputBlur = () => {
+    const validation = validateQuantity(inputValue, { unit, stock });
+    if (!validation.isValid) {
+      setError(validation.message);
+      setInputValue(String(validation.correctedValue));
+      onChange(validation.correctedValue);
     }
   };
 
@@ -213,17 +220,14 @@ const QuantityControl = React.forwardRef(({
     }
   };
 
+  const numericStock = Number(stock || 0);
+  const numericValue = Number(value || 0);
   const min = getMinQuantity(unit);
-  const allowsDecimal = supportsDecimal(unit);
   const step = getInputStep(unit);
-  const isAtMax = value >= stock;
-  const isLowStock = stock > 0 && stock <= 3;
-  const isAtMin = value <= min;
-  const remainingStock = Math.max(0, stock - value);
-
-  const displayValue = allowsDecimal
-    ? (value ? value.toFixed(1) : '')
-    : Math.round(value || 0);
+  const isAtMax = numericValue >= numericStock;
+  const isLowStock = numericStock > 0 && numericStock <= 3;
+  const isAtMin = numericValue <= min;
+  const remainingStock = Math.max(0, numericStock - numericValue);
 
   return (
     <Container ref={ref} title={title}>
@@ -244,8 +248,9 @@ const QuantityControl = React.forwardRef(({
           className="qty-input"
           value={inputValue}
           onChange={handleInputChange}
+          onBlur={handleInputBlur}
           min={min}
-          max={stock}
+          max={numericStock}
           step={step}
           disabled={disabled}
           aria-label={`Quantity in ${unit}`}
@@ -275,7 +280,7 @@ const QuantityControl = React.forwardRef(({
       {showStockWarning && (
         <StockIndicator $isLowStock={isLowStock} $isMaxed={isAtMax} $isMin={isAtMin}>
           {isAtMax ? (
-            <span>⚠️ Max: {stock} {unit}</span>
+            <span>⚠️ Maximum available stock reached</span>
           ) : remainingStock < 5 && remainingStock > 0 ? (
             <span>📦 Only {remainingStock} {unit} left</span>
           ) : remainingStock > 0 ? (

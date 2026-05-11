@@ -15,6 +15,12 @@ const normalizePaymentMethod = (raw) => {
     return 'Other';
 };
 
+const normalizePhone = (phone) => {
+    if (!phone) return null;
+    const digits = String(phone || '').replace(/\D/g, '');
+    return digits.length === 10 ? digits : null;
+};
+
 const SHOP_INFO = {
     name: process.env.SHOP_NAME || 'Om Sri Satya Sai Rama Kirana And General Merchants',
     address:
@@ -40,7 +46,9 @@ const createOnlineOrder = async (req, res, next) => {
             address,
             items,
             totalAmount: providedTotalAmount,
-            paymentMethod
+            paymentMethod,
+            status,
+            paymentStatus
         } = req.body || {};
 
         const safeItems = Array.isArray(items) ? items : [];
@@ -170,6 +178,7 @@ const createOnlineOrder = async (req, res, next) => {
 const getCustomerOrders = async (req, res, next) => {
     try {
         const { id } = req.params;
+        const view = String(req.query.view || 'active').trim().toLowerCase();
 
         // Check authorization (customer can only view own orders)
         if (req.user.role !== 'admin' && req.user.id !== parseInt(id)) {
@@ -179,7 +188,7 @@ const getCustomerOrders = async (req, res, next) => {
             });
         }
 
-        const orders = await Order.findByCustomerId(id);
+        const orders = await Order.findByCustomerId(id, { view });
 
         res.status(200).json({
             success: true,
@@ -404,7 +413,8 @@ const getOrder = async (req, res, next) => {
                 oi.price,
                 (oi.quantity * oi.price) AS subtotal,
                 (oi.quantity * oi.price) AS total,
-                oi.isSelected
+                oi.isSelected,
+                p.stock AS stock
             FROM order_items oi
             LEFT JOIN products p ON oi.productId = p.id
             WHERE oi.orderId = ?
@@ -424,6 +434,7 @@ const getOrder = async (req, res, next) => {
                 total: Number(it?.total || subtotal || 0) || 0,
                 // Compatibility: existing admin order modals also read `name`
                 name: it?.productName,
+                stock: Number(it?.stock || 0) || 0,
             };
         });
 
@@ -510,6 +521,126 @@ const getOrderPrintData = async (req, res, next) => {
         }
 
         const order = orderRows[0];
+
+        const [items] = await promisePool.query(
+            `
+            SELECT
+                oi.id,
+                oi.productId,
+                COALESCE(p.name, oi.productName) AS productName,
+                oi.quantity,
+                oi.price,
+                (oi.quantity * oi.price) AS subtotal,
+                (oi.quantity * oi.price) AS total
+            FROM order_items oi
+            LEFT JOIN products p ON oi.productId = p.id
+            WHERE oi.orderId = ?
+            ORDER BY oi.id ASC
+            `,
+            [orderId]
+        );
+
+        const normalizedItems = (Array.isArray(items) ? items : []).map((item) => {
+            const quantity = Number(item?.quantity || 0) || 0;
+            const price = Number(item?.price || 0) || 0;
+            const subtotal = Number(item?.subtotal || quantity * price || 0) || 0;
+            return {
+                productId: item?.productId,
+                productName: item?.productName || '',
+                quantity,
+                price,
+                subtotal,
+            };
+        });
+
+        const computedTotal = normalizedItems.reduce((sum, item) => sum + (Number(item?.subtotal || 0) || 0), 0);
+        const totalAmount = Number(order?.totalAmount || 0) > 0 ? Number(order.totalAmount) : computedTotal;
+        const advanceAmountRaw = Number(order?.advanceAmount || 0);
+        const advanceAmount = Number.isFinite(advanceAmountRaw) ? advanceAmountRaw : 0;
+        const remainingBalance = Number(totalAmount || 0) - Number(advanceAmount || 0);
+
+        res.status(200).json({
+            success: true,
+            bill: {
+                shop: {
+                    name: SHOP_INFO.name,
+                    address: SHOP_INFO.address,
+                    phone: SHOP_INFO.phone,
+                    gst: SHOP_INFO.gst || null,
+                },
+                order: {
+                    id: order.id,
+                    orderType: order.orderType,
+                    orderDate: order.orderDate || order.createdAt || order.updatedAt || null,
+                    status: order.status || 'Pending',
+                    paymentStatus: order.paymentStatus || 'Unpaid',
+                    paymentMethod: order.paymentMethod || 'Cash',
+                    customerName: order.customerName || '',
+                    customerPhone: order.phone || order.customerPhone || '',
+                    customerAddress: order.address || '',
+                    place: order.place || '',
+                },
+                items: normalizedItems,
+                totals: {
+                    totalAmount,
+                    advanceAmount,
+                    remainingBalance,
+                },
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Get printable bill data for a customer-owned order
+ * @route   GET /api/orders/customer/:id/print
+ * @access  Customer (own order) or Admin
+ */
+const getCustomerOrderPrintData = async (req, res, next) => {
+    try {
+        const orderId = req.params.id;
+
+        const [orderRows] = await promisePool.query(
+            `
+            SELECT
+                o.*, 
+                COALESCE(NULLIF(NULLIF(o.phone, ''), '0000000000'), u.phone) AS phone
+            FROM orders o
+            LEFT JOIN users u ON o.customerId = u.id
+            WHERE o.id = ?
+            `,
+            [orderId]
+        );
+
+        if (!orderRows.length) {
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found',
+            });
+        }
+
+        const order = orderRows[0];
+        const isCustomer = req.user.role !== 'admin';
+        const orderCustomerId = Number(order.customerId || 0) || null;
+        const userId = Number(req.user.id || 0) || null;
+
+        let userPhone = normalizePhone(req.user.phone || null);
+        if (!userPhone) {
+            const dbUser = await User.findById(userId);
+            userPhone = normalizePhone(dbUser?.phone || null);
+        }
+
+        const orderPhone = normalizePhone(order.phone || order.customerPhone || null);
+        const isOfflineMatch = String((order.orderType || '').trim()).toLowerCase() === 'offline' && userPhone && orderPhone && userPhone === orderPhone;
+
+        if (isCustomer && userId !== orderCustomerId && !isOfflineMatch) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized to print this order',
+            });
+        }
 
         const [items] = await promisePool.query(
             `
@@ -911,7 +1042,26 @@ const addItemToOrder = async (req, res, next) => {
  */
 const createOfflineOrder = async (req, res, next) => {
     try {
-        const { customerName, phone, place, address, items, paymentMethod } = req.body;
+        const {
+            customerName,
+            phone,
+            place,
+            address,
+            items,
+            paymentMethod,
+            type,
+            origin,
+            status,
+            paymentStatus,
+        } = req.body;
+
+        const normalizedType = String(type || '').trim().toLowerCase();
+        const normalizedOrigin = String(origin || '').trim().toLowerCase();
+        const isListConvertedWorkflow = normalizedType === 'list_converted' || normalizedOrigin === 'list_orders';
+        const initialStatus = isListConvertedWorkflow ? 'Pending' : (String(status || '').trim() || 'Pending');
+        const initialPaymentStatus = isListConvertedWorkflow
+            ? 'Unpaid'
+            : (String(paymentStatus || '').trim().toLowerCase() === 'paid' ? 'Paid' : 'Unpaid');
 
         const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod) || 'Cash';
 
@@ -955,6 +1105,7 @@ const createOfflineOrder = async (req, res, next) => {
         }
 
         // Create order
+        // Support optional type/origin for list-converted workflow
         const order = await Order.createOfflineOrder(
             {
                 customerName,
@@ -963,6 +1114,10 @@ const createOfflineOrder = async (req, res, next) => {
                 address,
                 totalAmount,
                 paymentMethod: normalizedPaymentMethod,
+                type: isListConvertedWorkflow ? 'list_converted' : (type || null),
+                origin: isListConvertedWorkflow ? 'list_orders' : (origin || null),
+                status: initialStatus,
+                paymentStatus: initialPaymentStatus,
             },
             orderItems
         );
@@ -970,7 +1125,12 @@ const createOfflineOrder = async (req, res, next) => {
         res.status(201).json({
             success: true,
             message: 'Offline order created successfully',
-            order
+            order: {
+                ...order,
+                items: orderItems,
+                status: order?.status || initialStatus,
+                paymentStatus: order?.paymentStatus || initialPaymentStatus,
+            }
         });
     } catch (error) {
         next(error);
@@ -1050,4 +1210,5 @@ module.exports = {
     createOfflineOrder,
     getOfflineOrders,
     getOrderPrintData,
+    getCustomerOrderPrintData,
 };

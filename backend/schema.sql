@@ -105,6 +105,24 @@ CREATE TABLE IF NOT EXISTS bill_items (
         FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS order_images (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    entityType ENUM('order', 'bill') NOT NULL,
+    entityId INT NOT NULL,
+    orderType VARCHAR(50) NULL,
+    imagePath VARCHAR(255) NOT NULL,
+    originalName VARCHAR(255) NULL,
+    mimeType VARCHAR(100) NULL,
+    sizeBytes INT NOT NULL DEFAULT 0,
+    uploadedBy INT NULL,
+    uploadedByRole VARCHAR(20) NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_order_images_entity (entityType, entityId),
+    INDEX idx_order_images_uploadedBy (uploadedBy),
+    CONSTRAINT fk_order_images_uploadedBy_users
+        FOREIGN KEY (uploadedBy) REFERENCES users(id) ON DELETE SET NULL ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 ALTER TABLE products ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT 'pack';
 ALTER TABLE products ADD COLUMN IF NOT EXISTS emoji VARCHAR(10) DEFAULT '📦';
 
@@ -123,6 +141,8 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS deliveredAt TIMESTAMP NULL;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS isSelected BOOLEAN DEFAULT TRUE;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS total DECIMAL(12,2);
 ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS total DECIMAL(12,2);
+ALTER TABLE order_images ADD COLUMN IF NOT EXISTS orderType VARCHAR(50) NULL;
+ALTER TABLE order_images ADD COLUMN IF NOT EXISTS uploadedByRole VARCHAR(20) NULL;
 
 ALTER TABLE orders MODIFY COLUMN status VARCHAR(50) DEFAULT 'Pending';
 ALTER TABLE orders MODIFY COLUMN totalAmount DECIMAL(12,2) DEFAULT 0.00;
@@ -142,6 +162,8 @@ CREATE INDEX IF NOT EXISTS idx_bills_userId ON bills(userId);
 CREATE INDEX IF NOT EXISTS idx_bills_createdAt ON bills(createdAt);
 CREATE INDEX IF NOT EXISTS idx_bill_items_billId ON bill_items(billId);
 CREATE INDEX IF NOT EXISTS idx_bill_items_productId ON bill_items(productId);
+CREATE INDEX IF NOT EXISTS idx_order_images_entity ON order_images(entityType, entityId);
+CREATE INDEX IF NOT EXISTS idx_order_images_uploadedBy ON order_images(uploadedBy);
 
 INSERT INTO users (fullName, phone, place, password, role)
 SELECT 'Admin User', '9441754505', 'Palakollu', '$2b$10$QGqNPQ65FkTjD4qz5L/GOedtLj0ReolwlP1iRXu1jyXcLdSVtcnzO', 'admin'

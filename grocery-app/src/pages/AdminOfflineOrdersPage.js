@@ -1,7 +1,7 @@
 import React from 'react';
 import LanguageContext from '../context/LanguageContext';
 import QuantityControl from '../components/QuantityControl';
-import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';
+import { getNextQuantity, getPreviousQuantity, validateQuantity } from '../utils/quantityValidator';
 import orderService from '../services/orderService';
 import productService from '../services/productService';
 import Spinner from '../components/Spinner';
@@ -76,48 +76,6 @@ const SectionTitle = styled.h6`
     color: #6c757d;
     margin-bottom: 0.6rem;
     margin-top: 0;
-`;
-
-const QtyControl = styled.div`
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-
-    .qty-btn {
-        width: 24px;
-        height: 24px;
-        border: 1px solid #ced4da;
-        background: white;
-        border-radius: 4px;
-        font-size: 0.9rem;
-        font-weight: 700;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        line-height: 1;
-        transition: all 0.15s;
-        color: #495057;
-
-        &:hover:not(:disabled) {
-            background: #e9ecef;
-            border-color: #adb5bd;
-        }
-
-        &:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-    }
-
-    .qty-value {
-        min-width: 28px;
-        text-align: center;
-        font-weight: 700;
-        font-size: 0.875rem;
-        color: #212529;
-    }
 `;
 
 const TotalBar = styled.div`
@@ -489,8 +447,8 @@ class AdminOfflineOrdersPage extends React.Component {
                 errorKey: null,
                 loading: false,
                 isLoading: false,
-                // Reset all checkbox selections after reloading data
-                checkedItems: {},
+                // DO NOT reset checkedItems - preserve selections for open modal (especially after Mark Paid/Delivered)
+                // When modal closes and reopens, openModal will restore from DB isSelected flags
             });
         } catch (err) {
             this.setState({ errorKey: 'failedToLoadOfflineOrders', loading: false, isLoading: false });
@@ -504,6 +462,8 @@ class AdminOfflineOrdersPage extends React.Component {
         const statusRaw = String(order?.status || '').trim();
         const statusLower = statusRaw.toLowerCase();
         const paymentStatusLower = String(order?.paymentStatus || '').trim().toLowerCase();
+        const typeLower = String(order?.type || '').trim().toLowerCase();
+        const isConvertedWorkflow = statusLower === 'converted' || typeLower === 'list_converted';
 
         const isLocked =
             Boolean(order?.isPaid) ||
@@ -513,6 +473,8 @@ class AdminOfflineOrdersPage extends React.Component {
             statusLower === 'mark paid';
 
         if (isLocked) return false;
+
+        if (isConvertedWorkflow) return true;
 
         const allowed = new Set(['pending', 'confirmed', 'processing', 'verified', 'delivered']);
         return allowed.has(statusLower);
@@ -663,6 +625,8 @@ class AdminOfflineOrdersPage extends React.Component {
         const statusRaw = String(order?.status || '').trim();
         const statusLower = statusRaw.toLowerCase();
         const paymentStatusLower = String(order?.paymentStatus || '').trim().toLowerCase();
+        const typeLower = String(order?.type || '').trim().toLowerCase();
+        const isConvertedWorkflow = statusLower === 'converted' || typeLower === 'list_converted';
 
         const isLocked =
             Boolean(order?.isPaid) ||
@@ -672,6 +636,8 @@ class AdminOfflineOrdersPage extends React.Component {
             statusLower === 'mark paid';
 
         if (isLocked) return false;
+
+        if (isConvertedWorkflow) return true;
 
         const allowed = new Set(['pending', 'confirmed', 'processing', 'verified', 'delivered']);
         return allowed.has(statusLower);
@@ -853,6 +819,7 @@ class AdminOfflineOrdersPage extends React.Component {
     };
 
     getStatusBadgeClass = (status) => {
+        const normalized = String(status || '').trim().toLowerCase();
         const map = {
             Pending: 'badge-warning',
             Verified: 'badge-info',
@@ -860,18 +827,70 @@ class AdminOfflineOrdersPage extends React.Component {
             Delivered: 'badge-success',
             Completed: 'badge-success',
             Rejected: 'badge-danger',
+            converted: 'badge-info',
         };
-        return map[status] || 'badge-warning';
+        return map[status] || map[normalized] || 'badge-warning';
     };
 
     getStatusIcon = (status) => {
-        if (status === 'Pending') return '⏳';
-        if (status === 'Verified') return '✅';
-        if (status === 'Paid') return '💳';
-        if (status === 'Delivered') return '📦';
-        if (status === 'Completed') return '🏁';
-        if (status === 'Rejected') return '❌';
+        const normalized = String(status || '').trim().toLowerCase();
+        if (normalized === 'pending') return '⏳';
+        if (normalized === 'verified') return '✅';
+        if (normalized === 'paid') return '💳';
+        if (normalized === 'delivered') return '📦';
+        if (normalized === 'completed') return '🏁';
+        if (normalized === 'rejected') return '❌';
+        if (normalized === 'converted') return '🔄';
         return '';
+    };
+
+    getNormalizedStatus = (status) => String(status || '').trim().toLowerCase();
+
+    getPageTitle = () => '🧾 Offline Orders';
+
+    getPageCountLabel = () => 'offline order(s)';
+
+    getPageSubtitle = () => 'Create and manage offline orders (Cash by default)';
+
+    getPageEmptyTitle = () => 'No Offline Orders';
+
+    getPageEmptyMessage = () => 'Create your first offline order using the button above.';
+
+    getPageLoadingText = () => 'Loading offline orders...';
+
+    getPageCreateButtonText = () => 'Create Offline Order';
+
+    getPageCreateButtonVisible = () => true;
+
+    getPageEmptyIcon = () => '🧾';
+
+    getOrderDetailsTitle = () => '🧾 Offline Order';
+
+    getOrderTypeBadgeLabel = (order) => {
+        const type = this.getNormalizedStatus(order?.type);
+        if (type === 'list_converted' || this.getNormalizedStatus(order?.status) === 'converted') {
+            return 'LIST';
+        }
+        return 'OFFLINE';
+    };
+
+    isEditableOrder = (order) => {
+        const status = this.getNormalizedStatus(order?.status);
+        const type = this.getNormalizedStatus(order?.type);
+
+        // Offline list-converted orders should lock after verification.
+        if (type === 'list_converted' && status !== 'pending' && status !== 'converted') {
+            return false;
+        }
+
+        if (status === 'completed' || status === 'rejected' || status === 'verified') return false;
+        return status === 'pending' || status === 'converted' || type === 'list_converted';
+    };
+
+    isConvertedOrder = (order) => {
+        const status = this.getNormalizedStatus(order?.status);
+        const type = this.getNormalizedStatus(order?.type);
+        return status === 'converted' || type === 'list_converted';
     };
 
     // ─── Create Offline Order Modal ──────────────────────────────────────────
@@ -903,17 +922,25 @@ class AdminOfflineOrdersPage extends React.Component {
         this.setState({ [field]: e.target.value });
     };
 
-    onCreateAddQtyChange = (e) => {
-        const raw = String(e?.target?.value ?? '');
+    onCreateAddQtyChange = (value) => {
+        const raw = String(value?.target?.value ?? value ?? '');
+        const product = this.state.createAddProductId
+            ? (this.state.products || []).find((p) => Number(p.id) === Number(this.state.createAddProductId))
+            : null;
+        const stock = Number.isFinite(Number(product?.stock)) ? Number(product.stock) : 9999;
+        const existingQty = this.state.createItems.find((item) => Number(item.productId) === Number(this.state.createAddProductId))?.quantity || 0;
+        const available = Math.max(0, stock - existingQty);
+
         if (raw === '') {
             this.setState({ createAddQty: '', createAddQtyError: '' });
             return;
         }
 
-        // Allow only digits (prevents -, e, ., and other non-numeric chars)
-        if (!/^\d+$/.test(raw)) return;
-
-        this.setState({ createAddQty: raw, createAddQtyError: '' });
+        const validation = validateQuantity(raw, { unit: product?.unit || 'piece', stock: available });
+        this.setState({
+            createAddQty: String(validation.correctedValue),
+            createAddQtyError: validation.isValid ? '' : validation.message,
+        });
     };
 
     addItemToCreate = () => {
@@ -931,16 +958,18 @@ class AdminOfflineOrdersPage extends React.Component {
         }
 
         const qtyNum = parseInt(String(createAddQty || ''), 10);
-        if (!Number.isFinite(qtyNum) || qtyNum < 1) {
-            const msg = 'Quantity must be greater than or equal to 1';
-            this.setState({ createAddQtyError: msg });
-            toast.error(msg);
+        const quantity = Number.isFinite(qtyNum) ? qtyNum : 1;
+        const stock = Number.isFinite(Number(product?.stock)) ? Number(product.stock) : 0;
+        const existingQty = createItems.find((item) => item.productId === productId)?.quantity || 0;
+        const available = Math.max(0, stock - existingQty);
+        const validation = validateQuantity(quantity, { unit: product?.unit || 'piece', stock: available });
+        if (!validation.isValid) {
+            this.setState({ createAddQtyError: validation.message, createAddQty: String(validation.correctedValue) });
+            toast.error(validation.message);
             return;
         }
 
-        const quantity = qtyNum;
-        const stock = Number(product?.stock);
-        if (Number.isFinite(stock) && stock >= 0 && quantity > stock) {
+        if (Number.isFinite(stock) && stock >= 0 && quantity > available) {
             toast.error('Quantity exceeds stock limit');
             return;
         }
@@ -952,7 +981,9 @@ class AdminOfflineOrdersPage extends React.Component {
                 if (i.productId !== productId) return i;
                 const nextQty = (i.quantity || 0) + quantity;
                 if (Number.isFinite(stock) && stock >= 0 && nextQty > stock) {
-                    toast.error('Quantity exceeds stock limit');
+                    const message = `Only ${available} items available`;
+                    this.setState({ createAddQtyError: message, createAddQty: String(stock) });
+                    toast.error(message);
                     return i;
                 }
                 return {
@@ -1029,14 +1060,15 @@ class AdminOfflineOrdersPage extends React.Component {
         console.log({ stock, available, attemptedQty: newQty, currentQty: item.quantity, productId });
         
         // Block quantities exceeding available
-        if (newQty > available) {
-            toast.error(`Only ${available} available`);
-            return;
-        }
-        
-        // Block zero or negative
-        if (newQty <= 0) {
-            toast.error('Quantity must be greater than 0');
+        const validation = validateQuantity(newQty, { unit: item.unit || 'piece', stock: available });
+        if (!validation.isValid) {
+            toast.error(validation.message);
+            const updated = createItems.map(i =>
+              i.productId === productId
+                ? { ...i, quantity: validation.correctedValue, total: (Number(i.price || 0) || 0) * validation.correctedValue }
+                : i
+            );
+            this.setState({ createItems: updated });
             return;
         }
         
@@ -1057,21 +1089,18 @@ class AdminOfflineOrdersPage extends React.Component {
         if (!item) return;
         
         const stock = Number(item.stock || 0);
-        // IMPORTANT: For offline edit flow, each item is from THIS order only
         const available = stock;
         
         // Debug logging
-        console.log({ stock, available, attemptedQty: newQty, currentQty: item.quantity, productId });
-        
-        // Block quantities exceeding available
-        if (newQty > available) {
-            toast.error(`Only ${available} available`);
-            return;
-        }
-        
-        // Block zero or negative
-        if (newQty <= 0) {
-            toast.error('Quantity must be greater than 0');
+        const validation = validateQuantity(newQty, { unit: item.unit || 'piece', stock: available });
+        if (!validation.isValid) {
+            toast.error(validation.message);
+            const updated = modalItems.map(i =>
+              i.productId === productId
+                ? { ...i, quantity: validation.correctedValue, total: (Number(i.price || 0) || 0) * validation.correctedValue }
+                : i
+            );
+            this.setState({ modalItems: updated });
             return;
         }
         
@@ -1223,17 +1252,26 @@ class AdminOfflineOrdersPage extends React.Component {
         }
 
         const orderId = orderForModal.id;
-        const isLocked = String(orderForModal?.status || '').trim() !== 'Pending';
+        const isLocked = !this.isEditableOrder(orderForModal);
+        const productLookup = new Map((this.state.products || []).flatMap((product) => [
+            [String(product.id), product],
+            [String(product._id || ''), product],
+        ]));
 
         const normalizedItems = (orderForModal.items || []).map((i) => {
             const qty = Math.max(0, parseInt(i.quantity, 10) || 0);
             const price = parseFloat(i.price) || 0;
+            const matchedProduct = productLookup.get(String(i.productId ?? i.product_id ?? i.id ?? '')) || null;
+            const resolvedName = i.name || i.productName || matchedProduct?.name || '';
             return {
                 ...i,
-                name: i.name || i.productName || '',
-                productName: i.productName || i.name || '',
+                productId: i.productId ?? i.product_id ?? i.id ?? null,
+                name: resolvedName,
+                productName: i.productName || i.name || matchedProduct?.name || '',
                 quantity: qty,
                 price: price,
+                stock: Number(i?.stock ?? matchedProduct?.stock ?? 0) || 0,
+                unit: String(i?.unit ?? matchedProduct?.unit ?? 'piece').trim(),
                 total: typeof i.total === 'number' ? i.total : (Number(price || 0) || 0) * (Number(qty || 0) || 0),
             };
         });
@@ -1243,9 +1281,10 @@ class AdminOfflineOrdersPage extends React.Component {
         const existingChecked = new Set();
         if (isLocked) {
             for (const item of normalizedItems) {
-                const hasFlag = !(item?.isSelected === undefined || item?.isSelected === null);
-                const selected = hasFlag ? Boolean(item.isSelected) : true;
-                if (selected) existingChecked.add(item.productId);
+                // Only add items that are explicitly marked as selected in the DB
+                if (Boolean(item?.isSelected)) {
+                    existingChecked.add(item.productId);
+                }
             }
         }
 
@@ -1301,7 +1340,7 @@ class AdminOfflineOrdersPage extends React.Component {
     toggleItemCheck = (productId) => {
         const { selectedOrder, checkedItems } = this.state;
         if (!selectedOrder) return;
-        if (selectedOrder.status !== 'Pending') return;
+        if (!this.isEditableOrder(selectedOrder)) return;
 
         const currentSet = new Set(checkedItems[selectedOrder.id] || []);
         if (currentSet.has(productId)) currentSet.delete(productId);
@@ -1317,7 +1356,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
     updateItemQuantity = (productId, delta) => {
         const { selectedOrder } = this.state;
-        if (selectedOrder && selectedOrder.status !== 'Pending') return;
+        if (selectedOrder && !this.isEditableOrder(selectedOrder)) return;
 
         const product = (this.state.products || []).find((p) => p.id === productId);
         const stock = Number(product?.stock);
@@ -1355,7 +1394,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
     removeModalItem = (productId) => {
         const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+        if (!selectedOrder || !this.isEditableOrder(selectedOrder)) return;
 
         const updated = this.state.modalItems.filter((i) => i.productId !== productId);
 
@@ -1397,7 +1436,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
     handleAddProductToOrder = async () => {
         const { selectedOrder, addProductId, addProductQty, products, modalItems, checkedItems } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+        if (!selectedOrder || !this.isEditableOrder(selectedOrder)) return;
 
         const productId = parseInt(addProductId, 10);
         if (!productId) {
@@ -1441,6 +1480,8 @@ class AdminOfflineOrdersPage extends React.Component {
                         price: product.price,
                         quantity,
                         total: product.price * quantity,
+                        stock: Number(product.stock || 0) || 0,
+                        unit: String(product.unit || 'piece').trim(),
                     },
                 ];
             }
@@ -1470,7 +1511,7 @@ class AdminOfflineOrdersPage extends React.Component {
     handleVerifyCheckbox = async (isChecked) => {
         if (!isChecked) return;
         const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+        if (!selectedOrder || this.getNormalizedStatus(selectedOrder.status) !== 'pending') return;
         await this.handleVerify(selectedOrder.id);
     };
 
@@ -1630,7 +1671,7 @@ class AdminOfflineOrdersPage extends React.Component {
 
     handleReject = async (orderId) => {
         const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Pending') return;
+        if (!selectedOrder || this.getNormalizedStatus(selectedOrder.status) !== 'pending') return;
 
         const ok = window.confirm(t('rejectOfflineOrderConfirm'));
         if (!ok) return;
@@ -1692,15 +1733,17 @@ class AdminOfflineOrdersPage extends React.Component {
                     const createGrandTotal = this.getCreateGrandTotal();
 
                     const checkedTotal = this.getCheckedTotal();
-                    const isLocked = selectedOrder && selectedOrder.status !== 'Pending';
-                    const isPending = selectedOrder && selectedOrder.status === 'Pending';
+                    const isLocked = selectedOrder ? !this.isEditableOrder(selectedOrder) : false;
+                    const selectedOrderStatus = selectedOrder
+                        ? this.getNormalizedStatus(selectedOrder.status || selectedOrder.order_status)
+                        : '';
+                    const isPending = selectedOrder && selectedOrderStatus === 'pending';
+                    const isConverted = selectedOrder && this.isConvertedOrder(selectedOrder);
                     const isVerified =
                         !!(
                             selectedOrder &&
                             (selectedOrder.isVerified ||
-                                ['Verified', 'Paid', 'Delivered', 'Completed'].includes(
-                                    selectedOrder.status
-                                ))
+                                ['verified', 'paid', 'delivered', 'completed'].includes(selectedOrderStatus))
                         );
                     const isPaid =
                         !!(
@@ -1737,9 +1780,9 @@ class AdminOfflineOrdersPage extends React.Component {
                     return (
                         <div>
                             <PageHeader>
-                                <h1>🧾 {langCtx.getText('offlineOrders')}</h1>
+                                <h1>{this.getPageTitle(langCtx)}</h1>
                                 <p>
-                                    {safeOrders.length} {langCtx.getText('offlineOrderCountLabel')}
+                                    {safeOrders.length} {this.getPageCountLabel(langCtx)}
                                 </p>
                             </PageHeader>
 
@@ -1755,25 +1798,27 @@ class AdminOfflineOrdersPage extends React.Component {
 
                             <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                                 <div className="text-muted" style={{ fontSize: '0.9rem' }}>
-                                    {langCtx.getText('offlineOrdersSubtitle')}
+                                    {this.getPageSubtitle(langCtx)}
                                 </div>
-                                <ActionButton
-                                    className="btn-primary-soft"
-                                    onClick={this.openCreateModal}
-                                    disabled={productsLoading}
-                                >
-                                    ➕ {langCtx.getText('createOfflineOrder')}
-                                </ActionButton>
+                                {this.getPageCreateButtonVisible(langCtx) && (
+                                    <ActionButton
+                                        className="btn-primary-soft"
+                                        onClick={this.openCreateModal}
+                                        disabled={productsLoading}
+                                    >
+                                        ➕ {this.getPageCreateButtonText(langCtx)}
+                                    </ActionButton>
+                                )}
                             </div>
 
-                            {effectiveLoading && <Spinner fullPage text={langCtx.getText('loadingOfflineOrders')} />}
+                            {effectiveLoading && <Spinner fullPage text={this.getPageLoadingText(langCtx)} />}
                             {errorKey && <div className="alert alert-danger">{langCtx.getText(errorKey)}</div>}
 
                             {!effectiveLoading && !errorKey && safeOrders.length === 0 && (
                                 <EmptyState>
-                                    <div className="empty-icon">🧾</div>
-                                    <h3>{langCtx.getText('noOfflineOrders')}</h3>
-                                    <p>{langCtx.getText('createFirstOfflineOrder')}</p>
+                                    <div className="empty-icon">{this.getPageEmptyIcon(langCtx)}</div>
+                                    <h3>{this.getPageEmptyTitle(langCtx)}</h3>
+                                    <p>{this.getPageEmptyMessage(langCtx)}</p>
                                 </EmptyState>
                             )}
 
@@ -1888,7 +1933,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                     ₹{(Number(remaining) || 0).toFixed(2)}
                                                                 </td>
                                                                 <td className="text-center">
-                                                                    <Badge className="badge-admin">{langCtx.getText('offline')}</Badge>
+                                                                    <Badge className="badge-admin">{this.getOrderTypeBadgeLabel(order)}</Badge>
                                                                 </td>
                                                                 <td className="text-center">
                                                                     <Badge className={this.getStatusBadgeClass(order.status)}>
@@ -2292,15 +2337,36 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     </div>
                                                     <div style={{ minWidth: '100px', flex: 0.5 }}>
                                                         <label className="form-label small fw-semibold mb-1" style={{ fontSize: '0.8rem' }}>{langCtx.getText('quantity')}</label>
-                                                        <input
-                                                            type="text"
-                                                            inputMode="numeric"
-                                                            pattern="[0-9]*"
-                                                            className={`form-control form-control-sm ${this.state.createAddQtyError ? 'is-invalid' : ''}`}
-                                                            value={createAddQty}
-                                                            onChange={this.onCreateAddQtyChange}
-                                                            style={{ fontSize: '0.85rem', height: '32px' }}
-                                                        />
+                                                        {(() => {
+                                                            const selectedProduct = products.find(p => (p.id ?? p._id) === createAddProductId);
+                                                            const stock = Number(selectedProduct?.stock || 0);
+                                                            const alreadyInCreate = createItems.find(i => i.productId === createAddProductId)?.quantity || 0;
+                                                            const available = Math.max(0, stock - alreadyInCreate);
+                                                            return (
+                                                                <QuantityControl
+                                                                    value={parseInt(createAddQty, 10) || 1}
+                                                                    onIncrease={() => {
+                                                                        const next = getNextQuantity(parseInt(createAddQty, 10) || 1, {
+                                                                            unit: selectedProduct?.unit || 'piece',
+                                                                            stock: available,
+                                                                        });
+                                                                        this.onCreateAddQtyChange(String(next));
+                                                                    }}
+                                                                    onDecrease={() => {
+                                                                        const prev = getPreviousQuantity(parseInt(createAddQty, 10) || 1, {
+                                                                            unit: selectedProduct?.unit || 'piece',
+                                                                        });
+                                                                        this.onCreateAddQtyChange(String(prev));
+                                                                    }}
+                                                                    onChange={this.onCreateAddQtyChange}
+                                                                    unit={selectedProduct?.unit || 'piece'}
+                                                                    stock={available}
+                                                                    disabled={!createAddProductId || productsLoading}
+                                                                    title="Adjust quantity"
+                                                                    showStockWarning={true}
+                                                                />
+                                                            );
+                                                        })()}
                                                         {this.state.createAddQtyError && (
                                                             <div className="invalid-feedback" style={{ fontSize: '0.7rem', display: 'block', marginTop: '0.2rem' }}>{this.state.createAddQtyError}</div>
                                                         )}
@@ -2469,7 +2535,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                     >
                                         <div className="modal-header">
                                             <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: 'clamp(0.9rem, 4vw, 1.15rem)' }}>
-                                                🧾 {langCtx.getText('offlineOrder')} — #{selectedOrder.id}
+                                                {this.getOrderDetailsTitle(langCtx)} — #{selectedOrder.id}
                                                 <Badge className={this.getStatusBadgeClass(selectedOrder.status)}>
                                                     {this.getStatusIcon(selectedOrder.status)} {langCtx.getText(statusKey(selectedOrder.status))}
                                                 </Badge>
@@ -2561,8 +2627,8 @@ class AdminOfflineOrdersPage extends React.Component {
                                                 </div>
                                             </div>
 
-                                            {/* Add Product (Pending only) */}
-                                            {isPending && (
+                                            {/* Add Product (Editable orders) */}
+                                            {(isPending || isConverted) && (
                                                 <div
                                                     style={{
                                                         background: '#f8f9fa',
@@ -2808,7 +2874,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             onIncrease={() => {
                                                                                 const unit = item.unit || 'piece';
                                                                                 const stock = Number(item.stock || 0);
-                                                                                const next = getNextQuantity(item.quantity, { unit, stock });
+                                                                                                                                                                const next = getNextQuantity(item.quantity, { unit, stock });
                                                                                 const updated = modalItems.map(i =>
                                                                                   i.productId === item.productId
                                                                                     ? { ...i, quantity: next, total: (Number(i.price || 0) || 0) * next }
@@ -2996,7 +3062,11 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                 ? langCtx.getText('remainingMustBeZeroToMarkPaid')
                                                                 : langCtx.getText('markAsPaid'))
                                                     }
-                                                    style={{ fontWeight: '700' }}
+                                                    style={{
+                                                        fontWeight: '700',
+                                                        opacity: actionLoading || isRejected || !isVerified || isPaid || !isRemainingSettled ? 0.55 : 1,
+                                                        cursor: actionLoading || isRejected || !isVerified || isPaid || !isRemainingSettled ? 'not-allowed' : 'pointer',
+                                                    }}
                                                 >
                                                     💳 {langCtx.getText('markPaid')}
                                                 </button>
@@ -3007,7 +3077,11 @@ class AdminOfflineOrdersPage extends React.Component {
                                                     onClick={() => this.handleDeliver(selectedOrder.id)}
                                                     disabled={actionLoading || isRejected || !isVerified || isDelivered}
                                                     title={!isVerified ? langCtx.getText('verifyOrderFirst') : langCtx.getText('markAsDelivered')}
-                                                    style={{ fontWeight: '700' }}
+                                                    style={{
+                                                        fontWeight: '700',
+                                                        opacity: actionLoading || isRejected || !isVerified || isDelivered ? 0.55 : 1,
+                                                        cursor: actionLoading || isRejected || !isVerified || isDelivered ? 'not-allowed' : 'pointer',
+                                                    }}
                                                 >
                                                     📦 {langCtx.getText('markDeliveredAction')}
                                                 </button>

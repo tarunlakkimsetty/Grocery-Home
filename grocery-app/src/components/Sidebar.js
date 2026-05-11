@@ -170,6 +170,22 @@ class Sidebar extends React.Component {
                                                 </SidebarItem>
                                             )}
                                         </NavLink>
+                                        <NavLink to="/admin/list-orders-converted" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">📋✓</span>
+                                                    <span className="item-label">List Orders Converted</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/list-order-bills" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🧾📋</span>
+                                                    <span className="item-label">List Order Bills</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
                                         <NavLink to="/admin/customers" style={{ textDecoration: 'none' }}>
                                             {({ isActive }) => (
                                                 <SidebarItem $active={isActive}>

@@ -1,4 +1,5 @@
 import { t } from './i18n';
+import orderService from '../services/orderService';
 
 const escapeHtml = (value) => {
     return String(value ?? '')
@@ -56,6 +57,60 @@ const formatPaymentMethod = (raw) => {
     if (normalized === 'upi') return tr('upi', 'UPI');
     if (normalized === 'cod' || normalized === 'cash on delivery') return tr('cashOnDelivery', 'Cash on Delivery');
     return v;
+};
+
+const normalizeBillItems = (items) => {
+    return (Array.isArray(items) ? items : []).map((item) => {
+        const quantity = Number(item?.quantity || 0) || 0;
+        const price = Number(item?.price || 0) || 0;
+        const subtotal = Number(item?.subtotal || item?.total || quantity * price || 0) || 0;
+
+        return {
+            productId: item?.productId,
+            productName: item?.productName || item?.name || '',
+            quantity,
+            price,
+            subtotal,
+        };
+    });
+};
+
+const mergeBillPayload = (billPayload, sourceOrder = null) => {
+    const bill = billPayload?.bill || billPayload || {};
+    const source = sourceOrder || {};
+    const billItems = Array.isArray(bill?.items) ? bill.items : [];
+    const sourceItems = normalizeBillItems(source?.items || source?.orderItems || source?.order_items || source?.billItems || []);
+    const mergedItems = billItems.length > 0 ? normalizeBillItems(billItems) : sourceItems;
+    const normalizedType = String(source?.type || '').trim().toLowerCase();
+    const normalizedOrigin = String(source?.origin || '').trim().toLowerCase();
+    const isListOrder = Boolean(source?.isConverted || source?.listOrderId || normalizedType === 'list_converted' || normalizedOrigin === 'list_orders');
+    const sourceOrderType = isListOrder ? 'List Order' : (source?.orderType || source?.type || source?.workflowType || '');
+
+    return {
+        ...billPayload,
+        bill: {
+            ...bill,
+            order: {
+                ...(bill?.order || {}),
+                id: source?.id ?? bill?.order?.id,
+                orderType: sourceOrderType || bill?.order?.orderType || '—',
+                customerName: source?.customerName || bill?.order?.customerName || '',
+                customerPhone: source?.phone || source?.customerPhone || bill?.order?.customerPhone || '',
+                customerAddress: source?.address || source?.customerAddress || bill?.order?.customerAddress || '',
+                place: source?.place || bill?.order?.place || '',
+                orderDate: source?.orderDate || source?.date || source?.createdAt || bill?.order?.orderDate || bill?.order?.date,
+                status: source?.status || bill?.order?.status || 'Pending',
+                paymentMethod: source?.paymentMethod || bill?.order?.paymentMethod || 'Cash',
+            },
+            items: mergedItems,
+            totals: {
+                ...(bill?.totals || {}),
+                totalAmount: Number(source?.totalAmount ?? bill?.totals?.totalAmount ?? 0) || 0,
+                advanceAmount: Number(source?.advanceAmount ?? source?.amountPaid ?? bill?.totals?.advanceAmount ?? 0) || 0,
+                remainingBalance: Number(source?.remainingBalance ?? source?.remainingAmount ?? bill?.totals?.remainingBalance ?? 0) || 0,
+            },
+        },
+    };
 };
 
 export const openBillPrintWindow = (billPayload) => {
@@ -160,6 +215,7 @@ export const openBillPrintWindow = (billPayload) => {
                         <h4>${escapeHtml(tr('orderDetails', 'Order Details'))}</h4>
                         <div>${escapeHtml(tr('orderId', 'Order ID'))}: <strong>#${escapeHtml(order?.id || '')}</strong></div>
                         <div>${escapeHtml(tr('orderDate', 'Order Date'))}: ${escapeHtml(formatDateTime(order?.orderDate))}</div>
+                        <div>${escapeHtml(tr('orderType', 'Order Type'))}: ${escapeHtml(order?.orderType || '—')}</div>
                         <div>${escapeHtml(tr('paymentMethod', 'Payment Method'))}: ${escapeHtml(formatPaymentMethod(order?.paymentMethod || 'Cash'))}</div>
                     </div>
                     <div class="box">
@@ -209,4 +265,28 @@ export const openBillPrintWindow = (billPayload) => {
     if (typeof printWindow.focus === 'function') {
         printWindow.focus();
     }
+};
+
+export const printOrderBill = async (orderOrId) => {
+    const sourceOrder = typeof orderOrId === 'object' && orderOrId !== null ? orderOrId : { id: orderOrId };
+    if (!sourceOrder?.id) {
+        throw new Error('Order ID is required to print bill');
+    }
+
+    const billPayload = await orderService.getPrintableBill(sourceOrder.id);
+    const mergedPayload = mergeBillPayload(billPayload, sourceOrder);
+    openBillPrintWindow(mergedPayload);
+    return mergedPayload;
+};
+
+export const printCustomerOrderBill = async (orderOrId) => {
+    const sourceOrder = typeof orderOrId === 'object' && orderOrId !== null ? orderOrId : { id: orderOrId };
+    if (!sourceOrder?.id) {
+        throw new Error('Order ID is required to print bill');
+    }
+
+    const billPayload = await orderService.getCustomerPrintableBill(sourceOrder.id, sourceOrder);
+    const mergedPayload = mergeBillPayload(billPayload, sourceOrder);
+    openBillPrintWindow(mergedPayload);
+    return mergedPayload;
 };

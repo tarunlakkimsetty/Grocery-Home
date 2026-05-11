@@ -33,10 +33,11 @@ const listOrderService = {
   },
 
   // 🔒 Get current logged-in user's uploads (authenticated route)
-  getCustomerUploads: async () => {
+  getCustomerUploads: async (view = 'all') => {
     try {
       // No need to pass customerName/phone - backend extracts from JWT token
-      const response = await axiosInstance.post('/list-orders/my-uploads');
+      const url = view ? `/list-orders/my-uploads?view=${encodeURIComponent(view)}` : '/list-orders/my-uploads';
+      const response = await axiosInstance.post(url);
       return response.data;
     } catch (error) {
       console.error('Fetch error:', error);

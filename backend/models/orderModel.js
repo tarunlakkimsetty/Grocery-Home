@@ -1,4 +1,5 @@
 const { promisePool } = require('../config/db');
+const Product = require('./productModel');
 
 const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
@@ -66,6 +67,17 @@ const calculateTotalFromItems = (items) => {
 
 const normalize = (value) => String(value || '').trim().toLowerCase();
 
+const getOrderStatusFilterClause = (view) => {
+    const normalizedView = String(view || '').trim().toLowerCase();
+    if (normalizedView === 'active') {
+        return "AND LOWER(COALESCE(status, '')) IN ('pending','verified','processing','in_progress')";
+    }
+    if (normalizedView === 'bills') {
+        return "AND LOWER(COALESCE(status, '')) IN ('completed','rejected')";
+    }
+    return '';
+};
+
 const canModifyBeforeVerification = (order) => {
     const type = normalize(order?.orderType);
     const status = normalize(order?.status);
@@ -74,8 +86,81 @@ const canModifyBeforeVerification = (order) => {
         return status === 'accepted';
     }
 
-    // Offline keeps the older workflow.
-    return status === 'pending' || status === 'accepted';
+    // Offline keeps the older workflow, but list-converted orders stay editable
+    // until they are actually completed or rejected.
+    return status === 'pending' || status === 'accepted' || status === 'converted' || type === 'list_converted';
+};
+
+const hydrateOrderItems = async (items) => {
+    const safeItems = Array.isArray(items) ? items : [];
+    const productIds = Array.from(new Set(
+        safeItems
+            .map((item) => Number(item?.productId ?? item?.product_id ?? item?.id ?? 0))
+            .filter((id) => Number.isInteger(id) && id > 0)
+    ));
+
+    const productNameMap = new Map();
+    await Promise.all(
+        productIds.map(async (productId) => {
+            try {
+                const product = await Product.findById(productId);
+                if (product?.name) {
+                    productNameMap.set(productId, product.name);
+                }
+            } catch {
+                // Best-effort name hydration only.
+            }
+        })
+    );
+
+    return safeItems.map((item) => {
+        const productId = Number(item?.productId ?? item?.product_id ?? item?.id ?? 0) || null;
+        const productName = item?.productName || item?.name || (productId ? productNameMap.get(productId) : null) || '';
+
+        return {
+            ...item,
+            productId,
+            productName,
+            name: item?.name || item?.productName || productName,
+        };
+    });
+};
+
+const hydrateOrderPaymentHistory = async (orderId, advanceAmount, order = null) => {
+    let paymentHistory = [];
+
+    try {
+        const [historyRows] = await promisePool.query(
+            `SELECT id, deltaAmount, updatedByUserId, createdAt
+             FROM order_payment_history
+             WHERE orderId = ?
+             ORDER BY createdAt ASC, id ASC`,
+            [orderId]
+        );
+        paymentHistory = (Array.isArray(historyRows) ? historyRows : []).map((r) => ({
+            id: Number(r.id || 0),
+            deltaAmount: Number(r.deltaAmount || 0) || 0,
+            updatedByUserId: r.updatedByUserId === null || r.updatedByUserId === undefined ? null : Number(r.updatedByUserId),
+            createdAt: r.createdAt,
+        }));
+    } catch (e) {
+        paymentHistory = [];
+    }
+
+    const advance = Number(advanceAmount || 0) || 0;
+    if (paymentHistory.length === 0 && advance > 0) {
+        paymentHistory = [
+            {
+                id: 0,
+                deltaAmount: advance,
+                updatedByUserId: null,
+                createdAt: order?.updatedAt || order?.createdAt || order?.orderDate || null,
+                synthetic: true,
+            },
+        ];
+    }
+
+    return paymentHistory;
 };
 
 const Order = {
@@ -358,12 +443,18 @@ const Order = {
     /**
      * Get orders by customer ID
      */
-    findByCustomerId: async (customerId) => {
+    findByCustomerId: async (customerId, options = {}) => {
+        const statusFilter = getOrderStatusFilterClause(options.view);
+
         const [orders] = await promisePool.query(
             `
             SELECT *
             FROM orders
             WHERE customerId = ?
+              AND LOWER(COALESCE(orderType, '')) = 'online'
+              AND LOWER(COALESCE(type, '')) <> 'list_converted'
+              AND LOWER(COALESCE(origin, '')) <> 'list_orders'
+              ${statusFilter}
             ORDER BY COALESCE(createdAt, orderDate, updatedAt) DESC
             `,
             [customerId]
@@ -381,7 +472,7 @@ const Order = {
                 'SELECT * FROM order_items WHERE orderId = ?',
                 [order.id]
             );
-            order.items = items;
+            order.items = await hydrateOrderItems(items);
 
             const existingTotal = Number(order?.totalAmount || 0) || 0;
             if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
@@ -395,6 +486,7 @@ const Order = {
             const advanceAmountSafe = Number(order?.advanceAmount || 0);
             order.advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
             order.remainingBalance = totalAmountSafe - (Number(order.advanceAmount || 0) || 0);
+            order.paymentHistory = await hydrateOrderPaymentHistory(order.id, order.advanceAmount, order);
         }
 
         return orders;
@@ -405,17 +497,29 @@ const Order = {
      * exactly matches the customer's registered phone number.
      *
      * IMPORTANT: phone matching is exact (no partial), non-null, non-empty.
+     * IMPORTANT: Excludes converted list orders (type = 'list_converted') from offline orders.
      */
-    findByCustomerIdIncludingOfflineByPhone: async (customerId, phone) => {
+    findByCustomerIdIncludingOfflineByPhone: async (customerId, phone, options = {}) => {
+        const statusFilter = getOrderStatusFilterClause(options.view);
         const cleanedPhone = String(phone || '').replace(/\D/g, '');
         const canMatchPhone = /^\d{10}$/.test(cleanedPhone);
 
         const params = [customerId];
-        let whereSql = 'WHERE customerId = ?';
+        const queryConditions = ['customerId = ?'];
 
         if (canMatchPhone) {
-            whereSql += " OR (orderType = 'Offline' AND phone = ?)";
+            let offlineCondition = "orderType = 'Offline' AND phone = ? AND (type IS NULL OR type != 'list_converted')";
+            if (statusFilter) {
+                offlineCondition += ` ${statusFilter}`;
+            }
+            queryConditions.push(offlineCondition);
             params.push(cleanedPhone);
+        }
+
+        let whereSql = `WHERE (${queryConditions.join(' OR ')})`;
+
+        if (statusFilter) {
+            whereSql += ` ${statusFilter}`;
         }
 
         const [orders] = await promisePool.query(
@@ -434,7 +538,7 @@ const Order = {
             order.date = order?.date || createdAtSafe;
 
             const [items] = await promisePool.query('SELECT * FROM order_items WHERE orderId = ?', [order.id]);
-            order.items = items;
+            order.items = await hydrateOrderItems(items);
 
             const existingTotal = Number(order?.totalAmount || 0) || 0;
             if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
@@ -448,6 +552,7 @@ const Order = {
             const advanceAmountSafe = Number(order?.advanceAmount || 0);
             order.advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
             order.remainingBalance = totalAmountSafe - (Number(order.advanceAmount || 0) || 0);
+            order.paymentHistory = await hydrateOrderPaymentHistory(order.id, order.advanceAmount, order);
         }
 
         return orders;
@@ -456,14 +561,18 @@ const Order = {
     /**
      * Get offline orders for a phone number (exact match).
      * - Excludes null/empty/invalid phone numbers
+     * - Excludes converted list orders (type = 'list_converted')
      * - Sorts latest-first
      * - Includes items and ensures totalAmount/date fields are consistent
      */
-    findOfflineByPhone: async (phone) => {
+    findOfflineByPhone: async (phone, options = {}) => {
+        const statusFilter = getOrderStatusFilterClause(options.view);
         const cleanedPhone = String(phone || '').replace(/\D/g, '');
         const canMatchPhone = /^\d{10}$/.test(cleanedPhone);
 
         if (!canMatchPhone) return [];
+
+        const finalStatusFilter = statusFilter;
 
         const [orders] = await promisePool.query(
             `
@@ -473,6 +582,8 @@ const Order = {
               AND phone IS NOT NULL
               AND phone <> ''
               AND phone = ?
+              AND (type IS NULL OR type != 'list_converted')
+              ${finalStatusFilter}
             ORDER BY COALESCE(createdAt, orderDate, updatedAt) DESC
             `,
             [cleanedPhone]
@@ -484,7 +595,7 @@ const Order = {
             order.date = order?.date || createdAtSafe;
 
             const [items] = await promisePool.query('SELECT * FROM order_items WHERE orderId = ?', [order.id]);
-            order.items = items;
+            order.items = await hydrateOrderItems(items);
 
             const existingTotal = Number(order?.totalAmount || 0) || 0;
             if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
@@ -598,15 +709,17 @@ const Order = {
             params.push(orderType);
             countParams.push(orderType);
 
-            // By default, exclude list-converted orders from regular Offline listings
-            if (String(orderType).toLowerCase() === 'offline' && !options.type) {
+            // STRICT SEPARATION: Exclude list-converted orders from regular Online/Offline listings
+            // Only include them if explicitly filtering by type='list_converted'
+            if (!options.type) {
                 conditions.push('(o.`type` IS NULL OR o.`type` != ?)');
                 params.push('list_converted');
                 countParams.push('list_converted');
             }
         }
 
-        // New filters: `type` and `origin` (for list-converted workflow)
+        // EXPLICIT FILTERS for list orders workflow: `type` and `origin`
+        // These MUST be used together to avoid mixing with regular orders
         if (options.type) {
             conditions.push('o.`type` = ?');
             params.push(options.type);
@@ -690,7 +803,9 @@ const Order = {
         try {
             await connection.beginTransaction();
 
-            // Do not assert stock here because admin will add items later; keep created order minimal.
+            if (Array.isArray(items) && items.length > 0) {
+                await assertSufficientStock(connection, items);
+            }
 
             const {
                 customerId = null,
@@ -702,13 +817,19 @@ const Order = {
                 paymentMethod = null,
                 type = 'list_converted',
                 origin = 'list_orders',
-                status = 'pending'
+                status = 'converted',
+                paymentStatus = 'Unpaid'
             } = orderData;
+
+            const normalizedStatus = String(status || '').trim() || 'converted';
+            const normalizedPaymentStatus = String(paymentStatus || '').trim().toLowerCase() === 'paid'
+                ? 'Paid'
+                : 'Unpaid';
 
             // Insert order with optional type/origin columns
             const insertCols = ['customerId', 'customerName', 'phone', 'place', 'address', 'orderType', 'status', 'paymentStatus', 'totalAmount', 'paymentMethod'];
             const insertPlaceholders = ['NULL', '?', '?', '?', '?', '?', '?', '?', '?', '?'];
-            const insertValues = [customerName, phone, place, address, 'Offline', status, 'Unpaid', totalAmount, paymentMethod || null];
+            const insertValues = [customerName, phone, place, address, 'Offline', normalizedStatus, normalizedPaymentStatus, totalAmount, paymentMethod || null];
 
             // If DB supports `type`/`origin`, include them
             insertCols.push('`type`', 'origin');
@@ -749,8 +870,8 @@ const Order = {
                 advanceAmount: 0,
                 remainingBalance: computedTotalAmount,
                 orderType: 'Offline',
-                status,
-                paymentStatus: 'Unpaid',
+                status: normalizedStatus,
+                paymentStatus: normalizedPaymentStatus,
                 type,
                 origin
             };
@@ -785,8 +906,31 @@ const Order = {
                 throw new Error('Order is locked. Cannot modify after verification.');
             }
 
-            // Backend enforcement: validate stock against the full updated quantities.
-            await assertSufficientStock(connection, items);
+            // Get existing items to calculate net change
+            const [existingItems] = await connection.query(
+                'SELECT productId, quantity FROM order_items WHERE orderId = ?',
+                [orderId]
+            );
+
+            const existingQtyByProduct = new Map();
+            for (const item of existingItems) {
+                existingQtyByProduct.set(Number(item.productId), Number(item.quantity || 0));
+            }
+
+            // Calculate net requested quantities (new - existing)
+            const netRequested = new Map();
+            for (const item of items) {
+                const productId = Number(item.productId);
+                const newQty = Number(item.quantity || 0);
+                const existingQty = existingQtyByProduct.get(productId) || 0;
+                const netQty = Math.max(0, newQty - existingQty); // Only check increases
+                if (netQty > 0) {
+                    netRequested.set(productId, (netRequested.get(productId) || 0) + netQty);
+                }
+            }
+
+            // Backend enforcement: validate stock against net increases only
+            await assertSufficientStock(connection, netRequested);
 
             // Delete existing items
             await connection.query('DELETE FROM order_items WHERE orderId = ?', [orderId]);
@@ -891,7 +1035,7 @@ const Order = {
      */
     markPaid: async (orderId) => {
         const [orderRows] = await promisePool.query(
-            'SELECT id, status, isVerified, isPaid, isDelivered, totalAmount, advanceAmount FROM orders WHERE id = ?',
+            'SELECT id, status, type, isVerified, isPaid, isDelivered, totalAmount, advanceAmount FROM orders WHERE id = ?',
             [orderId]
         );
 
@@ -914,6 +1058,7 @@ const Order = {
             `
             UPDATE orders
             SET isPaid = TRUE,
+                                advanceAmount = totalAmount,
                 paymentStatus = 'Paid',
                 status = CASE
                            WHEN isDelivered = TRUE THEN 'Completed'
@@ -931,6 +1076,18 @@ const Order = {
         // If affectedRows is 0, it's most likely not verified (or id mismatch)
         if (result.affectedRows === 0) {
             throw new Error('Order must be verified before marking as paid');
+        }
+
+        const deltaAmount = totalAmount - advanceAmount;
+        if (Number.isFinite(deltaAmount) && deltaAmount !== 0) {
+            try {
+                await promisePool.query(
+                    'INSERT INTO order_payment_history (orderId, deltaAmount, updatedByUserId) VALUES (?, ?, ?)',
+                    [orderId, deltaAmount, null]
+                );
+            } catch (e) {
+                // Best-effort history write; the order status update already succeeded.
+            }
         }
 
         return true;
@@ -1035,7 +1192,7 @@ const Order = {
 
             // Check if order is Pending
             const [orderCheck] = await connection.query(
-                'SELECT status, orderType, totalAmount FROM orders WHERE id = ? FOR UPDATE',
+                'SELECT status, orderType, `type`, totalAmount FROM orders WHERE id = ? FOR UPDATE',
                 [orderId]
             );
 
@@ -1102,15 +1259,25 @@ const Order = {
                 place,
                 address,
                 totalAmount,
-                paymentMethod
+                paymentMethod,
+                type = null,
+                origin = null,
+                status = 'Pending',
+                paymentStatus = 'Unpaid'
             } = orderData;
 
+            const normalizedStatus = String(status || '').trim() || 'Pending';
+            const normalizedPaymentStatus = String(paymentStatus || '').trim().toLowerCase() === 'paid'
+                ? 'Paid'
+                : 'Unpaid';
+
             // Insert order (customerId is NULL for offline orders)
+            // Support optional type/origin for list-converted workflow
             const [orderResult] = await connection.query(
                 `INSERT INTO orders 
-                (customerId, customerName, phone, place, address, orderType, status, paymentStatus, totalAmount, paymentMethod) 
-                VALUES (NULL, ?, ?, ?, ?, 'Offline', 'Pending', 'Unpaid', ?, ?)`,
-                [customerName, phone, place, address, totalAmount, paymentMethod || 'Cash']
+                (customerId, customerName, phone, place, address, orderType, status, paymentStatus, totalAmount, paymentMethod, \`type\`, origin) 
+                VALUES (NULL, ?, ?, ?, ?, 'Offline', ?, ?, ?, ?, ?, ?)`,
+                [customerName, phone, place, address, normalizedStatus, normalizedPaymentStatus, totalAmount, paymentMethod || 'Cash', type, origin]
             );
 
             const orderId = orderResult.insertId;
@@ -1144,8 +1311,10 @@ const Order = {
                 advanceAmount: 0,
                 remainingBalance: computedTotalAmount,
                 orderType: 'Offline',
-                status: 'Pending',
-                paymentStatus: 'Unpaid'
+                status: normalizedStatus,
+                paymentStatus: normalizedPaymentStatus,
+                type: type || null,
+                origin: origin || null
             };
         } catch (error) {
             await connection.rollback();
@@ -1205,10 +1374,7 @@ const Order = {
                 'SELECT * FROM order_items WHERE orderId = ?',
                 [order.id]
             );
-            order.items = items.map((it) => ({
-                ...it,
-                name: it.productName
-            }));
+            order.items = await hydrateOrderItems(items);
 
             const existingTotal = Number(order?.totalAmount || 0) || 0;
             if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
@@ -1256,10 +1422,10 @@ const Order = {
 
             const currentStatus = orderRows[0].status;
             const currentOrderType = normalize(orderRows[0].orderType);
+            const currentOrderKind = normalize(orderRows[0].type);
             const currentPayment = orderRows[0].paymentStatus;
             const isVerified = !!orderRows[0].isVerified;
             const currentStatusLower = normalize(currentStatus);
-
             if (currentStatus === 'Rejected' && nextStatus !== 'Rejected') {
                 throw new Error('Rejected order cannot be updated');
             }

@@ -18,8 +18,9 @@ const getUserOfflineOrders = async (req, res, next) => {
 
         const dbUser = await User.findById(userId);
         const phone = dbUser?.phone || null;
+        const view = String(req.query.view || 'active').trim().toLowerCase();
 
-        const orders = await Order.findOfflineByPhone(phone);
+        const orders = await Order.findOfflineByPhone(phone, { view });
 
         return res.status(200).json({
             success: true,

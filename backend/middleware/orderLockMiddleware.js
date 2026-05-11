@@ -28,9 +28,14 @@ const checkOrderNotLocked = async (req, res, next) => {
         const orderType = String(order?.orderType || '').trim().toLowerCase();
         const status = String(order?.status || '').trim().toLowerCase();
 
-        const isEditable = orderType === 'online'
-            ? status === 'accepted'
-            : status === 'pending' || status === 'accepted';
+        const orderKind = String(order?.type || '').trim().toLowerCase();
+        const isConvertedWorkflow = orderKind === 'list_converted' || status === 'converted';
+
+        const isEditable = isConvertedWorkflow
+            ? true
+            : (orderType === 'online'
+                ? status === 'accepted'
+                : status === 'pending' || status === 'accepted');
 
         if (!isEditable) {
             return res.status(403).json({

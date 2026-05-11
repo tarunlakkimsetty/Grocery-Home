@@ -1,9 +1,11 @@
 import React from 'react';
-import ReactDOM from 'react-dom';
 import styled from 'styled-components';
 import { toast } from 'react-toastify';
 import LanguageContext from '../context/LanguageContext';
+import LegalModalContext from '../context/LegalModalContext';
 import listOrderService from '../services/listOrderService';
+import { ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
+import { PrimaryButton } from '../styledComponents/ButtonStyles';
 
 const Container = styled.div`
   max-width: 900px;
@@ -215,18 +217,6 @@ const Button = styled.button`
   }
 `;
 
-const SuccessMessage = styled.div`
-  background-color: #d4edda;
-  border: 1px solid #c3e6cb;
-  color: #155724;
-  padding: 1rem;
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-`;
-
 const InfoBox = styled.div`
   background-color: #e7f3ff;
   border-left: 4px solid #2196F3;
@@ -235,6 +225,46 @@ const InfoBox = styled.div`
   margin-bottom: 1.5rem;
   color: #0c5aa0;
   font-size: 0.95rem;
+`;
+
+const AgreementHighlight = styled.div`
+  background: #f8fafc;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 1rem 1rem 0.85rem;
+  margin-bottom: 1.5rem;
+`;
+
+const AgreementCheckbox = styled.input`
+  transform: scale(1.1);
+  margin-right: 0.75rem;
+  accent-color: #4CAF50;
+`;
+
+const AgreementLabel = styled.label`
+  font-size: 0.95rem;
+  color: #2c3e50;
+  line-height: 1.5;
+`;
+
+const InlineLinkButton = styled.button`
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: #2563eb;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+
+  &:hover {
+    color: #1c4f9d;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 `;
 
 const TabContainer = styled.div`
@@ -385,7 +415,7 @@ const EmptyState = styled.div`
   }
 `;
 
-const Modal = styled.div`
+const ImageModal = styled.div`
   position: fixed !important;
   top: 0 !important;
   left: 0 !important;
@@ -396,27 +426,41 @@ const Modal = styled.div`
   align-items: center !important;
   justify-content: center !important;
   z-index: 9999999 !important;
-  padding: 15px !important;
+  padding: 1rem !important;
   overflow: hidden !important;
+  overscroll-behavior: contain;
+  touch-action: none;
   pointer-events: ${props => (props.$isOpen ? 'auto' : 'none')} !important;
 `;
 
-const ModalContent = styled.div`
+const ImageModalContent = styled.div`
   background: white;
   border-radius: 14px;
   width: 100%;
-  max-width: 850px;
+  max-width: 1100px;
+  width: min(80vw, 1100px);
   height: auto;
-  max-height: 88vh;
+  max-height: 85vh;
   position: relative;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.7);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   z-index: 9999998;
+
+  @media (max-width: 1024px) {
+    width: 90vw;
+    max-width: 90vw;
+  }
+
+  @media (max-width: 576px) {
+    width: 95vw;
+    max-width: 95vw;
+    max-height: 90vh;
+  }
 `;
 
-const ModalHeader = styled.div`
+const ImageModalHeader = styled.div`
   padding: 1rem 1.5rem;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
@@ -427,14 +471,14 @@ const ModalHeader = styled.div`
   z-index: 9999998;
 `;
 
-const ModalTitle = styled.h2`
+const ImageModalTitle = styled.h2`
   margin: 0;
   font-size: 1.2rem;
   font-weight: 600;
   color: #1f2937;
 `;
 
-const ModalBody = styled.div`
+const ImageModalBody = styled.div`
   flex: 1;
   overflow-y: auto;
   display: flex;
@@ -583,20 +627,27 @@ class ListOrdersUploadPage extends React.Component {
       selectedFiles: [],
       previewUrls: [],
       loading: false,
-      uploadSuccess: false,
+      agreedToTerms: false,
+      showUploadSuccessPopup: false,
+      uploadSuccessAdminPhone: process.env.REACT_APP_ADMIN_PHONE || '9441754505',
       dragOver: false,
       activeTab: 'upload', // 'upload' or 'history'
       previousUploads: [],
       historyLoading: false,
       modalOpen: false,
-      selectedUploadId: null,
-      selectedImageIndex: 0
+      modalImages: [],
+      modalImageIndex: 0,
     };
     this.fileInputRef = React.createRef();
+    this.cameraInputRef = React.createRef();
+  }
+
+  componentWillUnmount() {
   }
 
   componentDidMount() {
-    // Don't fetch on mount - wait for user to enter info and click History tab
+    // Load once on mount so history count stays synchronized even before tab interaction.
+    this.fetchPreviousUploads();
   }
 
   handleInputChange = (e) => {
@@ -672,7 +723,12 @@ class ListOrdersUploadPage extends React.Component {
 
   handleSubmit = async (e) => {
     e.preventDefault();
-    const { customerName, phone, place, selectedFiles, notes } = this.state;
+    const { customerName, phone, place, selectedFiles, notes, agreedToTerms } = this.state;
+
+    if (!agreedToTerms) {
+      toast.warning('Please agree to the Terms & Conditions before uploading your grocery list.');
+      return;
+    }
 
     if (!customerName.trim()) {
       toast.error('Please enter customer name');
@@ -715,16 +771,12 @@ class ListOrdersUploadPage extends React.Component {
           notes: '',
           selectedFiles: [],
           previewUrls: [],
-          uploadSuccess: true
+          agreedToTerms: false,
+          showUploadSuccessPopup: true,
         });
 
         // Refresh history
         this.fetchPreviousUploads();
-
-        // Hide success message after 5 seconds
-        setTimeout(() => {
-          this.setState({ uploadSuccess: false });
-        }, 5000);
       }
     } catch (error) {
       toast.error(error.message || 'Failed to upload grocery list');
@@ -741,7 +793,8 @@ class ListOrdersUploadPage extends React.Component {
       notes: '',
       selectedFiles: [],
       previewUrls: [],
-      uploadSuccess: false
+      agreedToTerms: false,
+      showUploadSuccessPopup: false,
     });
     if (this.fileInputRef.current) {
       this.fileInputRef.current.value = '';
@@ -754,9 +807,13 @@ class ListOrdersUploadPage extends React.Component {
       // 🔒 SECURE: API uses JWT token to identify user
       // No need to pass customerName/phone - backend handles it
       const response = await listOrderService.getCustomerUploads();
-      if (response && response.data) {
-        this.setState({ previousUploads: response.data });
-      }
+      const allUploadHistory = Array.isArray(response?.data)
+        ? response.data
+        : (Array.isArray(response) ? response : []);
+
+      console.debug('[ListOrdersUploadPage.fetchPreviousUploads] loaded uploads:', allUploadHistory.length);
+
+      this.setState({ previousUploads: allUploadHistory });
     } catch (error) {
       console.error('Failed to fetch previous uploads:', error);
       // Handle authentication errors
@@ -770,48 +827,37 @@ class ListOrdersUploadPage extends React.Component {
     }
   }
 
-  openImageModal = (uploadId, imageIndex) => {
-    document.body.style.overflow = 'hidden';
+  openImageModal = (imagePaths = [], imageIndex = 0) => {
     this.setState({
       modalOpen: true,
-      selectedUploadId: uploadId,
-      selectedImageIndex: imageIndex
+      modalImages: Array.isArray(imagePaths) ? imagePaths : [],
+      modalImageIndex: imageIndex,
     });
   }
 
   closeImageModal = () => {
-    document.body.style.overflow = 'auto';
     this.setState({
       modalOpen: false,
-      selectedUploadId: null,
-      selectedImageIndex: 0
+      modalImages: [],
+      modalImageIndex: 0,
     });
   }
 
   nextImage = () => {
-    const upload = this.state.previousUploads.find(
-      (u) => u.id === this.state.selectedUploadId
-    );
-    if (!upload) return;
-
-    const imagePaths = upload.imagePaths || [upload.imagePath];
-    const nextIndex = (this.state.selectedImageIndex + 1) % imagePaths.length;
-    this.setState({ selectedImageIndex: nextIndex });
+    const imagePaths = this.state.modalImages;
+    if (imagePaths.length === 0) return;
+    const nextIndex = (this.state.modalImageIndex + 1) % imagePaths.length;
+    this.setState({ modalImageIndex: nextIndex });
   }
 
   prevImage = () => {
-    const upload = this.state.previousUploads.find(
-      (u) => u.id === this.state.selectedUploadId
-    );
-    if (!upload) return;
-
-    const imagePaths = upload.imagePaths || [upload.imagePath];
-    const prevIndex = (this.state.selectedImageIndex - 1 + imagePaths.length) % imagePaths.length;
-    this.setState({ selectedImageIndex: prevIndex });
+    const imagePaths = this.state.modalImages;
+    if (imagePaths.length === 0) return;
+    const prevIndex = (this.state.modalImageIndex - 1 + imagePaths.length) % imagePaths.length;
+    this.setState({ modalImageIndex: prevIndex });
   }
 
   render() {
-    const langCtx = this.context;
     const {
       customerName,
       phone,
@@ -820,12 +866,15 @@ class ListOrdersUploadPage extends React.Component {
       selectedFiles,
       previewUrls,
       loading,
-      uploadSuccess,
+      agreedToTerms,
+      showUploadSuccessPopup,
       dragOver,
       activeTab,
       previousUploads,
       historyLoading
     } = this.state;
+
+    const langCtx = this.context;
 
     return (
       <Container>
@@ -855,14 +904,8 @@ class ListOrdersUploadPage extends React.Component {
 
           {activeTab === 'upload' ? (
             <>
-              {uploadSuccess && (
-                <SuccessMessage>
-                  ✓ Your grocery list(s) have been submitted successfully! Our team will review them soon.
-                </SuccessMessage>
-              )}
-
               <InfoBox>
-                📸 Upload clear photos of your grocery list. You can upload multiple images. Include items, quantities, and any special preferences.
+                📋 Upload clear photos of your grocery list. You can upload multiple images. Include items, quantities, and any special preferences.
               </InfoBox>
 
               <form onSubmit={this.handleSubmit}>
@@ -912,17 +955,34 @@ class ListOrdersUploadPage extends React.Component {
                     onDragOver={this.handleDragOver}
                     onDragLeave={this.handleDragLeave}
                     onDrop={this.handleDrop}
-                    onClick={() => this.fileInputRef.current?.click()}
                   >
-                    <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>📸</div>
+                    <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>📋</div>
                     <p style={{ margin: '0.5rem 0', fontWeight: '600', color: '#2c3e50' }}>
                       {selectedFiles.length > 0 
                         ? `${selectedFiles.length} image(s) selected. Click to add more or drag and drop`
-                        : 'Click to upload or drag and drop'}
+                        : 'Take a photo or choose images to upload'}
                     </p>
                     <p style={{ margin: '0', color: '#7f8c8d', fontSize: '0.9rem' }}>
                       PNG, JPG, GIF or WebP (Max 10MB per image)
                     </p>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center', marginTop: '1rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => this.cameraInputRef.current?.click()}
+                        disabled={loading}
+                      >
+                        📱 Take Photo (Mobile)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={() => this.fileInputRef.current?.click()}
+                        disabled={loading}
+                      >
+                        🖼️ Choose from Gallery
+                      </button>
+                    </div>
                     <input
                       ref={this.fileInputRef}
                       type="file"
@@ -930,6 +990,16 @@ class ListOrdersUploadPage extends React.Component {
                       multiple
                       onChange={this.handleFileInputChange}
                       disabled={loading}
+                      style={{ display: 'none' }}
+                    />
+                    <input
+                      ref={this.cameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={this.handleFileInputChange}
+                      disabled={loading}
+                      style={{ display: 'none' }}
                     />
                   </ImageUploadArea>
 
@@ -937,7 +1007,13 @@ class ListOrdersUploadPage extends React.Component {
                     <ImagePreview>
                       <div className="preview-gallery">
                         {previewUrls.map((url, index) => (
-                          <div key={index} className="preview-item">
+                          <div
+                            key={index}
+                            className="preview-item"
+                            onClick={() => this.openImageModal(previewUrls, index)}
+                            style={{ cursor: 'pointer' }}
+                            title="Click to view full size"
+                          >
                             <img src={url} alt={`Preview ${index + 1}`} />
                             <button
                               type="button"
@@ -967,11 +1043,49 @@ class ListOrdersUploadPage extends React.Component {
                   />
                 </FormGroup>
 
+                <AgreementHighlight>
+                  <div className="form-check" style={{ fontSize: '0.95rem' }}>
+                    <AgreementCheckbox
+                      className="form-check-input"
+                      type="checkbox"
+                      id="agreeTerms"
+                      checked={agreedToTerms}
+                      onChange={(e) => this.setState({ agreedToTerms: e.target.checked })}
+                      disabled={loading}
+                    />
+                    <AgreementLabel htmlFor="agreeTerms">
+                      <LegalModalContext.Consumer>
+                        {(legalModal) => (
+                          <>
+                            I agree to the{' '}
+                            <InlineLinkButton
+                              type="button"
+                              onClick={() => legalModal.openLegalModal('terms')}
+                              disabled={loading}
+                            >
+                              Terms & Conditions
+                            </InlineLinkButton>
+                            {' '}and{' '}
+                            <InlineLinkButton
+                              type="button"
+                              onClick={() => legalModal.openLegalModal('privacy')}
+                              disabled={loading}
+                            >
+                              Privacy Policy
+                            </InlineLinkButton>
+                            .
+                          </>
+                        )}
+                      </LegalModalContext.Consumer>
+                    </AgreementLabel>
+                  </div>
+                </AgreementHighlight>
+
                 <ButtonGroup>
                   <Button
                     type="submit"
                     className="primary"
-                    disabled={loading || selectedFiles.length === 0}
+                    disabled={loading || selectedFiles.length === 0 || !agreedToTerms}
                   >
                     {loading ? 'Uploading...' : `📤 Upload ${selectedFiles.length} Image(s)`}
                   </Button>
@@ -1005,9 +1119,10 @@ class ListOrdersUploadPage extends React.Component {
                     const imagePaths = upload.imagePaths || 
                                       (upload.imagePath ? [upload.imagePath] : []);
                     const uploadDate = new Date(upload.createdAt);
+                    const uploadKey = `${upload.listOrderId || 'list'}-${upload.id}-${String(upload.status || 'unknown').toLowerCase()}`;
 
                     return (
-                      <HistoryCard key={upload.id}>
+                      <HistoryCard key={uploadKey}>
                         <div className="card-header">
                           <div>
                             <p className="card-title">Upload #{upload.id}</p>
@@ -1035,7 +1150,7 @@ class ListOrdersUploadPage extends React.Component {
                         </div>
 
                         <div className="card-images">
-                          <p className="image-count">📸 {imagePaths.length} image(s)</p>
+                          <p className="image-count">📋 {imagePaths.length} image(s)</p>
                           <div className="image-grid">
                             {imagePaths.slice(0, 3).map((imagePath, idx) => (
                               <img
@@ -1045,8 +1160,8 @@ class ListOrdersUploadPage extends React.Component {
                                     ? imagePath
                                     : `http://localhost:5000${imagePath}`
                                 }
-                                alt={`Upload ${upload.id} Image ${idx + 1}`}
-                                onClick={() => this.openImageModal(upload.id, idx)}
+                                alt={`Upload ${upload.id} ${idx + 1}`}
+                                onClick={() => this.openImageModal(imagePaths, idx)}
                                 style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
                                 title="Click to view full size"
                                 onMouseEnter={(e) => {
@@ -1071,30 +1186,23 @@ class ListOrdersUploadPage extends React.Component {
           )}
         </Card>
 
-        {/* Image Modal - Rendered as Portal at Document Root */}
-        {ReactDOM.createPortal(
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999999, pointerEvents: this.state.modalOpen ? 'auto' : 'none' }}>
-            <Modal $isOpen={this.state.modalOpen} onClick={this.closeImageModal}>
-              <ModalContent onClick={(e) => e.stopPropagation()}>
-                {this.state.selectedUploadId && (() => {
-                  const upload = this.state.previousUploads.find(
-                    (u) => u.id === this.state.selectedUploadId
-                  );
-                  if (!upload) return null;
-
-                  const imagePaths = upload.imagePaths || [upload.imagePath];
-                  const currentImage = imagePaths[this.state.selectedImageIndex];
+        {/* Image Modal */}
+        <ImageModal $isOpen={this.state.modalOpen} onClick={this.closeImageModal}>
+          <ImageModalContent onClick={(e) => e.stopPropagation()}>
+                {this.state.modalImages.length > 0 && (() => {
+                  const imagePaths = this.state.modalImages;
+                  const currentImage = imagePaths[this.state.modalImageIndex] || imagePaths[0];
 
                   return (
                     <>
                       {/* Header */}
-                      <ModalHeader>
-                        <ModalTitle>📸 Image Preview</ModalTitle>
+                      <ImageModalHeader>
+                        <ImageModalTitle>📋 Image Preview</ImageModalTitle>
                         <CloseButton onClick={this.closeImageModal}>×</CloseButton>
-                      </ModalHeader>
+                      </ImageModalHeader>
 
                       {/* Body */}
-                      <ModalBody>
+                      <ImageModalBody>
                         {/* Main Image */}
                         <ImageWrapper>
                           {imagePaths.length > 1 && (
@@ -1102,14 +1210,14 @@ class ListOrdersUploadPage extends React.Component {
                               <NavigationButton
                                 className="prev"
                                 onClick={this.prevImage}
-                                disabled={this.state.selectedImageIndex === 0}
+                                disabled={this.state.modalImageIndex === 0}
                               >
                                 ‹
                               </NavigationButton>
                               <NavigationButton
                                 className="next"
                                 onClick={this.nextImage}
-                                disabled={this.state.selectedImageIndex === imagePaths.length - 1}
+                                disabled={this.state.modalImageIndex === imagePaths.length - 1}
                               >
                                 ›
                               </NavigationButton>
@@ -1117,18 +1225,18 @@ class ListOrdersUploadPage extends React.Component {
                           )}
                           <img
                             src={
-                              currentImage.startsWith('http')
+                              currentImage.startsWith('http') || currentImage.startsWith('blob:') || currentImage.startsWith('data:')
                                 ? currentImage
                                 : `http://localhost:5000${currentImage}`
                             }
-                            alt={`Image ${this.state.selectedImageIndex + 1}`}
+                            alt=""
                           />
                         </ImageWrapper>
 
                         {/* Image Counter */}
                         {imagePaths.length > 1 && (
                           <div style={{ fontSize: '0.95rem', color: '#666', fontWeight: '500' }}>
-                            {this.state.selectedImageIndex + 1} of {imagePaths.length}
+                            {this.state.modalImageIndex + 1} of {imagePaths.length}
                           </div>
                         )}
 
@@ -1139,25 +1247,51 @@ class ListOrdersUploadPage extends React.Component {
                               <Thumbnail
                                 key={idx}
                                 src={
-                                  path.startsWith('http')
+                                  path.startsWith('http') || path.startsWith('blob:') || path.startsWith('data:')
                                     ? path
                                     : `http://localhost:5000${path}`
                                 }
                                 alt={`Thumbnail ${idx + 1}`}
-                                $isActive={idx === this.state.selectedImageIndex}
-                                onClick={() => this.setState({ selectedImageIndex: idx })}
+                                $isActive={idx === this.state.modalImageIndex}
+                                onClick={() => this.setState({ modalImageIndex: idx })}
                               />
                             ))}
                           </ThumbnailRow>
                         )}
-                      </ModalBody>
+                      </ImageModalBody>
                     </>
                   );
                 })()}
-              </ModalContent>
-            </Modal>
-          </div>,
-          document.body
+            </ImageModalContent>
+          </ImageModal>
+
+        {showUploadSuccessPopup && (
+          <ModalOverlay>
+            <ModalContent style={{ maxWidth: '560px', width: '100%' }}>
+              <div className="modal-header">
+                <h3>✅ Grocery List Submitted</h3>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: '0.6rem' }}>
+                  Your grocery list has been uploaded successfully. Our team will review it and update your history soon.
+                </p>
+                <p style={{ marginBottom: '0.75rem' }}>
+                  If your uploaded grocery list is not showing in Purchase History → List Orders → In Progress within 10 minutes, please contact the admin.
+                </p>
+                <p style={{ marginBottom: 0, fontWeight: 700 }}>
+                  Admin Phone Number: {this.state.uploadSuccessAdminPhone}
+                </p>
+              </div>
+              <div className="modal-footer">
+                <PrimaryButton
+                  onClick={() => this.setState({ showUploadSuccessPopup: false, activeTab: 'history' })}
+                  style={{ minWidth: '110px' }}
+                >
+                  {langCtx.getText('ok')}
+                </PrimaryButton>
+              </div>
+            </ModalContent>
+          </ModalOverlay>
         )}
       </Container>
     );

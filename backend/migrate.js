@@ -361,6 +361,8 @@ const runMigration = async () => {
         await addColumnBestEffort('orders', 'acceptedAt TIMESTAMP NULL', 'acceptedAt');
         await addColumnBestEffort('orders', 'verifiedAt TIMESTAMP NULL', 'verifiedAt');
         await addColumnBestEffort('orders', 'deliveredAt TIMESTAMP NULL', 'deliveredAt');
+        await addColumnBestEffort('orders', '`type` VARCHAR(50) DEFAULT NULL', 'type');
+        await addColumnBestEffort('orders', '`origin` VARCHAR(50) DEFAULT NULL', 'origin');
 
         await addColumnBestEffort('order_items', 'isSelected BOOLEAN DEFAULT TRUE', 'isSelected');
         await addColumnBestEffort('order_items', 'total DECIMAL(12,2)', 'total');
@@ -448,6 +450,8 @@ const runMigration = async () => {
         await ensureIndex('orders', 'idx_orders_customerId', '`customerId`');
         await ensureIndex('orders', 'idx_orders_status', '`status`');
         await ensureIndex('orders', 'idx_orders_orderType', '`orderType`');
+        await ensureIndex('orders', 'idx_orders_type', '`type`');
+        await ensureIndex('orders', 'idx_orders_origin', '`origin`');
         await ensureIndex('order_items', 'idx_order_items_orderId', '`orderId`');
         await ensureIndex('order_items', 'idx_order_items_productId', '`productId`');
         await ensureIndex('feedback', 'idx_feedback_order_id', '`order_id`');

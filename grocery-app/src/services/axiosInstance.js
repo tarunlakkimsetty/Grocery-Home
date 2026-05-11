@@ -45,12 +45,16 @@ axiosInstance.interceptors.response.use(
 
         // Handle 403 Forbidden (insufficient permissions)
         if (status === 403) {
-            return Promise.reject(new Error(data?.message || 'Access denied. Insufficient permissions.'));
+            const error = new Error(data?.message || 'Access denied. Insufficient permissions.');
+            error.response = error.response || { status, data };
+            return Promise.reject(error);
         }
 
         // Handle 404 Not Found
         if (status === 404) {
-            return Promise.reject(new Error(data?.message || 'Resource not found.'));
+            const error = new Error(data?.message || 'Resource not found.');
+            error.response = error.response || { status, data };
+            return Promise.reject(error);
         }
 
         // Handle 400 Bad Request (validation errors)

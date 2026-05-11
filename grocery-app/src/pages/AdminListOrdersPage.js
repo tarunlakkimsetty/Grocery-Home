@@ -3,12 +3,13 @@ import styled from 'styled-components';
 import { toast } from 'react-toastify';
 import LanguageContext from '../context/LanguageContext';
 import QuantityControl from '../components/QuantityControl';
-import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';
+import { getNextQuantity, getPreviousQuantity, validateQuantity } from '../utils/quantityValidator';
 import listOrderService from '../services/listOrderService';
 import orderService from '../services/orderService';
 import productService from '../services/productService';
 import { t, hasTranslation } from '../utils/i18n';
 import { searchProducts } from '../utils/searchUtils';
+import { useModalScrollLock } from '../styledComponents/modalUtils';
 
 const Container = styled.div`
   padding: 2rem 1rem;
@@ -47,7 +48,6 @@ const PendingBadge = styled.span`
   font-size: 0.9rem;
   font-weight: 600;
 `;
-
 const FilterBar = styled.div`
   display: flex;
   gap: 1rem;
@@ -62,16 +62,10 @@ const FilterBar = styled.div`
 const FilterInput = styled.input`
   padding: 0.75rem;
   border: 1px solid #ddd;
-  border-radius: 8px;
-  font-size: 0.95rem;
   flex: 1;
-  min-width: 200px;
-
   &:focus {
     outline: none;
     border-color: #4CAF50;
-    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
-  }
 `;
 
 const FilterSelect = styled.select`
@@ -85,17 +79,6 @@ const FilterSelect = styled.select`
     outline: none;
     border-color: #4CAF50;
   }
-`;
-
-const TableWrapper = styled.div`
-  overflow-x: auto;
-  background: transparent;
-  border-radius: 12px;
-  display: none; /* Hide table wrapper for card layout */
-`;
-
-const Table = styled.table`
-  display: none; /* Hide table for card layout */
 `;
 
 /* Card-based layout components */
@@ -388,6 +371,9 @@ const ModalBase = styled.div`
   justify-content: center;
   z-index: 1000;
   padding: 1rem;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: none;
   opacity: ${props => props.$isOpen ? 1 : 0};
   visibility: ${props => props.$isOpen ? 'visible' : 'hidden'};
   transition: opacity 0.3s ease;
@@ -395,24 +381,47 @@ const ModalBase = styled.div`
 `;
 
 // Modal wrapper that filters the isOpen prop
-const Modal = ({ isOpen, onClick, children }) => (
-  <ModalBase $isOpen={isOpen} onClick={onClick}>
-    {children}
-  </ModalBase>
-);
+const Modal = ({ isOpen, onClick, children }) => {
+  useModalScrollLock(isOpen);
+  return (
+    <ModalBase $isOpen={isOpen} onClick={onClick}>
+      {children}
+    </ModalBase>
+  );
+};
 
 const ModalContent = styled.div`
   background: white;
   border-radius: 12px;
-  padding: 2rem;
-  max-width: 700px;
+  padding: 0;
+  max-width: 1100px;
+  width: min(80vw, 1100px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: min(80vw, 1100px);
+  flex-direction: column;
+  overflow: hidden;
   width: 100%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    width: 90vw;
+    max-width: 90vw;
+  }
+
+  @media (max-width: 576px) {
+    width: 95vw;
+    max-width: 95vw;
+    max-height: 90vh;
 
   @media (max-width: 768px) {
-    padding: 1rem;
+    width: 90vw;
+    max-width: 90vw;
+  }
+
+  @media (max-width: 576px) {
+    width: 95vw;
+    max-width: 95vw;
+    max-height: 90vh;
   }
 `;
 
@@ -469,13 +478,21 @@ const ModalDetails = styled.div`
   }
 `;
 
-const ModalActions = styled.div`
+const ModalBody = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 1.25rem 1.5rem 1.5rem;
+`;
+
+const ModalFooter = styled.div`
   display: flex;
   gap: 1rem;
-
-  @media (max-width: 768px) {
-    flex-direction: column;
-  }
+  justify-content: flex-end;
+  padding: 1rem 1.5rem 1.25rem;
+  border-top: 1px solid #e5e7eb;
+  background: white;
+  flex-shrink: 0;
 `;
 
 const Button = styled.button`
@@ -534,17 +551,27 @@ const ConvertModalContent = styled.div`
   background: white;
   border-radius: 12px;
   padding: 0;
-  max-width: 1200px;
-  width: 100%;
+  max-width: 1100px;
+  width: min(80vw, 1100px);
   max-height: 85vh;
-  overflow-y: auto;
+  height: 85vh;
+  overflow: hidden;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   display: grid;
   grid-template-columns: 1fr 1.5fr;
+  min-height: 0;
 
   @media (max-width: 1024px) {
     grid-template-columns: 1fr;
     max-height: 90vh;
+    height: 90vh;
+    width: 90vw;
+    max-width: 90vw;
+  }
+
+  @media (max-width: 576px) {
+    width: 95vw;
+    max-width: 95vw;
   }
 `;
 
@@ -556,6 +583,10 @@ const ConvertModalImageSection = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
 
   @media (max-width: 1024px) {
     border-right: none;
@@ -586,8 +617,59 @@ const ConvertModalImageSection = styled.div`
 `;
 
 const ConvertModalFormSection = styled.div`
-  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+`;
+
+const ConvertFormContent = styled.div`
+  flex: 1;
   overflow-y: auto;
+  padding: 2rem;
+  min-height: 0;
+`;
+
+const ConvertModalActions = styled.div`
+  display: flex;
+  gap: 0.8rem;
+  padding: 1rem 2rem;
+  border-top: 1px solid #dee2e6;
+  background: white;
+  flex-shrink: 0;
+
+  button {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+
+    &.save {
+      background: #4CAF50;
+      color: white;
+
+      &:hover:not(:disabled) {
+        background: #45a049;
+      }
+    }
+
+    &.cancel {
+      background: #e9ecef;
+      color: #495057;
+
+      &:hover:not(:disabled) {
+        background: #dee2e6;
+      }
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
 `;
 
 const SectionTitle = styled.h6`
@@ -631,256 +713,6 @@ const FormGroup = styled.div`
     resize: vertical;
     min-height: 80px;
   }
-`;
-
-const ProductsTable = styled.table`
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-  margin-top: 1rem;
-
-  thead {
-    background: #f8f9fa;
-    border-bottom: 2px solid #dee2e6;
-  }
-
-  th, td {
-    padding: 0.6rem 0.8rem;
-    text-align: left;
-  }
-
-  th {
-    font-weight: 600;
-    color: #2c3e50;
-  }
-
-  tbody tr {
-    border-bottom: 1px solid #dee2e6;
-
-    &:hover {
-      background: #f8f9fa;
-    }
-  }
-
-  input {
-    max-width: 60px;
-  }
-
-  button {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.75rem;
-    border: none;
-    border-radius: 4px;
-    background: #dc3545;
-    color: white;
-    cursor: pointer;
-
-    &:hover {
-      background: #c82333;
-    }
-  }
-`;
-
-const TotalSection = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem;
-  background: #e8f5e9;
-  border-radius: 8px;
-  margin-top: 1.5rem;
-  border: 1px solid rgba(76, 175, 80, 0.3);
-
-  .total-label {
-    font-weight: 600;
-    color: #2c3e50;
-    font-size: 1rem;
-  }
-
-  .total-value {
-    font-size: 1.3rem;
-    font-weight: 800;
-    color: #1b5e20;
-  }
-`;
-
-const ConvertModalActions = styled.div`
-  display: flex;
-  gap: 0.8rem;
-  padding-top: 1rem;
-  border-top: 1px solid #dee2e6;
-  margin-top: 1.5rem;
-
-  button {
-    flex: 1;
-    padding: 0.75rem 1rem;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s;
-
-    &.save {
-      background: #4CAF50;
-      color: white;
-
-      &:hover:not(:disabled) {
-        background: #45a049;
-      }
-    }
-
-    &.cancel {
-      background: #e9ecef;
-      color: #495057;
-
-      &:hover:not(:disabled) {
-        background: #dee2e6;
-      }
-    }
-
-    &:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-  }
-`;
-
-const QtyControl = styled.div`
-  /* Deprecated: Use QuantityControl component instead */
-  display: none;
-`;
-
-const RemoveItemButton = styled.button`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.3rem 0.6rem;
-  background: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.7rem;
-  font-weight: 500;
-  transition: all 0.2s;
-  white-space: nowrap;
-  height: 28px;
-  min-width: 28px;
-
-  &:hover {
-    background: #c82333;
-    transform: scale(1.05);
-  }
-
-  &:active {
-    transform: scale(0.95);
-  }
-
-  @media (max-width: 576px) {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.75rem;
-    height: auto;
-    min-width: auto;
-  }
-`;
-
-/* Card-based layout for Selected Items */
-const ItemsContainer = styled.div`
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-  margin-top: 1rem;
-
-  @media (max-width: 768px) {
-    gap: 0.75rem;
-  }
-`;
-
-const ItemCard = styled.div`
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 1rem;
-  transition: all 0.2s;
-
-  &:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  }
-
-  @media (max-width: 768px) {
-    padding: 0.75rem;
-  }
-`;
-
-const ItemHeader = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 0.75rem;
-  gap: 0.5rem;
-`;
-
-const ItemName = styled.span`
-  font-weight: 600;
-  color: #2c3e50;
-  font-size: 0.95rem;
-  flex: 1;
-
-  @media (max-width: 768px) {
-    font-size: 0.9rem;
-  }
-`;
-
-const ItemPrice = styled.span`
-  font-size: 0.9rem;
-  color: #666;
-  font-weight: 500;
-`;
-
-const ItemContentRow = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
-
-  @media (max-width: 576px) {
-    gap: 0.5rem;
-  }
-`;
-
-const QuantitySection = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  label {
-    font-size: 0.75rem;
-    color: #999;
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-`;
-
-const ItemTotal = styled.div`
-  font-weight: 700;
-  color: #2c3e50;
-  font-size: 1rem;
-  text-align: right;
-
-  @media (max-width: 576px) {
-    font-size: 0.9rem;
-  }
-`;
-
-const ItemActions = styled.div`
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  border-top: 1px solid #f0f0f0;
-  padding-top: 0.75rem;
-  margin-top: 0.75rem;
 `;
 
 const GrandTotalSticky = styled.div`
@@ -1001,7 +833,9 @@ class AdminListOrdersPage extends React.Component {
   fetchListOrders = async () => {
     this.setState({ loading: true });
     try {
-      const response = await listOrderService.getAllListOrders({});
+      // 🔹 IMPORTANT: Only fetch PENDING list orders (exclude converted ones)
+      // Converted orders move to AdminListOrdersConvertedPage via separate API
+      const response = await listOrderService.getAllListOrders({ status: 'pending' });
       
       if (response.success) {
         this.setState({
@@ -1033,7 +867,12 @@ class AdminListOrdersPage extends React.Component {
     const { listOrders, filterStatus, filterSearch } = this.state;
     let filtered = [...listOrders];
 
-    if (filterStatus !== 'all') {
+    // 🔹 STRICT SEPARATION: Never show converted orders on this page
+    // Converted orders ONLY appear on AdminListOrdersConvertedPage
+    filtered = filtered.filter(order => order.status !== 'converted');
+
+    if (filterStatus !== 'all' && filterStatus !== 'converted') {
+      // Only filter by 'pending' since that's all we have here
       filtered = filtered.filter(order => order.status === filterStatus);
     }
 
@@ -1530,6 +1369,13 @@ class AdminListOrdersPage extends React.Component {
 
   handleConvertItemQuantityInput = (productId, qty) => {
     const { convertItems } = this.state;
+    const item = convertItems.find((entry) => entry.productId === productId);
+    const stock = Number(item?.stock || 0);
+    const validation = validateQuantity(qty, { unit: item?.unit || 'piece', stock });
+
+    if (!validation.isValid) {
+      toast.error(validation.message);
+    }
 
     // Update items (QuantityControl handles validation)
     const updatedItems = convertItems.map(item => {
@@ -1537,8 +1383,8 @@ class AdminListOrdersPage extends React.Component {
 
       return {
         ...item,
-        quantity: qty,
-        total: (Number(item.price) || 0) * qty
+        quantity: validation.correctedValue,
+        total: (Number(item.price) || 0) * validation.correctedValue
       };
     });
 
@@ -1592,11 +1438,21 @@ class AdminListOrdersPage extends React.Component {
     }
 
     const totalAmount = this.getConvertGrandTotal();
+    for (const item of convertItems) {
+      const stock = Number(item?.stock || 0);
+      const qty = Number(item?.quantity || 0) || 0;
+      const validation = validateQuantity(qty, { unit: item?.unit || 'piece', stock });
+      if (!validation.isValid) {
+        toast.error(validation.message);
+        return;
+      }
+    }
+
     const orderDateIso = convertOrderDate ? new Date(convertOrderDate).toISOString() : new Date().toISOString();
 
     this.setState({ convertActionLoading: true });
     try {
-      // Create offline order
+      // Create offline order with LIST ORDER metadata (type + origin)
       const orderResponse = await orderService.createOfflineOrder({
         customerName: convertCustomerName.trim(),
         phone: convertPhone.trim(),
@@ -1608,9 +1464,13 @@ class AdminListOrdersPage extends React.Component {
           price: item.price
         })),
         totalAmount,
-        status: 'Pending',
+        status: 'converted',
+        paymentStatus: 'pending',
         orderType: 'Offline',
-        orderDate: orderDateIso
+        orderDate: orderDateIso,
+        // ✅ STRICT SEPARATION: Mark as converted list order
+        type: 'list_converted',
+        origin: 'list_orders'
       });
 
       // Update list order status to converted
@@ -1618,7 +1478,7 @@ class AdminListOrdersPage extends React.Component {
         await listOrderService.updateListOrderStatus(
           convertListOrder.id,
           'converted',
-          orderResponse?.data?.order?.id || orderResponse?.id
+          orderResponse?.order?.id || orderResponse?.data?.order?.id || orderResponse?.id
         );
       }
 
@@ -1697,7 +1557,6 @@ class AdminListOrdersPage extends React.Component {
           <FilterSelect value={filterStatus} onChange={this.handleFilterStatusChange}>
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
-            <option value="converted">Converted</option>
           </FilterSelect>
         </FilterBar>
 
@@ -1794,7 +1653,8 @@ class AdminListOrdersPage extends React.Component {
 
             {selectedListOrder && (
               <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+                <ModalBody>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
                   {(() => {
                     const imagePaths = selectedListOrder.imagePaths || 
                                       (selectedListOrder.imagePath ? [selectedListOrder.imagePath] : []);
@@ -1820,9 +1680,7 @@ class AdminListOrdersPage extends React.Component {
                       </div>
                     ));
                   })()}
-                </div>
-
-                <ModalDetails>
+                  <ModalDetails>
                   <div className="detail-row">
                     <span className="label">Customer Name:</span>
                     <span className="value">{selectedListOrder.customerName}</span>
@@ -1846,7 +1704,7 @@ class AdminListOrdersPage extends React.Component {
                   {(selectedListOrder.imagePaths?.length || 1) > 1 && (
                     <div className="detail-row">
                       <span className="label">Images:</span>
-                      <span className="value">📸 {selectedListOrder.imagePaths?.length || 1} files</span>
+                      <span className="value">� {selectedListOrder.imagePaths?.length || 1} files</span>
                     </div>
                   )}
                   {selectedListOrder.notes && (
@@ -1855,9 +1713,11 @@ class AdminListOrdersPage extends React.Component {
                       <span className="value">{selectedListOrder.notes}</span>
                     </div>
                   )}
-                </ModalDetails>
+                  </ModalDetails>
+                  </div>
+                </ModalBody>
 
-                <ModalActions>
+                <ModalFooter>
                   <Button
                     className="secondary"
                     onClick={() => this.handlePrint(selectedListOrder)}
@@ -1878,7 +1738,7 @@ class AdminListOrdersPage extends React.Component {
                   >
                     🗑️ Delete
                   </Button>
-                </ModalActions>
+                </ModalFooter>
               </>
             )}
           </ModalContent>
@@ -1921,11 +1781,11 @@ class AdminListOrdersPage extends React.Component {
                     );
                   })()}
                   <div className="image-info">
-                    <strong>Grocery List</strong>
+                    <strong>List Order</strong>
                     <div>ID: #{this.state.convertListOrder.id}</div>
                     {(this.state.convertListOrder.imagePaths?.length || 1) > 1 && (
                       <div style={{ fontSize: '0.9rem', marginTop: '0.5rem' }}>
-                        📸 {this.state.convertListOrder.imagePaths?.length || 1} images
+                        📋 {this.state.convertListOrder.imagePaths?.length || 1} images
                       </div>
                     )}
                   </div>
@@ -1935,24 +1795,25 @@ class AdminListOrdersPage extends React.Component {
 
             {/* Form Section - Right */}
             <ConvertModalFormSection>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <h3 style={{ margin: 0, color: '#2c3e50' }}>➕ Create Offline Order</h3>
-                <button
-                  onClick={this.closeConvertModal}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '1.5rem',
-                    cursor: 'pointer',
-                    color: '#7f8c8d'
-                  }}
-                >
-                  ×
-                </button>
-              </div>
+              <ConvertFormContent>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                  <h3 style={{ margin: 0, color: '#2c3e50' }}>➕ Create Offline Order</h3>
+                  <button
+                    onClick={this.closeConvertModal}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '1.5rem',
+                      cursor: 'pointer',
+                      color: '#7f8c8d'
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
 
-              {/* Customer Details Section */}
-              <SectionTitle style={{ marginTop: 0, marginBottom: '0.6rem' }}>Customer Information</SectionTitle>
+                {/* Customer Details Section */}
+                <SectionTitle style={{ marginTop: 0, marginBottom: '0.6rem' }}>Customer Information</SectionTitle>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '1rem' }}>
                 <FormGroup>
                   <label>Customer Name *</label>
@@ -2292,6 +2153,7 @@ class AdminListOrdersPage extends React.Component {
                   </GrandTotalSticky>
                 </>
               )}
+              </ConvertFormContent>
 
               <ConvertModalActions>
                 <button

@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -16,6 +17,7 @@ const customerRoutes = require('./routes/customerRoutes');
 const userRoutes = require('./routes/userRoutes');
 const feedbackRoutes = require('./routes/feedbackRoutes');
 const listOrderRoutes = require('./routes/listOrderRoutes');
+const orderImageRoutes = require('./routes/orderImageRoutes');
 
 const app = express();
 
@@ -73,8 +75,8 @@ app.use(getLogger(config.env));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-// Serve uploaded files as static
-app.use('/uploads', express.static('uploads'));
+// Serve uploaded files as static from the backend folder
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Health check route
 app.get('/', (req, res) => {
@@ -93,6 +95,7 @@ app.use('/api/admin/customers', customerRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/list-orders', listOrderRoutes);
+app.use('/api/order-images', orderImageRoutes);
 
 // Error handling middleware (must be last)
 app.use(notFound);

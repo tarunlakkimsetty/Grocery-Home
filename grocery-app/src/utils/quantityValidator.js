@@ -76,6 +76,8 @@ export const validateQuantity = (quantity, options = {}) => {
   const { unit = 'piece', stock = 9999 } = options;
   const min = getMinQuantity(unit);
   const allowsDecimal = supportsDecimal(unit);
+  const numericStock = Number(stock);
+  const safeStock = Number.isFinite(numericStock) && numericStock >= 0 ? numericStock : 9999;
   
   // Convert to number
   let qty = Number(quantity);
@@ -126,11 +128,11 @@ export const validateQuantity = (quantity, options = {}) => {
   }
   
   // Check stock limit
-  if (qty > stock) {
+  if (qty > safeStock) {
     return {
       isValid: false,
-      message: `Only ${stock} available`,
-      correctedValue: stock
+      message: safeStock > 0 ? `Only ${safeStock} items available` : 'Out of stock',
+      correctedValue: safeStock
     };
   }
   
@@ -204,7 +206,7 @@ export const formatForDisplay = (quantity, unit) => {
   return unit ? `${formatted} ${unit}` : formatted;
 };
 
-export default {
+const quantityValidator = {
   supportsDecimal,
   getMinQuantity,
   getInputStep,
@@ -214,3 +216,5 @@ export default {
   getPreviousQuantity,
   formatForDisplay
 };
+
+export default quantityValidator;

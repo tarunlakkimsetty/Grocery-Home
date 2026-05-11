@@ -301,7 +301,7 @@ class RegisterPage extends React.Component {
                                                                 type="text"
                                                                 className="form-control rounded-3"
                                                                 placeholder="e.g., Biryani, Pizza, Idli"
-                                                                value={this.state.favoriteFood}
+                                                                value={favoriteFood}
                                                                 onChange={this.handleChange('favoriteFood')}
                                                             />
                                                             {errors.favoriteFood && (
@@ -317,7 +317,7 @@ class RegisterPage extends React.Component {
                                                                 type="text"
                                                                 className="form-control rounded-3"
                                                                 placeholder="e.g., Beach, Mountains, Home"
-                                                                value={this.state.favoritePlace}
+                                                                value={favoritePlace}
                                                                 onChange={this.handleChange('favoritePlace')}
                                                             />
                                                             {errors.favoritePlace && (

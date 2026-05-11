@@ -84,17 +84,78 @@ const ensureOrderPaymentHistoryTable = async () => {
     }
 };
 
-const ensureTypeOriginColumns = async () => {
+const ensureOrderImagesTable = async () => {
     try {
-        await promisePool.query(
-            "ALTER TABLE orders ADD COLUMN `type` VARCHAR(32) DEFAULT NULL, ADD COLUMN `origin` VARCHAR(32) DEFAULT NULL"
-        );
-        console.log('✓ orders.type and orders.origin ensured');
+        await promisePool.query(`
+            CREATE TABLE IF NOT EXISTS order_images (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                entityType ENUM('order', 'bill') NOT NULL,
+                entityId INT NOT NULL,
+                orderType VARCHAR(50) NULL,
+                imagePath VARCHAR(255) NOT NULL,
+                originalName VARCHAR(255) NULL,
+                mimeType VARCHAR(100) NULL,
+                sizeBytes INT NOT NULL DEFAULT 0,
+                uploadedBy INT NULL,
+                uploadedByRole VARCHAR(20) NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_order_images_entity (entityType, entityId),
+                INDEX idx_order_images_uploadedBy (uploadedBy),
+                CONSTRAINT fk_order_images_uploadedBy_users
+                    FOREIGN KEY (uploadedBy) REFERENCES users(id) ON DELETE SET NULL ON UPDATE RESTRICT
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✓ order_images table ensured');
     } catch (err) {
         const msg = String(err && err.message ? err.message : err);
-        if (msg.includes('Duplicate column')) return;
-        if (msg.includes("doesn't exist") || msg.includes('Unknown table')) return;
-        console.log('! Could not ensure orders.type/origin columns:', msg);
+        console.log('! Could not ensure order_images table:', msg);
+    }
+};
+
+const ensureTypeOriginColumns = async () => {
+    try {
+        // Add type column
+        try {
+            await promisePool.query(
+                "ALTER TABLE orders ADD COLUMN `type` VARCHAR(32) DEFAULT NULL"
+            );
+            console.log('✓ orders.type column ensured');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (!msg.includes('Duplicate column')) {
+                console.log('! Could not add orders.type column:', msg);
+            }
+        }
+
+        // Add origin column
+        try {
+            await promisePool.query(
+                "ALTER TABLE orders ADD COLUMN `origin` VARCHAR(32) DEFAULT NULL"
+            );
+            console.log('✓ orders.origin column ensured');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (!msg.includes('Duplicate column')) {
+                console.log('! Could not add orders.origin column:', msg);
+            }
+        }
+
+        // Add indexes
+        try {
+            await promisePool.query("CREATE INDEX idx_orders_type ON orders(`type`)");
+            console.log('✓ orders.type index ensured');
+        } catch (err) {
+            // Ignore if already exists
+        }
+
+        try {
+            await promisePool.query("CREATE INDEX idx_orders_origin ON orders(`origin`)");
+            console.log('✓ orders.origin index ensured');
+        } catch (err) {
+            // Ignore if already exists
+        }
+    } catch (err) {
+        console.log('! Could not ensure orders.type/origin columns:', String(err && err.message ? err.message : err));
     }
 };
 
@@ -120,15 +181,29 @@ const startServer = async () => {
     // Best-effort: track advance payment updates
     await ensureOrderPaymentHistoryTable();
 
+    // Best-effort: store uploaded order images
+    await ensureOrderImagesTable();
+
     // Best-effort: add flexible type/origin columns to support list-converted workflow
     await ensureTypeOriginColumns();
 
     // Best-effort: backfill origin for existing converted orders
     try {
-        await promisePool.query("UPDATE orders SET origin = 'list_orders' WHERE `type` = 'list_converted' AND (origin IS NULL OR origin = '')");
-        console.log('✓ backfilled origin for list_converted orders');
+        // Check if type column exists first
+        const [columns] = await promisePool.query(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'type'"
+        );
+        
+        if (columns && columns.length > 0) {
+            await promisePool.query("UPDATE orders SET origin = 'list_orders' WHERE `type` = 'list_converted' AND (origin IS NULL OR origin = '')");
+            console.log('✓ backfilled origin for list_converted orders');
+        }
     } catch (err) {
-        console.log('! Could not backfill converted origins:', String(err && err.message ? err.message : err));
+        // Silently fail - columns not ready yet or query not supported
+        const msg = String(err && err.message ? err.message : err);
+        if (!msg.includes('Unknown column')) {
+            console.log('! Could not backfill converted origins:', msg);
+        }
     }
 
     // Start Express server

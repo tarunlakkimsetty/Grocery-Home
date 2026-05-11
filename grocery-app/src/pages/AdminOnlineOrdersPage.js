@@ -1,7 +1,7 @@
 import React from 'react';
 import LanguageContext from '../context/LanguageContext';
 import QuantityControl from '../components/QuantityControl';
-import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';
+import { getNextQuantity, getPreviousQuantity, validateQuantity } from '../utils/quantityValidator';
 import orderService from '../services/orderService';
 import productService from '../services/productService';
 import Spinner from '../components/Spinner';
@@ -88,47 +88,6 @@ const SectionTitle = styled.h6`
     color: #6c757d;
     margin-bottom: 0.6rem;
     margin-top: 0;
-`;
-
-const QtyControl = styled.div`
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-
-    .qty-btn {
-        width: 24px;
-        height: 24px;
-        border: 1px solid #ced4da;
-        background: white;
-        border-radius: 4px;
-        font-size: 0.9rem;
-        font-weight: 700;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        line-height: 1;
-        transition: all 0.15s;
-        color: #495057;
-
-        &:hover:not(:disabled) {
-            background: #e9ecef;
-            border-color: #adb5bd;
-        }
-        &:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-    }
-
-    .qty-value {
-        min-width: 28px;
-        text-align: center;
-        font-weight: 700;
-        font-size: 0.875rem;
-        color: #212529;
-    }
 `;
 
 const TotalBar = styled.div`
@@ -483,8 +442,7 @@ class AdminOnlineOrdersPage extends React.Component {
     // ─── Advance Payment Helpers ───────────────────────────────────────────
 
     isAdvanceEditable = (order) => {
-        const statusRaw = String(order?.status || '').trim();
-        const statusLower = statusRaw.toLowerCase();
+        const statusLower = String(order?.status || '').trim().toLowerCase();
         const paymentStatusLower = String(order?.paymentStatus || '').trim().toLowerCase();
 
         // Hard lock after payment/completion
@@ -500,6 +458,10 @@ class AdminOnlineOrdersPage extends React.Component {
         // Spec-allowed statuses
         const allowed = new Set(['accepted', 'confirmed', 'processing', 'verified', 'delivered']);
         return allowed.has(statusLower);
+    };
+
+    isAcceptedStatus = (order) => {
+        return String(order?.status || '').trim().toLowerCase() === 'accepted';
     };
 
     getAdvanceInputValue = (order) => {
@@ -865,6 +827,12 @@ class AdminOnlineOrdersPage extends React.Component {
 
             return acc;
         }, []);
+
+        const productLookup = new Map((this.state.products || []).flatMap((product) => [
+            [String(product.id), product],
+            [String(product._id || ''), product],
+        ]));
+
         const shouldRestoreSelection =
             !!(
                 orderForModal &&
@@ -885,17 +853,25 @@ class AdminOnlineOrdersPage extends React.Component {
             modalOpen: true,
             selectedProducts: selectedFromDb,
             // Deep copy items so quantity edits don't mutate source
-            modalItems: mergedItems.map((item) => ({
-                ...item,
-                productId: Number(item.productId),
-                // Normalize display field
-                name: item?.name ?? item?.productName,
-                price: Number(item?.price || 0) || 0,
-                quantity: Number.isFinite(Number(item?.quantity)) ? Number(item.quantity) : 0,
-                total:
-                    Number(item?.total || 0) ||
-                    (Number(item?.price || 0) || 0) * (Number(item?.quantity || 0) || 0),
-            })),
+            modalItems: mergedItems.map((item) => {
+                const matchedProduct = productLookup.get(String(item.productId)) || null;
+                const qty = Number.isFinite(Number(item?.quantity)) ? Number(item.quantity) : 0;
+                const price = Number(item?.price || 0) || 0;
+                return {
+                    ...item,
+                    productId: Number(item.productId),
+                    // Normalize display field
+                    name: item?.name ?? item?.productName ?? matchedProduct?.name ?? '',
+                    productName: item?.productName ?? item?.name ?? matchedProduct?.name ?? '',
+                    price,
+                    quantity: qty,
+                    stock: Number(item?.stock ?? matchedProduct?.stock ?? 0) || 0,
+                    unit: String(item?.unit ?? matchedProduct?.unit ?? 'piece').trim(),
+                    total:
+                        Number(item?.total || 0) ||
+                        price * qty,
+                };
+            }),
             addProductId: '',
             addProductQty: '1',
             addProductQtyError: '',
@@ -940,7 +916,7 @@ class AdminOnlineOrdersPage extends React.Component {
         const { selectedOrder, selectedProducts } = this.state;
         if (!selectedOrder) return;
         // Lock: online order changes are allowed only after acceptance.
-        if (selectedOrder.status !== 'Accepted') return;
+        if (!this.isAcceptedStatus(selectedOrder)) return;
         const isSelected = selectedProducts.includes(productId);
         const nextSelectedProducts = isSelected
             ? selectedProducts.filter((id) => id !== productId)
@@ -951,6 +927,16 @@ class AdminOnlineOrdersPage extends React.Component {
 
     // ─── Quantity Editing (PART 2) ─────────────────────────────────────────────
 
+    getModalItemAvailableStock = (item) => {
+        const rawStock = Number(item?.stock);
+        return Number.isFinite(rawStock) && rawStock >= 0 ? rawStock : 0;
+    };
+
+    getModalQuantityValidation = (item, qty) => validateQuantity(qty, {
+        unit: item?.unit || 'piece',
+        stock: this.getModalItemAvailableStock(item),
+    });
+
     // CRITICAL: Validate quantity against stock before updating
     updateModalItemQuantity = (productId, newQty) => {
         const { modalItems } = this.state;
@@ -958,23 +944,16 @@ class AdminOnlineOrdersPage extends React.Component {
         
         if (!item) return;
         
-        const stock = Number(item.stock || 0);
-        // IMPORTANT: For online orders, we DON'T subtract already-added qty
-        // because each item in modalItems is from THIS order only
-        const available = stock;
-        
-        // Debug logging
-        console.log({ stock, available, attemptedQty: newQty, currentQty: item.quantity, productId });
-        
-        // Block quantities exceeding available
-        if (newQty > available) {
-            toast.error(`Only ${available} available`);
-            return;
-        }
-        
-        // Block zero or negative
-        if (newQty <= 0) {
-            toast.error('Quantity must be greater than 0');
+        const validation = this.getModalQuantityValidation(item, newQty);
+        if (!validation.isValid) {
+            toast.error(validation.message);
+            const correctedValue = validation.correctedValue;
+            const updatedItems = modalItems.map(i => 
+              i.productId === productId 
+                ? { ...i, quantity: correctedValue, total: (Number(i.price || 0) || 0) * correctedValue }
+                : i
+            );
+            this.setState({ modalItems: updatedItems });
             return;
         }
         
@@ -990,13 +969,19 @@ class AdminOnlineOrdersPage extends React.Component {
     updateItemQuantity = (productId, delta) => {
         const { selectedOrder } = this.state;
         // Lock: online order changes are allowed only after acceptance.
-        if (selectedOrder && selectedOrder.status !== 'Accepted') return;
+        if (selectedOrder && !this.isAcceptedStatus(selectedOrder)) return;
         const pid = parseInt(productId, 10);
         const updatedItems = this.state.modalItems.map((item) => {
             if (Number(item.productId) === pid) {
                 const currentQty = Number(item.quantity || 0) || 0;
                 const newQty = Math.max(0, currentQty + delta);
                 const price = Number(item.price || 0) || 0;
+                const validation = this.getModalQuantityValidation(item, newQty);
+                if (!validation.isValid) {
+                    toast.error(validation.message);
+                    const correctedValue = validation.correctedValue;
+                    return { ...item, quantity: correctedValue, total: price * correctedValue };
+                }
                 return { ...item, quantity: newQty, total: price * newQty };
             }
             return item;
@@ -1006,7 +991,7 @@ class AdminOnlineOrdersPage extends React.Component {
 
     removeItemFromOrder = async (productId) => {
         const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Accepted') return;
+        if (!selectedOrder || !this.isAcceptedStatus(selectedOrder)) return;
 
         const pid = parseInt(productId, 10);
         if (!Number.isFinite(pid) || pid <= 0) return;
@@ -1109,7 +1094,7 @@ class AdminOnlineOrdersPage extends React.Component {
 
     handleAddProductToOrder = async () => {
         const { selectedOrder, addProductId, addProductQty, products, modalItems } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Accepted') return;
+        if (!selectedOrder || !this.isAcceptedStatus(selectedOrder)) return;
 
         const productId = parseInt(addProductId, 10);
         if (!productId) {
@@ -1125,10 +1110,24 @@ class AdminOnlineOrdersPage extends React.Component {
             return;
         }
 
-        const quantity = qtyNum;
         const product = products.find((p) => p.id === productId);
         if (!product) {
             toast.error(t('selectedProductNotFound'));
+            return;
+        }
+
+        const quantity = qtyNum;
+        const availableStock = Math.max(0, Number(product?.stock || 0) || 0);
+        const existingIdx = modalItems.findIndex((i) => Number(i.productId) === productId);
+        const existingQty = existingIdx !== -1 ? (Number(modalItems[existingIdx]?.quantity || 0) || 0) : 0;
+        const remainingStock = Math.max(0, availableStock - existingQty);
+        const quantityValidation = validateQuantity(quantity, {
+            unit: String(product?.unit || 'piece').trim(),
+            stock: remainingStock,
+        });
+        if (!quantityValidation.isValid) {
+            toast.error(quantityValidation.message);
+            this.setState({ addProductQtyError: quantityValidation.message, addProductQty: String(quantityValidation.correctedValue) });
             return;
         }
 
@@ -1137,7 +1136,10 @@ class AdminOnlineOrdersPage extends React.Component {
             // Backend integration: add item before verification
             await orderService.addItemToOrder(selectedOrder.id, productId, quantity);
 
-            const existingIdx = modalItems.findIndex((i) => Number(i.productId) === productId);
+            if (existingQty + quantity > availableStock) {
+                toast.error(`Only ${remainingStock} items available`);
+                return;
+            }
             let nextModalItems = [];
             if (existingIdx !== -1) {
                 nextModalItems = modalItems.map((i) => {
@@ -1158,6 +1160,8 @@ class AdminOnlineOrdersPage extends React.Component {
                         price: product.price,
                         quantity: quantity,
                         total: product.price * quantity,
+                        stock: Number(product.stock || 0) || 0,
+                        unit: String(product.unit || 'piece').trim(),
                     },
                 ];
             }
@@ -1192,7 +1196,7 @@ class AdminOnlineOrdersPage extends React.Component {
     handleVerifyCheckbox = async (isChecked) => {
         if (!isChecked) return; // Verification is irreversible
         const { selectedOrder } = this.state;
-        if (!selectedOrder || selectedOrder.status !== 'Accepted') return;
+        if (!selectedOrder || !this.isAcceptedStatus(selectedOrder)) return;
         await this.handleVerify(selectedOrder.id);
     };
 
@@ -1232,8 +1236,17 @@ class AdminOnlineOrdersPage extends React.Component {
         try {
             const { selectedOrder, modalItems, selectedProducts } = this.state;
             if (!selectedOrder || selectedOrder.id !== orderId) return;
-            if (selectedOrder.status !== 'Accepted') {
+            if (!this.isAcceptedStatus(selectedOrder)) {
                 toast.warning(t('verifyAfterAcceptOnly'));
+                return;
+            }
+
+            const invalidItem = (Array.isArray(modalItems) ? modalItems : []).find((item) => {
+                const validation = this.getModalQuantityValidation(item, item?.quantity);
+                return !validation.isValid;
+            });
+            if (invalidItem) {
+                toast.error(this.getModalQuantityValidation(invalidItem, invalidItem.quantity).message);
                 return;
             }
 
@@ -1309,6 +1322,15 @@ class AdminOnlineOrdersPage extends React.Component {
     handleApprovePayment = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
+            const invalidItem = (Array.isArray(this.state.modalItems) ? this.state.modalItems : []).find((item) => {
+                const validation = this.getModalQuantityValidation(item, item?.quantity);
+                return !validation.isValid;
+            });
+            if (invalidItem) {
+                toast.error(this.getModalQuantityValidation(invalidItem, invalidItem.quantity).message);
+                return;
+            }
+
             const resp = await orderService.approvePayment(orderId);
             const nextOrder = resp?.order || resp?.data?.order || null;
 
@@ -1359,6 +1381,15 @@ class AdminOnlineOrdersPage extends React.Component {
     handleDeliver = async (orderId) => {
         this.setState({ actionLoading: true });
         try {
+            const invalidItem = (Array.isArray(this.state.modalItems) ? this.state.modalItems : []).find((item) => {
+                const validation = this.getModalQuantityValidation(item, item?.quantity);
+                return !validation.isValid;
+            });
+            if (invalidItem) {
+                toast.error(this.getModalQuantityValidation(invalidItem, invalidItem.quantity).message);
+                return;
+            }
+
             const resp = await orderService.deliverOrder(orderId);
             const nextOrder = resp?.order || resp?.data?.order || null;
 
@@ -1386,7 +1417,8 @@ class AdminOnlineOrdersPage extends React.Component {
     handleReject = async (orderId) => {
         const { selectedOrder } = this.state;
         if (!selectedOrder) return;
-        if (!['Pending Acceptance', 'Accepted'].includes(String(selectedOrder.status || ''))) return;
+        const statusLower = String(selectedOrder.status || '').trim().toLowerCase();
+        if (!['pending acceptance', 'pending', 'accepted'].includes(statusLower)) return;
 
         // Keep confirm minimal; no extra UX beyond a standard prompt.
         const ok = window.confirm(t('rejectOrderConfirm'));
@@ -1520,9 +1552,10 @@ class AdminOnlineOrdersPage extends React.Component {
                             : langCtx.getText('pendingPayment');
                     };
                     const isRejected = selectedOrder && selectedOrder.status === 'Rejected';
+                    const statusLower = String(selectedOrder?.status || '').trim().toLowerCase();
                     const isPendingAcceptance =
-                        selectedOrder && ['Pending Acceptance', 'Pending'].includes(String(selectedOrder.status || ''));
-                    const isAcceptedEditable = selectedOrder && selectedOrder.status === 'Accepted';
+                        selectedOrder && ['pending acceptance', 'pending'].includes(statusLower);
+                    const isAcceptedEditable = selectedOrder && statusLower === 'accepted';
                     const isLocked = selectedOrder && !isAcceptedEditable;
 
                     const totalForPayment = Number(selectedOrder?.totalAmount ?? selectedOrder?.grandTotal ?? checkedTotal ?? 0) || 0;
@@ -2274,8 +2307,8 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                             value={item.quantity || 0}
                                                                             onIncrease={() => {
                                                                                 const unit = item.unit || 'piece';
-                                                                                const stock = Number(item.stock || 0);
-                                                                                const next = getNextQuantity(item.quantity, { unit, stock });
+                                                                                                                                                                const stock = Number(item.stock || 0);
+                                                                                                                                                                const next = getNextQuantity(item.quantity, { unit, stock });
                                                                                 const updatedItems = modalItems.map(i => 
                                                                                   i.productId === item.productId 
                                                                                     ? { ...i, quantity: next, total: (Number(i.price || 0) || 0) * next }

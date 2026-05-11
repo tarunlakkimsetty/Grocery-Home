@@ -1,5 +1,5 @@
 import React from 'react';
-import { DangerButton, GhostButton } from '../styledComponents/ButtonStyles';
+import { DangerButton } from '../styledComponents/ButtonStyles';
 import LanguageContext from '../context/LanguageContext';
 import QuantityControl from './QuantityControl';
 import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';

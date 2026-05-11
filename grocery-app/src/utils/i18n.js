@@ -23,17 +23,18 @@ export const hasTranslation = (key) => {
 };
 
 export const statusKey = (status) => {
-    const s = String(status || '').trim();
+    const s = String(status || '').trim().toLowerCase();
     const map = {
-        'Pending Acceptance': 'pendingAcceptance',
-        Accepted: 'accepted',
-        Pending: 'pending',
-        Verified: 'verified',
-        Paid: 'paid',
-        Delivered: 'delivered',
-        Completed: 'completed',
-        Rejected: 'rejected',
-        Unpaid: 'unpaid',
+        'pending acceptance': 'pendingAcceptance',
+        accepted: 'accepted',
+        pending: 'pending',
+        verified: 'verified',
+        converted: 'processing',
+        paid: 'paid',
+        delivered: 'delivered',
+        completed: 'completed',
+        rejected: 'rejected',
+        unpaid: 'unpaid',
     };
-    return map[s] || s;
+    return map[s] || status || '';
 };

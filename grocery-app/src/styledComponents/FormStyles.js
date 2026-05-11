@@ -1,4 +1,6 @@
+import React from 'react';
 import styled from 'styled-components';
+import { useModalScrollLock } from './modalUtils';
 
 export const FormWrapper = styled.div`
   background: ${({ theme }) => theme.colors.white};
@@ -206,7 +208,7 @@ export const PaginationWrapper = styled.div`
   }
 `;
 
-export const ModalOverlay = styled.div`
+const ModalOverlayShell = styled.div`
   position: fixed;
   top: 0;
   left: 0;
@@ -218,6 +220,9 @@ export const ModalOverlay = styled.div`
   align-items: center;
   justify-content: center;
   padding: 1rem;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: none;
   animation: fadeIn 0.2s ease;
 
   @keyframes fadeIn {
@@ -226,15 +231,35 @@ export const ModalOverlay = styled.div`
   }
 `;
 
+export const ModalOverlay = ({ children, ...props }) => {
+  useModalScrollLock(true);
+  return <ModalOverlayShell {...props}>{children}</ModalOverlayShell>;
+};
+
 export const ModalContent = styled.div`
   background: ${({ theme }) => theme.colors.white};
   border-radius: ${({ theme }) => theme.borderRadius.lg};
   width: 100%;
-  max-width: 520px;
-  max-height: 90vh;
-  overflow-y: auto;
+  max-width: 1100px;
+  width: min(80vw, 1100px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: ${({ theme }) => theme.shadows.xl};
   animation: slideUp 0.3s ease;
+
+  @media (max-width: 1024px) {
+    width: 90vw;
+    max-width: 90vw;
+  }
+
+  @media (max-width: 576px) {
+    width: 95vw;
+    max-width: 95vw;
+    max-height: 90vh;
+    border-radius: ${({ theme }) => theme.borderRadius.md};
+  }
 
   @keyframes slideUp {
     from { transform: translateY(20px); opacity: 0; }
@@ -247,6 +272,11 @@ export const ModalContent = styled.div`
     justify-content: space-between;
     padding: 1.25rem 1.5rem;
     border-bottom: 1px solid ${({ theme }) => theme.colors.borderLight};
+    flex-shrink: 0;
+    background: ${({ theme }) => theme.colors.white};
+    position: sticky;
+    top: 0;
+    z-index: 1;
 
     h3 {
       font-family: ${({ theme }) => theme.fonts.heading};
@@ -274,6 +304,9 @@ export const ModalContent = styled.div`
   .modal-body {
     padding: 1.5rem;
     overflow-x: auto;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   .modal-footer {
@@ -282,6 +315,11 @@ export const ModalContent = styled.div`
     justify-content: flex-end;
     padding: 1rem 1.5rem;
     border-top: 1px solid ${({ theme }) => theme.colors.borderLight};
+    flex-shrink: 0;
+    background: ${({ theme }) => theme.colors.white};
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
   }
 
   /* Responsive table styling for modal */
@@ -764,6 +802,16 @@ export const HistoryCardButton = styled.button`
 
   &:active {
     transform: translateY(0);
+  }
+
+  &:disabled,
+  &:disabled:hover,
+  &:disabled:active {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none;
+    box-shadow: none;
   }
 `;
 

@@ -1,8 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const ListOrderModel = require('../models/listOrderModel');
+const Order = require('../models/orderModel');
 const User = require('../models/userModel');
 const asyncHandler = require('../utils/asyncHandler');
+const { promisePool } = require('../config/db');
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '../uploads/list-orders');
@@ -121,6 +123,11 @@ const ListOrderController = {
       if (phone) filters.phone = phone;
       if (customerName) filters.customerName = customerName;
 
+      console.log('[ListOrderController] getAllListOrders request:', {
+        filters,
+        rawQuery: req.query,
+      });
+
       let listOrders = await ListOrderModel.getAll(filters);
       
       // Parse imagePath JSON and provide both backward compatible and new fields
@@ -139,6 +146,11 @@ const ListOrderController = {
             imagePath: order.imagePath
           };
         }
+      });
+
+      console.log('[ListOrderController] getAllListOrders response:', {
+        count: listOrders.length,
+        statuses: [...new Set(listOrders.map((order) => order.status))],
       });
       
       res.json({
@@ -282,6 +294,8 @@ const ListOrderController = {
   // Get customer's previous uploads (public route - by phone number from request)
   getCustomerUploads: asyncHandler(async (req, res) => {
     try {
+      const view = String(req.body?.view || req.query?.view || 'all').trim().toLowerCase();
+
       // 🔒 SECURE: Extract phone from JWT token (via authMiddleware)
       let userPhone = req.user?.phone;
       
@@ -303,10 +317,12 @@ const ListOrderController = {
         phone: userPhone
       });
 
-      // Parse imagePath JSON and provide both backward compatible and new fields
-      uploads = uploads.map(order => {
+      // ✅ NEW: For converted list orders, fetch and merge linked order data
+      // This ensures customer sees real-time status updates from admin portal
+      
+      uploads = await Promise.all(uploads.map(async (order) => {
         try {
-          // Try to parse imagePath as JSON array
+          // Parse imagePath JSON and provide both backward compatible and new fields
           let imagePaths = [];
           try {
             const parsed = JSON.parse(order.imagePath);
@@ -314,22 +330,109 @@ const ListOrderController = {
           } catch (e) {
             imagePaths = [order.imagePath];
           }
-          
-          return {
+
+          const baseOrder = {
             ...order,
-            imagePaths: imagePaths, // Always an array
-            imagePath: imagePaths[0] || order.imagePath, // First image for backward compatibility
-            place: order.place || ''
+            imagePaths: imagePaths,
+            imagePath: imagePaths[0] || order.imagePath,
+            place: order.place || '',
+            listOrderId: order.id, // Always preserve original list order ID
+            origin: 'list_orders',
+            orderType: 'list',
+            type: 'list_orders',
+            isConverted: false,
+            orderId: order.offlineOrderId || null,
           };
-        } catch {
-          return {
-            ...order,
-            imagePaths: [order.imagePath],
-            imagePath: order.imagePath,
-            place: order.place || ''
-          };
+
+          // ✅ If this list order was converted to an offline order, fetch its current status, payment history, and items
+          if (order.status === 'converted' && order.offlineOrderId) {
+            try {
+              const convertedOrder = await Order.findById(order.offlineOrderId);
+              if (convertedOrder) {
+                const statusLower = String(convertedOrder.status || '').toLowerCase();
+                const isFinalized = ['completed', 'rejected'].includes(statusLower);
+                const isCompleted = statusLower === 'completed';
+                const isRejected = statusLower === 'rejected';
+
+                return {
+                  // Preserve list order fields
+                  id: convertedOrder.id,
+                  listOrderId: order.id,
+                  orderId: convertedOrder.id,
+                  convertedFrom: 'list_order',
+                  customerName: baseOrder.customerName,
+                  phone: baseOrder.phone,
+                  place: baseOrder.place || '',
+                  uploadDate: baseOrder.uploadDate,
+                  createdAt: baseOrder.createdAt,
+                  imagePaths: baseOrder.imagePaths,
+                  imagePath: baseOrder.imagePath,
+                  notes: baseOrder.notes,
+                  origin: 'list_orders',
+                  orderType: 'list',
+                  type: convertedOrder.type || 'list_converted',
+
+                  // Add converted order fields
+                  status: convertedOrder.status,
+                  isPaid: convertedOrder.isPaid,
+                  isDelivered: convertedOrder.isDelivered,
+                  isArchived: convertedOrder.isArchived,
+                  isVerified: convertedOrder.isVerified,
+                  paymentStatus: convertedOrder.paymentStatus,
+                  totalAmount: convertedOrder.totalAmount,
+                  advanceAmount: convertedOrder.advanceAmount,
+                  remainingBalance: convertedOrder.remainingBalance,
+                  amountPaid: convertedOrder.advanceAmount,
+                  remainingAmount: convertedOrder.remainingBalance,
+                  paymentHistory: convertedOrder.paymentHistory || [],
+                  paymentUpdates: convertedOrder.paymentHistory || [],
+                  orderDate: convertedOrder.orderDate || convertedOrder.createdAt,
+                  updatedAt: convertedOrder.updatedAt,
+                  isFinalized,
+                  isCompleted,
+                  isRejected,
+                  finalizedState: isFinalized ? convertedOrder.status : null,
+
+                  // Add items and converted flag
+                  items: convertedOrder.items || [],
+                  isConverted: true,
+                };
+              }
+            } catch (e) {
+              console.warn(`[CONVERT ERROR] List order ${order.id}: Error fetching converted order ${order.offlineOrderId}:`, e.message);
+            }
+          }
+
+          return baseOrder;
+        } catch (e) {
+          console.error(`Error processing list order ${order.id}:`, e);
+          return order;
         }
-      });
+      }));
+
+      if (view === 'active') {
+        uploads = uploads.filter((upload) => {
+          const status = String(upload?.status || '').trim().toLowerCase();
+          const allowedActiveStatuses = ['pending', 'verified', 'processing', 'in_progress', 'converted'];
+          return !upload?.isFinalized && status !== 'rejected' && status !== 'delivered' && allowedActiveStatuses.includes(status);
+        });
+      } else if (view === 'bills') {
+        uploads = uploads.filter((upload) => {
+          const status = String(upload?.status || '').trim().toLowerCase();
+          return status === 'completed' || status === 'rejected';
+        });
+      }
+
+      // ✅ DEBUG: Log response summary before sending
+      const totalUploads = uploads.length;
+      const pendingUploads = uploads.filter((u) => u.isConverted === false && String(u.status).toLowerCase() === 'pending').length;
+      const convertedCount = uploads.filter((u) => u.isConverted).length;
+      const statusCounts = uploads.reduce((acc, u) => {
+        const key = String(u.status || 'unknown').toLowerCase();
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      console.log(`[ListOrderController.getCustomerUploads] phone=${userPhone} total=${totalUploads} pending=${pendingUploads} converted=${convertedCount} statusCounts=${JSON.stringify(statusCounts)}`);
 
       res.json({
         success: true,

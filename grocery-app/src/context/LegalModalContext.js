@@ -15,112 +15,27 @@ export class LegalModalProvider extends React.Component {
 
   constructor(props) {
     super(props);
-    this.legalModalMeasureRef = React.createRef();
-    this.lastLanguage = null;
-
     this.state = {
       type: null,
-      pendingType: null,
-      heightPx: null,
-      measureWidthPx: null,
     };
   }
 
   componentDidMount() {
-    this.lastLanguage = this.context?.currentLanguage;
-    this.computeSizingIfNeeded();
-    if (typeof window !== 'undefined') {
-      window.addEventListener('resize', this.handleResize);
-    }
-  }
-
-  componentDidUpdate() {
-    const currentLanguage = this.context?.currentLanguage;
-    if (!currentLanguage || currentLanguage === this.lastLanguage) return;
-
-    this.lastLanguage = currentLanguage;
-
-    // Re-measure the Terms modal height when language changes so the fixed size
-    // remains consistent with the Terms popup for the selected language.
-    this.setState(
-      (prev) => ({
-        heightPx: null,
-        type: null,
-        pendingType: prev.type || prev.pendingType,
-      }),
-      () => {
-        this.computeSizingIfNeeded();
-      }
-    );
-  }
-
-  componentWillUnmount() {
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('resize', this.handleResize);
-    }
-  }
-
-  handleResize = () => {
-    // Re-measure the Terms modal height on resize so the fixed modal size
-    // remains consistent with the Terms popup for the new viewport.
-    this.setState({ heightPx: null }, () => {
-      this.computeSizingIfNeeded();
-    });
-  };
-
-  getMeasuredWidthPx = () => {
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 820;
-    // ModalOverlay padding is 1rem on each side.
-    return Math.max(320, Math.min(820, viewportWidth - 32));
-  };
-
-  computeSizingIfNeeded = () => {
-    if (this.state.heightPx) return;
-
-    const measureWidthPx = this.getMeasuredWidthPx();
-
-    this.setState({ measureWidthPx }, () => {
-      if (typeof window === 'undefined') return;
-
-      window.requestAnimationFrame(() => {
-        const el = this.legalModalMeasureRef?.current;
-        if (!el) return;
-
-        const height = Math.ceil(el.getBoundingClientRect().height);
-        if (!height || height <= 0) return;
-
-        this.setState((prev) => {
-          const next = { heightPx: height };
-          if (prev.pendingType) {
-            next.type = prev.pendingType;
-            next.pendingType = null;
-          }
-          return next;
-        });
-      });
-    });
+    // No-op: modal sizing is handled by the shared responsive shell.
   };
 
   openLegalModal = (type) => {
     if (!type) return;
 
-    // Ensure the modal opens at the exact Terms popup height.
-    if (!this.state.heightPx) {
-      this.setState({ pendingType: type }, () => {
-        this.computeSizingIfNeeded();
-      });
-      return;
-    }
-
     this.setState({ type });
   };
 
   closeLegalModal = () => {
-    this.setState({ type: null, pendingType: null });
+    this.setState({ type: null });
   };
 
   renderModal() {
-    const { type, heightPx } = this.state;
+    const { type } = this.state;
     if (!type) return null;
 
     const langCtx = this.context;
@@ -136,9 +51,9 @@ export class LegalModalProvider extends React.Component {
       <ModalOverlay onClick={this.closeLegalModal}>
         <ModalContent
           style={{
-            maxWidth: '820px',
-            width: '100%',
-            height: heightPx ? `${heightPx}px` : undefined,
+            maxWidth: '1100px',
+            width: 'min(80vw, 1100px)',
+            maxHeight: '85vh',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
@@ -151,7 +66,7 @@ export class LegalModalProvider extends React.Component {
               ✕
             </button>
           </div>
-          <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="modal-body" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
             {type === 'terms' ? (
               <TermsConditionsPage embedded />
             ) : type === 'privacy' ? (
@@ -166,42 +81,7 @@ export class LegalModalProvider extends React.Component {
   }
 
   renderHiddenMeasurer() {
-    if (this.state.heightPx) return null;
-
-    const langCtx = this.context;
-
-    return (
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          left: '-10000px',
-          top: '-10000px',
-          visibility: 'hidden',
-          pointerEvents: 'none',
-        }}
-      >
-        <ModalContent
-          ref={this.legalModalMeasureRef}
-          style={{
-            maxWidth: '820px',
-            width: `${this.state.measureWidthPx || 820}px`,
-          }}
-        >
-          <div className="modal-header">
-            <h3>
-              📜 {langCtx ? langCtx.getText('legal_modal_terms') : 'Terms & Conditions'}
-            </h3>
-            <button className="close-btn" aria-label="Close">
-              ✕
-            </button>
-          </div>
-          <div className="modal-body">
-            <TermsConditionsPage embedded />
-          </div>
-        </ModalContent>
-      </div>
-    );
+    return null;
   }
 
   render() {
