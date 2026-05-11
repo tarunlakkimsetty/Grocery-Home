@@ -1,12 +1,33 @@
 import axios from 'axios';
 
+const normalizeApiBaseUrl = (rawBaseUrl) => {
+    const fallback = 'http://localhost:5000/api';
+    const trimmed = String(rawBaseUrl || '').trim().replace(/\/+$/, '');
+
+    if (!trimmed) return fallback;
+
+    if (/\/api$/i.test(trimmed)) {
+        return trimmed;
+    }
+
+    return `${trimmed}/api`;
+};
+
+const apiBaseUrl = normalizeApiBaseUrl(process.env.REACT_APP_API_URL);
+
 const axiosInstance = axios.create({
-    baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+    baseURL: apiBaseUrl,
     headers: {
         'Content-Type': 'application/json',
     },
     timeout: 30000, // 30 second timeout
 });
+
+if (process.env.NODE_ENV !== 'production') {
+    // Helps catch bad env values such as missing /api or duplicated /api/api.
+    // eslint-disable-next-line no-console
+    console.log('Axios API base URL:', apiBaseUrl);
+}
 
 // Request interceptor — attach JWT token
 axiosInstance.interceptors.request.use(
