@@ -92,6 +92,32 @@ app.get('/', (req, res) => {
     res.json({ message: 'Grocery Billing System API is running' });
 });
 
+// Health check endpoint (for Render and monitoring)
+app.get('/api/health', async (req, res) => {
+    try {
+        const { promisePool } = require('./config/db');
+        const connection = await promisePool.getConnection();
+        connection.release();
+        
+        res.json({
+            status: 'healthy',
+            env: config.env,
+            port: config.port,
+            database: 'connected',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(503).json({
+            status: 'unhealthy',
+            env: config.env,
+            port: config.port,
+            database: 'disconnected',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
 // ============================================
 // API Routes
 // ============================================
