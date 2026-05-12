@@ -2,16 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import orderImageService from '../services/orderImageService';
 import { ModalOverlay, ModalContent, Badge, EmptyState } from '../styledComponents/FormStyles';
 import { toast } from 'react-toastify';
+import { resolveBackendUrl } from '../utils/backendUrl';
 
-const API_ROOT = (process.env.REACT_APP_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
-
-const resolveImageUrl = (value) => {
-    if (!value) return '';
-    if (/^https?:\/\//i.test(value)) return value;
-    if (value.startsWith('//')) return `https:${value}`;
-    if (value.startsWith('blob:') || value.startsWith('data:')) return value;
-    return `${API_ROOT}${value.startsWith('/') ? value : `/${value}`}`;
-};
+const resolveImageUrl = (value) => resolveBackendUrl(value);
 
 const formatDate = (value) => {
     if (!value) return '-';

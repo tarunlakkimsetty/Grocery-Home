@@ -10,6 +10,7 @@ import productService from '../services/productService';
 import { t, hasTranslation } from '../utils/i18n';
 import { searchProducts } from '../utils/searchUtils';
 import { useModalScrollLock } from '../styledComponents/modalUtils';
+import { resolveBackendUrl } from '../utils/backendUrl';
 
 const Container = styled.div`
   padding: 2rem 1rem;
@@ -923,7 +924,7 @@ class AdminListOrdersPage extends React.Component {
       for (const imagePath of imagePaths) {
         const fullImageUrl = imagePath.startsWith('http') 
           ? imagePath 
-          : `http://localhost:5000${imagePath}`;
+          : resolveBackendUrl(imagePath);
 
         try {
           const response = await fetch(fullImageUrl);
@@ -1665,7 +1666,7 @@ class AdminListOrdersPage extends React.Component {
                           src={
                             imagePath.startsWith('http')
                               ? imagePath
-                              : `http://localhost:5000${imagePath}`
+                                : resolveBackendUrl(imagePath)
                           }
                           alt={`${selectedListOrder.customerName} - Image ${idx + 1}`}
                           onError={(e) => {
@@ -1763,7 +1764,7 @@ class AdminListOrdersPage extends React.Component {
                               src={
                                 imagePath.startsWith('http')
                                   ? imagePath
-                                  : `http://localhost:5000${imagePath}`
+                                  : resolveBackendUrl(imagePath)
                               }
                               alt={`Grocery List ${idx + 1}`}
                               onError={(e) => {

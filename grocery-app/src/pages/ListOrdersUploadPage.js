@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveBackendUrl } from '../utils/backendUrl';
 import styled from 'styled-components';
 import { toast } from 'react-toastify';
 import LanguageContext from '../context/LanguageContext';
@@ -1158,7 +1159,7 @@ class ListOrdersUploadPage extends React.Component {
                                 src={
                                   imagePath.startsWith('http')
                                     ? imagePath
-                                    : `http://localhost:5000${imagePath}`
+                                    : resolveBackendUrl(imagePath)
                                 }
                                 alt={`Upload ${upload.id} ${idx + 1}`}
                                 onClick={() => this.openImageModal(imagePaths, idx)}
@@ -1227,7 +1228,7 @@ class ListOrdersUploadPage extends React.Component {
                             src={
                               currentImage.startsWith('http') || currentImage.startsWith('blob:') || currentImage.startsWith('data:')
                                 ? currentImage
-                                : `http://localhost:5000${currentImage}`
+                                : resolveBackendUrl(currentImage)
                             }
                             alt=""
                           />
@@ -1249,7 +1250,7 @@ class ListOrdersUploadPage extends React.Component {
                                 src={
                                   path.startsWith('http') || path.startsWith('blob:') || path.startsWith('data:')
                                     ? path
-                                    : `http://localhost:5000${path}`
+                                    : resolveBackendUrl(path)
                                 }
                                 alt={`Thumbnail ${idx + 1}`}
                                 $isActive={idx === this.state.modalImageIndex}

@@ -1,17 +1,5 @@
 import axios from 'axios';
-
-const normalizeApiBaseUrl = (rawBaseUrl) => {
-    const fallback = 'http://localhost:5000/api';
-    const trimmed = String(rawBaseUrl || '').trim().replace(/\/+$/, '');
-
-    if (!trimmed) return fallback;
-
-    if (/\/api$/i.test(trimmed)) {
-        return trimmed;
-    }
-
-    return `${trimmed}/api`;
-};
+import { normalizeApiBaseUrl } from '../utils/backendUrl';
 
 const apiBaseUrl = normalizeApiBaseUrl(process.env.REACT_APP_API_URL);
 
