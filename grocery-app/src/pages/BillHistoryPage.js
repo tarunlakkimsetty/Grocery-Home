@@ -84,6 +84,8 @@ class BillHistoryPage extends React.Component {
         // ✅ Polling interval for converted list order status sync (not in state)
         this.pollingIntervalId = null;
         this.lastLoadedUserId = null;
+        // Guard to prevent concurrent or repeated fetch storms
+        this._isFetching = false;
     }
 
     componentDidMount() {
@@ -92,8 +94,12 @@ class BillHistoryPage extends React.Component {
         this.startPollingForConvertedOrders();
     }
 
-    componentDidUpdate() {
-        this.loadHistoryForCurrentUser();
+    componentDidUpdate(prevProps, prevState) {
+        const userId = this.context?.user?.id;
+        // Only attempt to load if the authenticated user actually changed
+        if (userId && this.lastLoadedUserId !== userId) {
+            this.loadHistoryForCurrentUser();
+        }
     }
 
     componentWillUnmount() {
@@ -140,6 +146,9 @@ class BillHistoryPage extends React.Component {
             if (this.state.activeTab !== 'listOrders' || !this.state.listOrdersLoaded) {
                 return;
             }
+
+            // Avoid overlapping fetches
+            if (this._isFetching) return;
 
             // Fetch the latest list orders (which will include current converted order status)
             const resp = await listOrderService.getCustomerUploads();
@@ -212,6 +221,9 @@ class BillHistoryPage extends React.Component {
     };
 
     fetchData = async () => {
+        // Prevent duplicate concurrent fetches which cause infinite loops or request storms
+        if (this._isFetching) return;
+        this._isFetching = true;
         this.setState({ loading: true, error: null });
         try {
             const { user } = this.context;
@@ -219,6 +231,7 @@ class BillHistoryPage extends React.Component {
 
             if (!userId) {
                 this.setState({ loading: false, error: t('failedToLoadHistory') });
+                this._isFetching = false;
                 return;
             }
 
@@ -254,6 +267,7 @@ class BillHistoryPage extends React.Component {
                 offlineCount: activeOfflineOrders.length,
                 listCount: allListOrders.length,
             });
+            this._isFetching = false;
         } catch (err) {
             console.error('[BillHistoryPage.fetchData] failed to load customer history', {
                 userId: this.context?.user?.id || null,
@@ -261,6 +275,7 @@ class BillHistoryPage extends React.Component {
             });
             this.setState({ error: t('failedToLoadHistory'), loading: false });
             toast.error(t('failedToLoadHistory'));
+            this._isFetching = false;
         }
     };
 
