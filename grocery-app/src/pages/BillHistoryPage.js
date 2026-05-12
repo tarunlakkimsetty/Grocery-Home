@@ -143,8 +143,8 @@ class BillHistoryPage extends React.Component {
         const safeOfflineOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
         const safeListOrders = Array.isArray(listOrders) ? listOrders : [];
 
-        const activeOnlineOrders = safeOnlineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'online' && this.isActiveHistoryOrder(order));
-        const activeOfflineOrders = safeOfflineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'offline' && this.isActiveHistoryOrder(order));
+        const activeOnlineOrders = safeOnlineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'online');
+        const activeOfflineOrders = safeOfflineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'offline');
         const activeListOrders = safeListOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'list' && this.isActiveHistoryOrder(order));
 
         const finalizedOnlineOrders = safeOnlineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'online' && this.isFinalizedHistoryOrder(order));
@@ -233,7 +233,7 @@ class BillHistoryPage extends React.Component {
 
     fetchOfflineOrders = async () => {
         try {
-            const resp = await orderService.getUserOfflineOrders();
+            const resp = await orderService.getUserOfflineOrders('all');
             const offlineOrders = Array.isArray(resp)
                 ? resp
                 : (resp?.data || resp?.orders || []);
