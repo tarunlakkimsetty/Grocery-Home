@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const config = require('./config/config');
 const app = require('./app');
 const { testConnection, promisePool } = require('./config/db');
@@ -12,6 +14,62 @@ const tableExists = async (tableName) => {
                 [tableName]
         );
         return rows.length > 0;
+};
+
+/**
+ * Execute SQL migration files from migrations folder
+ * Reads all .sql files, sorts them by filename, and executes them
+ */
+const executeSqlMigrations = async () => {
+    try {
+        const migrationsDir = path.join(__dirname, 'migrations');
+        
+        if (!fs.existsSync(migrationsDir)) {
+            console.log('! Migrations folder does not exist, skipping SQL migrations');
+            return;
+        }
+
+        // Read all SQL files from migrations folder
+        const files = fs.readdirSync(migrationsDir)
+            .filter(file => file.endsWith('.sql'))
+            .sort(); // Sort by filename to ensure proper execution order
+
+        console.log(`Found ${files.length} SQL migration files`);
+
+        for (const file of files) {
+            const filePath = path.join(migrationsDir, file);
+            const sql = fs.readFileSync(filePath, 'utf8');
+
+            try {
+                console.log(`Executing SQL migration: ${file}`);
+                
+                // Split by semicolon and execute each statement
+                const statements = sql
+                    .split(';')
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0 && !s.startsWith('--'));
+
+                for (const statement of statements) {
+                    await promisePool.query(statement);
+                }
+
+                console.log(`✓ SQL migration completed: ${file}`);
+            } catch (err) {
+                const msg = String(err && err.message ? err.message : err);
+                // Don't fail on "table already exists" or similar warnings
+                if (msg.includes('already exists') || msg.includes('ER_TABLE_EXISTS_ERROR')) {
+                    console.log(`✓ SQL migration skipped (table exists): ${file}`);
+                } else {
+                    console.error(`✗ SQL migration failed: ${file}`);
+                    console.error(`Error: ${msg}`);
+                }
+            }
+        }
+
+        console.log('✓ All SQL migrations completed');
+    } catch (err) {
+        console.error('Error executing SQL migrations:', err);
+    }
 };
 
 const runMigrationStep = async (label, fn) => {
@@ -210,16 +268,11 @@ const ensureOrderPaymentHistoryTable = async () => {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('✓ order_payment_history table ensured');
-    } catch (err) {
-        const msg = String(err && err.message ? err.message : err);
-        console.log('! Could not ensure order_payment_history table:', msg);
-    }
-};
-
-const ensureOrderImagesTable = async () => {
-    if (!(await tableExists('users'))) {
-        console.log('! Skipping order_images table because users table is missing');
-        return;
+                    } catch (err) {
+                        const msg = String(err && err.message ? err.message : err);
+                        console.error(`✗ SQL migration failed: ${file}`);
+                        console.error(`Error: ${msg}`);
+                    }
     }
     try {
         await promisePool.query(`
@@ -308,6 +361,12 @@ const startServer = async () => {
     if (isConnected) {
         console.log('Migration started');
 
+        // FIRST: Execute SQL migration files from migrations folder
+        // This creates tables like feedback, list_orders, order_images, etc.
+        console.log('Executing SQL migrations from /migrations folder...');
+        await executeSqlMigrations();
+
+        // SECOND: Run inline migrations for specific columns and features
         await runMigrationStep('ensureUsersTable', ensureUsersTable);
         await runMigrationStep('ensureUsersRegistrationColumns', ensureUsersRegistrationColumns);
         await runMigrationStep('ensureOrdersTable', ensureOrdersTable);
