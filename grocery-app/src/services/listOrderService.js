@@ -1,50 +1,5 @@
 import axiosInstance from './axiosInstance';
 
-const REQUEST_CACHE_TTL_MS = 2000;
-const uploadsRequestCache = new Map();
-const uploadsInFlightRequests = new Map();
-
-const getCachedUploads = (key) => {
-  const entry = uploadsRequestCache.get(key);
-  if (!entry) return null;
-
-  if (Date.now() - entry.timestamp > REQUEST_CACHE_TTL_MS) {
-    uploadsRequestCache.delete(key);
-    return null;
-  }
-
-  return entry.value;
-};
-
-const setCachedUploads = (key, value) => {
-  uploadsRequestCache.set(key, {
-    timestamp: Date.now(),
-    value,
-  });
-};
-
-const dedupeUploadsRequest = async (key, requestFn) => {
-  const cached = getCachedUploads(key);
-  if (cached) return cached;
-
-  if (uploadsInFlightRequests.has(key)) {
-    return uploadsInFlightRequests.get(key);
-  }
-
-  const requestPromise = (async () => {
-    try {
-      const result = await requestFn();
-      setCachedUploads(key, result);
-      return result;
-    } finally {
-      uploadsInFlightRequests.delete(key);
-    }
-  })();
-
-  uploadsInFlightRequests.set(key, requestPromise);
-  return requestPromise;
-};
-
 const listOrderService = {
   // Upload grocery list image(s)
   uploadGroceryList: async (customerName, phone, place, imageFiles, notes = '') => {
@@ -79,20 +34,15 @@ const listOrderService = {
 
   // 🔒 Get current logged-in user's uploads (authenticated route)
   getCustomerUploads: async (view = 'all') => {
-    const normalizedView = String(view || 'all').trim().toLowerCase();
-    const key = `uploads:${normalizedView}`;
-
-    return dedupeUploadsRequest(key, async () => {
-      try {
-        // No need to pass customerName/phone - backend extracts from JWT token
-        const url = normalizedView ? `/list-orders/my-uploads?view=${encodeURIComponent(normalizedView)}` : '/list-orders/my-uploads';
-        const response = await axiosInstance.post(url);
-        return response.data;
-      } catch (error) {
-        console.error('Fetch error:', error);
-        throw error;
-      }
-    });
+    try {
+      // No need to pass customerName/phone - backend extracts from JWT token
+      const url = view ? `/list-orders/my-uploads?view=${encodeURIComponent(view)}` : '/list-orders/my-uploads';
+      const response = await axiosInstance.post(url);
+      return response.data;
+    } catch (error) {
+      console.error('Fetch error:', error);
+      throw error;
+    }
   },
 
   // Get all list orders (admin)

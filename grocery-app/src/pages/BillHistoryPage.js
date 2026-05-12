@@ -81,35 +81,61 @@ class BillHistoryPage extends React.Component {
             imagesModalTitle: '',
             printLoadingByOrder: {},
         };
-        this.lastLoadedUserId = null;
-        this._isFetching = false;
+        // ✅ Polling interval for converted list order status sync (not in state)
+        this.pollingIntervalId = null;
     }
 
     componentDidMount() {
-        this.loadHistoryForCurrentUser();
-    }
-
-    componentDidUpdate() {
-        this.loadHistoryForCurrentUser();
+        this.fetchData();
+        // ✅ Start polling for converted order status updates (every 5 seconds)
+        this.startPollingForConvertedOrders();
     }
 
     componentWillUnmount() {
-        this._isFetching = false;
+        // ✅ Clean up polling interval when component unmounts
+        if (this.pollingIntervalId) {
+            clearInterval(this.pollingIntervalId);
+            this.pollingIntervalId = null;
+        }
+    }
+
+    // ✅ NEW: Start polling to refresh converted list order statuses every N seconds
+    startPollingForConvertedOrders = () => {
+        // Poll every 5 seconds (adjust as needed)
+        const POLL_INTERVAL = 5000;
+        
+        this.pollingIntervalId = setInterval(() => {
+            this.refreshConvertedOrderStatuses();
+        }, POLL_INTERVAL);
     };
 
-    loadHistoryForCurrentUser = () => {
-        const { user, loading: authLoading } = this.context || {};
+    // ✅ NEW: Refresh only the converted list order statuses from backend
+    refreshConvertedOrderStatuses = async () => {
+        try {
+            // Only refresh if on List Orders tab and listOrders are loaded
+            if (this.state.activeTab !== 'listOrders' || !this.state.listOrdersLoaded) {
+                return;
+            }
 
-        if (authLoading || !user || !user.id) {
-            return;
+            // Fetch the latest list orders (which will include current converted order status)
+            const resp = await listOrderService.getCustomerUploads();
+            let listOrders = [];
+            if (resp && resp.data) {
+                listOrders = Array.isArray(resp.data) ? resp.data : [resp.data];
+            } else if (Array.isArray(resp)) {
+                listOrders = resp;
+            }
+
+            this.processPurchaseHistoryData({
+                orders: this.state.orders,
+                offlineOrders: this.state.offlineOrders,
+                listOrders,
+                selectedOrder: this.state.selectedOrder,
+            });
+        } catch (err) {
+            // Silent fail - don't show errors for background polling
+            console.debug('Silent polling refresh skipped');
         }
-
-        if (this.lastLoadedUserId === user.id && !this.state.loading) {
-            return;
-        }
-
-        this.lastLoadedUserId = user.id;
-        this.fetchData();
     };
 
     processPurchaseHistoryData = ({ orders = [], offlineOrders = [], listOrders = [], selectedOrder = null } = {}) => {
@@ -162,21 +188,11 @@ class BillHistoryPage extends React.Component {
     };
 
     fetchData = async () => {
-        if (this._isFetching) {
-            return;
-        }
-
-        const { user } = this.context || {};
-        const userId = user?.id;
-
-        if (!userId) {
-            this.setState({ loading: false, error: t('failedToLoadHistory') });
-            return;
-        }
-
-        this._isFetching = true;
         this.setState({ loading: true, error: null });
         try {
+            const { user } = this.context;
+            const userId = user ? user.id : 2;
+
             const [ordersResult, offlineResult, listOrdersResult] = await Promise.allSettled([
                 orderService.getCustomerOrders(userId, 'all'),
                 orderService.getUserOfflineOrders('all'),
@@ -202,11 +218,16 @@ class BillHistoryPage extends React.Component {
                 offlineOrders: activeOfflineOrders,
                 listOrders: allListOrders,
             });
+
+            console.debug('[BillHistoryPage.fetchData] customer history loaded', {
+                userId,
+                onlineCount: activeOrders.length,
+                offlineCount: activeOfflineOrders.length,
+                listCount: allListOrders.length,
+            });
         } catch (err) {
             this.setState({ error: t('failedToLoadHistory'), loading: false });
             toast.error(t('failedToLoadHistory'));
-        } finally {
-            this._isFetching = false;
         }
     };
 

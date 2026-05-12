@@ -86,51 +86,6 @@ const sortOrdersByDateDesc = (orders) => [...orders].sort((left, right) => {
     return rightTime - leftTime;
 });
 
-const REQUEST_CACHE_TTL_MS = 2000;
-const historyRequestCache = new Map();
-const historyInFlightRequests = new Map();
-
-const getCachedHistoryResponse = (key) => {
-    const entry = historyRequestCache.get(key);
-    if (!entry) return null;
-
-    if (Date.now() - entry.timestamp > REQUEST_CACHE_TTL_MS) {
-        historyRequestCache.delete(key);
-        return null;
-    }
-
-    return entry.value;
-};
-
-const setCachedHistoryResponse = (key, value) => {
-    historyRequestCache.set(key, {
-        timestamp: Date.now(),
-        value,
-    });
-};
-
-const dedupeHistoryRequest = async (key, requestFn) => {
-    const cached = getCachedHistoryResponse(key);
-    if (cached) return cached;
-
-    if (historyInFlightRequests.has(key)) {
-        return historyInFlightRequests.get(key);
-    }
-
-    const requestPromise = (async () => {
-        try {
-            const result = await requestFn();
-            setCachedHistoryResponse(key, result);
-            return result;
-        } finally {
-            historyInFlightRequests.delete(key);
-        }
-    })();
-
-    historyInFlightRequests.set(key, requestPromise);
-    return requestPromise;
-};
-
 // ============================================================
 // Order Service
 // ============================================================
@@ -221,51 +176,45 @@ const orderService = {
     // Customer: fetch updated orders (final verified view)
     // API: GET /api/orders/customer/:customerId?view=active|bills
     getCustomerOrders: async (customerId, view = 'active') => {
-        const key = `customerOrders:${customerId}:${String(view || 'active').trim().toLowerCase()}`;
-        return dedupeHistoryRequest(key, async () => {
-            try {
-                const response = await axiosInstance.get('/orders/customer/' + customerId, {
-                    params: { view }
-                });
-                return response.data;
-            } catch {
-                // Fallback to existing mock/user endpoint behavior
-                return mockOrders
-                    .filter((o) => o.userId === customerId)
-                    .filter((o) => {
-                        if (String(view || '').trim().toLowerCase() === 'bills') {
-                            const status = String(o.status || '').trim().toLowerCase();
-                            return status === 'completed' || status === 'rejected';
-                        }
+        try {
+            const response = await axiosInstance.get('/orders/customer/' + customerId, {
+                params: { view }
+            });
+            return response.data;
+        } catch {
+            // Fallback to existing mock/user endpoint behavior
+            return mockOrders
+                .filter((o) => o.userId === customerId)
+                .filter((o) => {
+                    if (String(view || '').trim().toLowerCase() === 'bills') {
                         const status = String(o.status || '').trim().toLowerCase();
-                        return status !== 'completed' && status !== 'rejected';
-                    })
-                    .sort((a, b) => new Date(b.date) - new Date(a.date));
-            }
-        });
+                        return status === 'completed' || status === 'rejected';
+                    }
+                    const status = String(o.status || '').trim().toLowerCase();
+                    return status !== 'completed' && status !== 'rejected';
+                })
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+        }
     },
 
     // Customer: get offline orders for the logged-in user
     // API: GET /api/user/offline-orders?view=active|bills
     getUserOfflineOrders: async (view = 'active') => {
-        const key = `offlineOrders:${String(view || 'active').trim().toLowerCase()}`;
-        return dedupeHistoryRequest(key, async () => {
-            try {
-                const response = await axiosInstance.get('/user/offline-orders', {
-                    params: { view }
-                });
-                return response.data;
-            } catch {
-                // No mock fallback to avoid leaking/mixing offline data.
-                if (String(view || '').trim().toLowerCase() === 'bills') {
-                    return { success: true, orders: mockOfflineOrders.filter((o) => {
-                        const status = String(o.status || '').trim().toLowerCase();
-                        return status === 'completed' || status === 'rejected';
-                    }) };
-                }
-                return { success: true, orders: [] };
+        try {
+            const response = await axiosInstance.get('/user/offline-orders', {
+                params: { view }
+            });
+            return response.data;
+        } catch {
+            // No mock fallback to avoid leaking/mixing offline data.
+            if (String(view || '').trim().toLowerCase() === 'bills') {
+                return { success: true, orders: mockOfflineOrders.filter((o) => {
+                    const status = String(o.status || '').trim().toLowerCase();
+                    return status === 'completed' || status === 'rejected';
+                }) };
             }
-        });
+            return { success: true, orders: [] };
+        }
     },
 
     // Admin: get single order details
