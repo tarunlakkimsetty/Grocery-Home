@@ -268,11 +268,16 @@ const ensureOrderPaymentHistoryTable = async () => {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `);
         console.log('✓ order_payment_history table ensured');
-                    } catch (err) {
-                        const msg = String(err && err.message ? err.message : err);
-                        console.error(`✗ SQL migration failed: ${file}`);
-                        console.error(`Error: ${msg}`);
-                    }
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        console.log('! Could not ensure order_payment_history table:', msg);
+    }
+};
+
+const ensureOrderImagesTable = async () => {
+    if (!(await tableExists('users'))) {
+        console.log('! Skipping order_images table because users table is missing');
+        return;
     }
     try {
         await promisePool.query(`
