@@ -49,8 +49,25 @@ const executeSqlMigrations = async () => {
                     .map(s => s.trim())
                     .filter(s => s.length > 0 && !s.startsWith('--'));
 
+                const isBenignMigrationError = (msg) => (
+                    msg.includes('Duplicate column') ||
+                    msg.includes('Duplicate key name') ||
+                    msg.includes('already exists') ||
+                    msg.includes('ER_TABLE_EXISTS_ERROR') ||
+                    msg.includes('ER_DUP_FIELDNAME') ||
+                    msg.includes('ER_DUP_KEYNAME') ||
+                    msg.includes('CHECK constraint')
+                );
+
                 for (const statement of statements) {
-                    await promisePool.query(statement);
+                    try {
+                        await promisePool.query(statement);
+                    } catch (err) {
+                        const msg = String(err && err.message ? err.message : err);
+                        if (!isBenignMigrationError(msg)) {
+                            throw err;
+                        }
+                    }
                 }
 
                 console.log(`✓ SQL migration completed: ${file}`);
@@ -134,6 +151,26 @@ const ensureUsersTable = async () => {
     `);
 };
 
+const ensureProductsTable = async () => {
+    if (await tableExists('products')) {
+        return;
+    }
+
+    console.log('Creating products table...');
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS products (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(150) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            price DECIMAL(10,2) NOT NULL,
+            stock INT DEFAULT 0,
+            unit VARCHAR(50) DEFAULT 'pack',
+            emoji VARCHAR(10) DEFAULT '📦',
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+};
+
 const ensureOrdersTable = async () => {
     if (await tableExists('orders')) {
         return;
@@ -167,6 +204,37 @@ const ensureOrdersTable = async () => {
             deliveredAt TIMESTAMP NULL,
             INDEX idx_orders_customerId (customerId)
             ${usersExist ? ', CONSTRAINT fk_orders_customerId_users FOREIGN KEY (customerId) REFERENCES users(id) ON DELETE SET NULL ON UPDATE RESTRICT' : ''}
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+};
+
+const ensureOrderItemsTable = async () => {
+    if (!(await tableExists('orders')) || !(await tableExists('products'))) {
+        console.log('! Skipping order_items table because orders/products table is missing');
+        return;
+    }
+
+    if (await tableExists('order_items')) {
+        return;
+    }
+
+    console.log('Creating order_items table...');
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS order_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            orderId INT NOT NULL,
+            productId INT NOT NULL,
+            productName VARCHAR(150),
+            price DECIMAL(10,2),
+            quantity INT,
+            isSelected BOOLEAN DEFAULT TRUE,
+            total DECIMAL(12,2),
+            INDEX idx_order_items_orderId (orderId),
+            INDEX idx_order_items_productId (productId),
+            CONSTRAINT fk_order_items_orderId_orders
+                FOREIGN KEY (orderId) REFERENCES orders(id) ON DELETE CASCADE ON UPDATE RESTRICT,
+            CONSTRAINT fk_order_items_productId_products
+                FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE ON UPDATE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 };
@@ -369,12 +437,14 @@ const startServer = async () => {
         // FIRST: Execute SQL migration files from migrations folder
         // This creates tables like feedback, list_orders, order_images, etc.
         console.log('Executing SQL migrations from /migrations folder...');
+        await runMigrationStep('ensureUsersTable', ensureUsersTable);
+        await runMigrationStep('ensureProductsTable', ensureProductsTable);
+        await runMigrationStep('ensureOrdersTable', ensureOrdersTable);
+        await runMigrationStep('ensureOrderItemsTable', ensureOrderItemsTable);
         await executeSqlMigrations();
 
         // SECOND: Run inline migrations for specific columns and features
-        await runMigrationStep('ensureUsersTable', ensureUsersTable);
         await runMigrationStep('ensureUsersRegistrationColumns', ensureUsersRegistrationColumns);
-        await runMigrationStep('ensureOrdersTable', ensureOrdersTable);
 
         console.log('Running column migrations...');
 
