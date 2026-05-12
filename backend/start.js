@@ -208,6 +208,49 @@ const ensureOrdersTable = async () => {
     `);
 };
 
+const ensureListOrdersTable = async () => {
+    if (await tableExists('list_orders')) {
+        return;
+    }
+
+    console.log('Creating list_orders table...');
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS list_orders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            customerName VARCHAR(100) NOT NULL,
+            phone VARCHAR(15) NOT NULL,
+            place VARCHAR(100) DEFAULT NULL,
+            imagePath TEXT NOT NULL,
+            imageFileName VARCHAR(255) NOT NULL,
+            status ENUM('pending', 'converted') DEFAULT 'pending',
+            offlineOrderId INT NULL,
+            notes TEXT,
+            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_phone (phone),
+            INDEX idx_status (status),
+            INDEX idx_createdAt (createdAt),
+            INDEX idx_place (place)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+};
+
+const ensureListOrdersPlaceColumn = async () => {
+    if (!(await tableExists('list_orders'))) {
+        return;
+    }
+
+    try {
+        await promisePool.query('ALTER TABLE list_orders ADD COLUMN place VARCHAR(100) DEFAULT NULL AFTER phone');
+        console.log('✓ list_orders.place column ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (!msg.includes('Duplicate column')) {
+            console.log('! Could not ensure list_orders.place column:', msg);
+        }
+    }
+};
+
 const ensureOrderItemsTable = async () => {
     if (!(await tableExists('orders')) || !(await tableExists('products'))) {
         console.log('! Skipping order_items table because orders/products table is missing');
@@ -441,6 +484,8 @@ const startServer = async () => {
         await runMigrationStep('ensureProductsTable', ensureProductsTable);
         await runMigrationStep('ensureOrdersTable', ensureOrdersTable);
         await runMigrationStep('ensureOrderItemsTable', ensureOrderItemsTable);
+        await runMigrationStep('ensureListOrdersTable', ensureListOrdersTable);
+        await runMigrationStep('ensureListOrdersPlaceColumn', ensureListOrdersPlaceColumn);
         await executeSqlMigrations();
 
         // SECOND: Run inline migrations for specific columns and features
