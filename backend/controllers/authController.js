@@ -148,6 +148,42 @@ const login = async (req, res, next) => {
         // Clean phone number
         const cleanedPhone = String(phone).replace(/\D/g, '');
 
+        // Validate phone format (10 digits)
+        if (!/^\d{10}$/.test(cleanedPhone)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Phone number must be exactly 10 digits'
+            });
+        }
+
+        // ========== TEMPORARY HARDCODED ADMIN LOGIN FOR TESTING ==========
+        // This is a temporary admin account for production testing only.
+        // TODO: Remove this block before moving to production.
+        // Admin Credentials: 9441754505 / Sairam@143
+        if (cleanedPhone === '9441754505' && password === 'Sairam@143') {
+            console.log('[ADMIN LOGIN] Hardcoded admin login used for testing');
+            const adminUser = {
+                id: 0,
+                fullName: 'Admin',
+                phone: cleanedPhone,
+                role: 'admin'
+            };
+            const token = generateToken(adminUser);
+            return res.status(200).json({
+                success: true,
+                message: 'Admin login successful',
+                token,
+                user: {
+                    id: adminUser.id,
+                    fullName: adminUser.fullName,
+                    phone: adminUser.phone,
+                    role: adminUser.role,
+                    isAdmin: true
+                }
+            });
+        }
+        // ===================================================================
+
         // Find user by phone
         const user = await User.findByPhone(cleanedPhone);
         if (!user) {
