@@ -83,23 +83,12 @@ class BillHistoryPage extends React.Component {
         };
         // ✅ Polling interval for converted list order status sync (not in state)
         this.pollingIntervalId = null;
-        this.lastLoadedUserId = null;
-        // Guard to prevent concurrent or repeated fetch storms
-        this._isFetching = false;
     }
 
     componentDidMount() {
-        this.loadHistoryForCurrentUser();
+        this.fetchData();
         // ✅ Start polling for converted order status updates (every 5 seconds)
         this.startPollingForConvertedOrders();
-    }
-
-    componentDidUpdate(prevProps, prevState) {
-        const userId = this.context?.user?.id;
-        // Only attempt to load if the authenticated user actually changed
-        if (userId && this.lastLoadedUserId !== userId) {
-            this.loadHistoryForCurrentUser();
-        }
     }
 
     componentWillUnmount() {
@@ -120,25 +109,6 @@ class BillHistoryPage extends React.Component {
         }, POLL_INTERVAL);
     };
 
-    loadHistoryForCurrentUser = () => {
-        const { user, loading: authLoading } = this.context || {};
-
-        if (authLoading) {
-            return;
-        }
-
-        if (!user || !user.id) {
-            return;
-        }
-
-        if (this.lastLoadedUserId === user.id && !this.state.loading) {
-            return;
-        }
-
-        this.lastLoadedUserId = user.id;
-        this.fetchData();
-    };
-
     // ✅ NEW: Refresh only the converted list order statuses from backend
     refreshConvertedOrderStatuses = async () => {
         try {
@@ -146,9 +116,6 @@ class BillHistoryPage extends React.Component {
             if (this.state.activeTab !== 'listOrders' || !this.state.listOrdersLoaded) {
                 return;
             }
-
-            // Avoid overlapping fetches
-            if (this._isFetching) return;
 
             // Fetch the latest list orders (which will include current converted order status)
             const resp = await listOrderService.getCustomerUploads();
@@ -221,19 +188,10 @@ class BillHistoryPage extends React.Component {
     };
 
     fetchData = async () => {
-        // Prevent duplicate concurrent fetches which cause infinite loops or request storms
-        if (this._isFetching) return;
-        this._isFetching = true;
         this.setState({ loading: true, error: null });
         try {
             const { user } = this.context;
-            const userId = user?.id;
-
-            if (!userId) {
-                this.setState({ loading: false, error: t('failedToLoadHistory') });
-                this._isFetching = false;
-                return;
-            }
+            const userId = user ? user.id : 2;
 
             const [ordersResult, offlineResult, listOrdersResult] = await Promise.allSettled([
                 orderService.getCustomerOrders(userId, 'all'),
@@ -267,15 +225,9 @@ class BillHistoryPage extends React.Component {
                 offlineCount: activeOfflineOrders.length,
                 listCount: allListOrders.length,
             });
-            this._isFetching = false;
         } catch (err) {
-            console.error('[BillHistoryPage.fetchData] failed to load customer history', {
-                userId: this.context?.user?.id || null,
-                message: err?.message || err,
-            });
             this.setState({ error: t('failedToLoadHistory'), loading: false });
             toast.error(t('failedToLoadHistory'));
-            this._isFetching = false;
         }
     };
 
