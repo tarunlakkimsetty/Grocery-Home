@@ -83,12 +83,17 @@ class BillHistoryPage extends React.Component {
         };
         // ✅ Polling interval for converted list order status sync (not in state)
         this.pollingIntervalId = null;
+        this.lastLoadedUserId = null;
     }
 
     componentDidMount() {
-        this.fetchData();
+        this.loadHistoryForCurrentUser();
         // ✅ Start polling for converted order status updates (every 5 seconds)
         this.startPollingForConvertedOrders();
+    }
+
+    componentDidUpdate() {
+        this.loadHistoryForCurrentUser();
     }
 
     componentWillUnmount() {
@@ -107,6 +112,25 @@ class BillHistoryPage extends React.Component {
         this.pollingIntervalId = setInterval(() => {
             this.refreshConvertedOrderStatuses();
         }, POLL_INTERVAL);
+    };
+
+    loadHistoryForCurrentUser = () => {
+        const { user, loading: authLoading } = this.context || {};
+
+        if (authLoading) {
+            return;
+        }
+
+        if (!user || !user.id) {
+            return;
+        }
+
+        if (this.lastLoadedUserId === user.id && !this.state.loading) {
+            return;
+        }
+
+        this.lastLoadedUserId = user.id;
+        this.fetchData();
     };
 
     // ✅ NEW: Refresh only the converted list order statuses from backend
@@ -191,7 +215,12 @@ class BillHistoryPage extends React.Component {
         this.setState({ loading: true, error: null });
         try {
             const { user } = this.context;
-            const userId = user ? user.id : 2;
+            const userId = user?.id;
+
+            if (!userId) {
+                this.setState({ loading: false, error: t('failedToLoadHistory') });
+                return;
+            }
 
             const [ordersResult, offlineResult, listOrdersResult] = await Promise.allSettled([
                 orderService.getCustomerOrders(userId, 'all'),
@@ -226,6 +255,10 @@ class BillHistoryPage extends React.Component {
                 listCount: allListOrders.length,
             });
         } catch (err) {
+            console.error('[BillHistoryPage.fetchData] failed to load customer history', {
+                userId: this.context?.user?.id || null,
+                message: err?.message || err,
+            });
             this.setState({ error: t('failedToLoadHistory'), loading: false });
             toast.error(t('failedToLoadHistory'));
         }
