@@ -143,8 +143,8 @@ class BillHistoryPage extends React.Component {
         const safeOfflineOrders = Array.isArray(offlineOrders) ? offlineOrders : [];
         const safeListOrders = Array.isArray(listOrders) ? listOrders : [];
 
-        const activeOnlineOrders = safeOnlineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'online');
-        const activeOfflineOrders = safeOfflineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'offline');
+        const activeOnlineOrders = safeOnlineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'online' && this.isActiveHistoryOrder(order));
+        const activeOfflineOrders = safeOfflineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'offline' && this.isActiveHistoryOrder(order));
         const activeListOrders = safeListOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'list' && this.isActiveHistoryOrder(order));
 
         const finalizedOnlineOrders = safeOnlineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'online' && this.isFinalizedHistoryOrder(order));
@@ -327,9 +327,13 @@ class BillHistoryPage extends React.Component {
         });
     };
 
+    getDisplayOrderId = (order) => {
+        return order?.orderId ?? order?.serialNumber ?? order?.id ?? order?.listOrderId ?? '';
+    };
+
     canPrintBill = (order) => {
-        const status = String(order?.status || '').trim().toLowerCase();
-        return status === 'completed' || status === 'delivered' || status === 'finalized';
+        const status = this.normalizePurchaseHistoryStatus(order?.status);
+        return status === 'completed' || status === 'rejected' || status === 'delivered' || status === 'finalized';
     };
 
     handlePrintBill = async (order) => {
@@ -436,6 +440,10 @@ class BillHistoryPage extends React.Component {
         return 'unknown';
     };
 
+    normalizePurchaseHistoryStatus = (status) => {
+        return String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    };
+
     getUnifiedOrderStatus = (order) => {
         const status = order?.status
             || order?.order_status
@@ -448,30 +456,26 @@ class BillHistoryPage extends React.Component {
     };
 
     isFinalizedHistoryOrder = (order) => {
-        const status = String(order?.status || '').trim().toLowerCase();
+        const status = this.normalizePurchaseHistoryStatus(order?.status);
         return status === 'completed' || status === 'rejected';
     };
 
     isActiveHistoryOrder = (order) => {
-        const status = String(order?.status || '').trim().toLowerCase();
-        const activeStatuses = ['pending', 'verified', 'processing', 'in_progress'];
+        const status = this.normalizePurchaseHistoryStatus(order?.status);
+        const activeStatuses = ['pending', 'pending_acceptance', 'in_progress', 'accepted', 'processing', 'verified', 'converted'];
         return activeStatuses.includes(status);
     };
 
     isRejectedHistoryOrder = (order) => {
-        const status = String(order?.status || '').trim().toLowerCase();
+        const status = this.normalizePurchaseHistoryStatus(order?.status);
         return status === 'rejected';
     };
 
     isRestrictedBillsOrder = (order) => {
-        return this.state.activeTab === 'bills' && this.isRejectedHistoryOrder(order);
+        return false;
     };
 
     getBillsTabDisplayAmount = (order, amount) => {
-        if (this.isRestrictedBillsOrder(order)) {
-            return 0;
-        }
-
         const numericAmount = Number(amount);
         return Number.isFinite(numericAmount) ? numericAmount : 0;
     };
@@ -499,18 +503,20 @@ class BillHistoryPage extends React.Component {
             onlineOrders: safeOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'online' && this.isActiveHistoryOrder(order)),
             strictOfflineOrders: safeOfflineOrders.filter((order) => this.getPurchaseHistoryCategory(order) === 'offline' && this.isActiveHistoryOrder(order)),
             strictListOrders: safeListOrders.filter((order) => {
-                const status = String(order?.status || '').trim().toLowerCase();
+                const status = this.normalizePurchaseHistoryStatus(order?.status);
                 return this.getPurchaseHistoryCategory(order) === 'list' && !this.isFinalizedHistoryOrder(order) && status !== 'delivered';
             }),
         };
     };
 
     getStatusBadge = (status) => {
-        const normalized = String(status || '').trim().toLowerCase();
+        const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
         const map = {
-            'pending acceptance': 'badge-warning',
+            'pending_acceptance': 'badge-warning',
             'accepted': 'badge-info',
             'pending': 'badge-warning',
+            'in_progress': 'badge-info',
+            'processing': 'badge-primary',
             'verified': 'badge-info',
             'paid': 'badge-primary',
             'delivered': 'badge-success',
@@ -1314,8 +1320,7 @@ class BillHistoryPage extends React.Component {
                                                     {visibleItems.map((list) => {
                                                         if (!list || !list.id) return null;
                                                         const imageCount = (Array.isArray(list.imagePaths) ? list.imagePaths.length : (list.imagePath ? 1 : 0)) || 1;
-                                                        // ✅ Use converted order ID if available, otherwise list order ID
-                                                        const displayId = list.isConverted ? list.id : list.id;
+                                                        const displayId = this.getDisplayOrderId(list);
                                                         const displayStatus = this.getUnifiedOrderStatus(list);
                                                         const normalizedDisplayStatus = displayStatus.toLowerCase();
                                                         const statusLabel = langCtx.getText(statusKey(displayStatus)) || displayStatus;
@@ -1377,7 +1382,7 @@ class BillHistoryPage extends React.Component {
                                                                         this.openImagesModal({
                                                                             entityType: 'order',
                                                                             entityId: list.id,
-                                                                            title: `Order Images - #${list.id}`,
+                                                                            title: `Order Images - #${this.getDisplayOrderId(list)}`,
                                                                         });
                                                                     }}
                                                                 >
@@ -1401,8 +1406,7 @@ class BillHistoryPage extends React.Component {
                                             {visibleItems.map((list) => {
                                                 if (!list || !list.id) return null;
                                                 const imageCount = (Array.isArray(list.imagePaths) ? list.imagePaths.length : (list.imagePath ? 1 : 0)) || 1;
-                                                // ✅ Use converted order ID if available
-                                                const displayId = list.isConverted ? list.id : list.id;
+                                                const displayId = this.getDisplayOrderId(list);
                                                 // ✅ Show actual order status if converted
                                                 const displayStatus = list.isConverted 
                                                     ? (list.status || 'Pending').toLowerCase() 
@@ -1505,7 +1509,7 @@ class BillHistoryPage extends React.Component {
                                             <div className="modal-header" style={{ alignItems: 'flex-start' }}>
                                                 <div style={{ flex: '1 1 auto' }}>
                                                     <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                        {this.getOrderDetailsIcon(selectedOrder)} {langCtx.getText('orderDetails')} — #{selectedOrder.id}
+                                                        {this.getOrderDetailsIcon(selectedOrder)} {langCtx.getText('orderDetails')} — #{this.getDisplayOrderId(selectedOrder)}
                                                         <Badge className={this.getStatusBadge(selectedOrder.status)}>
                                                             {this.getUnifiedOrderStatus(selectedOrder).toLowerCase() === 'pending acceptance' && '🕒 '}
                                                             {this.getUnifiedOrderStatus(selectedOrder).toLowerCase() === 'accepted' && '👍 '}

@@ -41,8 +41,11 @@ class AdminListOrdersConvertedPage extends React.Component {
         const isActiveConverted = !['completed', 'rejected'].includes(linkedStatus);
 
         return {
-            id: linkedOrder?.id || listOrder.offlineOrderId || listOrder.id,
+            id: listOrder.id,
+            orderId: listOrder.id,
+            serialNumber: listOrder.id,
             listOrderId: listOrder.id,
+            linkedOrderId: linkedOrder?.id || listOrder.offlineOrderId || null,
             customerName: listOrder.customerName,
             phone: listOrder.phone,
             place: listOrder.place || linkedOrder?.place || '',

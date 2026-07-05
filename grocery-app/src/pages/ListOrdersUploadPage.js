@@ -1126,7 +1126,7 @@ class ListOrdersUploadPage extends React.Component {
                       <HistoryCard key={uploadKey}>
                         <div className="card-header">
                           <div>
-                            <p className="card-title">Upload #{upload.id}</p>
+                            <p className="card-title">Upload #{upload.orderId ?? upload.serialNumber ?? upload.id}</p>
                             <p className="card-date">
                               {uploadDate.toLocaleDateString('en-US', {
                                 year: 'numeric',

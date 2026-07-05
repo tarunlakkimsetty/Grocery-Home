@@ -90,6 +90,9 @@ const ListOrderController = {
       // Parse back for response (primary image is first one for backward compatibility)
       const response = {
         ...listOrder,
+        id: listOrder.id,
+        orderId: listOrder.id,
+        serialNumber: listOrder.id,
         imagePath: imagePaths[0], // For backward compatibility
         imagePaths: imagePaths,   // New field for multiple images
         imageFileNames: imageFileNames
@@ -116,8 +119,8 @@ const ListOrderController = {
   // Get all list orders
   getAllListOrders: asyncHandler(async (req, res) => {
     try {
-      const { status, phone, customerName } = req.query;
-      
+      const { status, phone, customerName, view } = req.query;
+
       const filters = {};
       if (status) filters.status = status;
       if (phone) filters.phone = phone;
@@ -125,10 +128,46 @@ const ListOrderController = {
 
       console.log('[ListOrderController] getAllListOrders request:', {
         filters,
+        view,
         rawQuery: req.query,
       });
 
-      let listOrders = await ListOrderModel.getAll(filters);
+      // Admin list: if requesting finalized bills view, return only converted list orders
+      let listOrders = [];
+      if (String(view || '').trim().toLowerCase() === 'bills') {
+        // Fetch converted list orders only
+        const converted = await ListOrderModel.getAll({ ...filters, status: 'converted' });
+        // Merge converted entries with their linked offline order status
+        listOrders = await Promise.all(converted.map(async (order) => {
+          if (order.offlineOrderId) {
+            try {
+              const convertedOrder = await Order.findById(order.offlineOrderId);
+              if (convertedOrder) {
+                const statusLower = String(convertedOrder.status || '').trim().toLowerCase();
+                if (statusLower === 'completed' || statusLower === 'rejected') {
+                  return {
+                    ...order,
+                    id: order.id,
+                    orderId: order.id,
+                    serialNumber: order.id,
+                    listOrderId: order.id,
+                    linkedOrderId: convertedOrder.id,
+                    status: convertedOrder.status,
+                    isConverted: true,
+                    items: convertedOrder.items || []
+                  };
+                }
+              }
+            } catch (e) {
+              // ignore and skip
+            }
+          }
+          return null;
+        }));
+        listOrders = listOrders.filter(Boolean);
+      } else {
+        listOrders = await ListOrderModel.getAll(filters);
+      }
       
       // Parse imagePath JSON and provide both backward compatible and new fields
       listOrders = listOrders.map(order => {
@@ -136,12 +175,18 @@ const ListOrderController = {
           const imagePaths = JSON.parse(order.imagePath);
           return {
             ...order,
+            id: order.id,
+            orderId: order.id,
+            serialNumber: order.id,
             imagePaths: Array.isArray(imagePaths) ? imagePaths : [order.imagePath],
             imagePath: Array.isArray(imagePaths) ? imagePaths[0] : order.imagePath
           };
         } catch {
           return {
             ...order,
+            id: order.id,
+            orderId: order.id,
+            serialNumber: order.id,
             imagePaths: [order.imagePath],
             imagePath: order.imagePath
           };
@@ -182,7 +227,12 @@ const ListOrderController = {
 
       res.json({
         success: true,
-        data: listOrder
+        data: {
+          ...listOrder,
+          id: listOrder.id,
+          orderId: listOrder.id,
+          serialNumber: listOrder.id
+        }
       });
     } catch (error) {
       console.error('ListOrderController.getListOrderById error:', error);
@@ -337,6 +387,9 @@ const ListOrderController = {
 
           const baseOrder = {
             ...order,
+            id: order.id,
+            orderId: order.id,
+            serialNumber: order.id,
             imagePaths: imagePaths,
             imagePath: imagePaths[0] || order.imagePath,
             place: order.place || '',
@@ -345,7 +398,7 @@ const ListOrderController = {
             orderType: 'list',
             type: 'list_orders',
             isConverted: false,
-            orderId: order.offlineOrderId || null,
+            linkedOrderId: order.offlineOrderId || null,
           };
 
           // ✅ If this list order was converted to an offline order, fetch its current status, payment history, and items
@@ -359,10 +412,12 @@ const ListOrderController = {
                 const isRejected = statusLower === 'rejected';
 
                 return {
-                  // Preserve list order fields
-                  id: convertedOrder.id,
+                  // Preserve list order identity (do NOT override `id` with converted order id)
+                  id: order.id,
+                  orderId: order.id,
+                  serialNumber: order.id,
                   listOrderId: order.id,
-                  orderId: convertedOrder.id,
+                  linkedOrderId: convertedOrder.id,
                   convertedFrom: 'list_order',
                   customerName: baseOrder.customerName,
                   phone: baseOrder.phone,
@@ -416,13 +471,13 @@ const ListOrderController = {
 
       if (view === 'active') {
         uploads = uploads.filter((upload) => {
-          const status = String(upload?.status || '').trim().toLowerCase();
-          const allowedActiveStatuses = ['pending', 'verified', 'processing', 'in_progress', 'converted'];
+          const status = String(upload?.status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+          const allowedActiveStatuses = ['pending', 'pending_acceptance', 'in_progress', 'accepted', 'processing', 'verified', 'converted'];
           return !upload?.isFinalized && status !== 'rejected' && status !== 'delivered' && allowedActiveStatuses.includes(status);
         });
       } else if (view === 'bills') {
         uploads = uploads.filter((upload) => {
-          const status = String(upload?.status || '').trim().toLowerCase();
+          const status = String(upload?.status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
           return status === 'completed' || status === 'rejected';
         });
       }
