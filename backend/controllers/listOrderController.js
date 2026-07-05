@@ -217,7 +217,9 @@ const ListOrderController = {
   getListOrderById: asyncHandler(async (req, res) => {
     try {
       const { id } = req.params;
+      console.log('[list-orders:getById] requested id:', id);
       const listOrder = await ListOrderModel.getById(id);
+      console.log('[list-orders:getById] matched rows:', listOrder ? 1 : 0);
 
       if (!listOrder) {
         return res.status(404).json({ 

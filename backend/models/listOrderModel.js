@@ -50,10 +50,12 @@ const ListOrderModel = {
   // Get list order by ID
   async getById(id) {
     try {
+      console.log('[listOrderModel.getById] executing query for id:', id);
       const [rows] = await promisePool.query(
         'SELECT * FROM list_orders WHERE id = ?',
         [id]
       );
+      console.log('[listOrderModel.getById] rows returned:', rows?.length || 0);
       return rows && rows.length > 0 ? rows[0] : null;
     } catch (error) {
       console.error('ListOrderModel.getById error:', error);
