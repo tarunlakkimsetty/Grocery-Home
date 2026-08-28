@@ -1,6 +1,9 @@
 import React from 'react';
 import { toast } from 'react-toastify';
 import AuthContext from './AuthContext';
+import { supportsDecimal } from '../utils/quantityValidator';
+import { calculateLinePricing } from '../utils/pricing';
+import productService from '../services/productService';
 
 const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
@@ -33,20 +36,29 @@ const normalizeStoredItems = (value) => {
             const price = Number(it?.price);
             const safeQty = Number.isFinite(quantity) && quantity >= 0.1 ? quantity : 0.1;
             const safePrice = Number.isFinite(price) && price >= 0 ? price : 0;
-            const total = Number(it?.total);
-            const safeTotal = Number.isFinite(total) ? total : safePrice * safeQty;
+            const pricing = calculateLinePricing({ originalPrice: it?.originalPrice ?? safePrice, discountedPrice: it?.discountedPrice ?? safePrice }, safeQty);
 
             return {
                 productId,
                 name: String(it?.name || ''),
-                price: safePrice,
+                price: pricing.price,
+                originalPrice: pricing.originalPrice,
+                discountedPrice: pricing.discountedPrice,
+                discountAmount: pricing.discountAmount,
+                discountPercentage: pricing.discountPercentage,
+                savings: pricing.savings,
+                originalTotal: pricing.originalTotal,
+                total: pricing.total,
+                freeItemName: it?.freeItemName || null,
+                freeItemQuantity: it?.freeItemQuantity || null,
+                freeItemUnit: it?.freeItemUnit || null,
+                category: it?.category || '',
                 quantity: safeQty,
-                total: safeTotal,
                 emoji: it?.emoji || '📦',
                 delivered: Boolean(it?.delivered),
                 selected: Boolean(it?.selected),
                 stock: Number.isFinite(Number(it?.stock)) ? Number(it.stock) : 0,
-                unit: String(it?.unit || 'piece'),
+                unit: String(it?.unit || ''),
             };
         })
         .filter(Boolean);
@@ -62,6 +74,8 @@ const CartContext = React.createContext({
     getItemCount: () => 0,
     toggleItemDelivered: () => { },
     getDeliveredTotal: () => 0,
+    getTotalSavings: () => 0,
+    getDeliveredSavings: () => 0,
 });
 
 class CartProvider extends React.Component {
@@ -83,6 +97,8 @@ class CartProvider extends React.Component {
         this.getItemCount = this.getItemCount.bind(this);
         this.toggleItemDelivered = this.toggleItemDelivered.bind(this);
         this.getDeliveredTotal = this.getDeliveredTotal.bind(this);
+        this.getTotalSavings = this.getTotalSavings.bind(this);
+        this.getDeliveredSavings = this.getDeliveredSavings.bind(this);
         this.toggleItemSelected = this.toggleItemSelected.bind(this);
         this.getSelectedTotal = this.getSelectedTotal.bind(this);
     }
@@ -125,17 +141,58 @@ class CartProvider extends React.Component {
                 if (legacyRestored.length > 0) {
                     window?.localStorage?.setItem(storageKey, JSON.stringify(legacyRestored));
                     window?.localStorage?.removeItem(CART_STORAGE_KEY_BASE);
-                    this.setState({ items: legacyRestored });
+                    this.setState({ items: legacyRestored }, () => this.refreshStoredPricing(legacyRestored));
                     return;
                 }
             }
 
-            this.setState({ items: restored });
+            this.setState({ items: restored }, () => this.refreshStoredPricing(restored));
         } catch {
             // Ignore storage errors (privacy mode, disabled storage, etc.)
             this.setState({ items: [] });
         }
     }
+
+    refreshStoredPricing = async (items) => {
+        if (!Array.isArray(items) || items.length === 0) return;
+        try {
+            // Reconcile persisted IDs against the current catalog before refreshing
+            // prices. This safely removes products deleted or replaced since the cart
+            // was saved without generating one 404 request per stale item.
+            const response = await productService.getProducts();
+            const products = Array.isArray(response)
+                ? response
+                : (response?.products || response?.data || []);
+            const productById = new Map(
+                (Array.isArray(products) ? products : [])
+                    .filter((product) => product?.id !== undefined && product?.id !== null)
+                    .map((product) => [String(Number(product.id)), product])
+            );
+
+            const refreshed = items
+                .map((item) => {
+                    const product = productById.get(String(Number(item.productId)));
+                    if (!product) return null;
+                    return {
+                        ...item,
+                        productId: Number(product.id),
+                        name: product.name || item.name,
+                        category: product.category || item.category || '',
+                        stock: Number.isFinite(Number(product.stock)) ? Number(product.stock) : item.stock,
+                        unit: product.unit || item.unit,
+                        emoji: product.emoji || item.emoji,
+                        ...calculateLinePricing(product, item.quantity),
+                        freeItemName: product.freeItemActive ? product.freeItemName : null,
+                        freeItemQuantity: product.freeItemActive ? product.freeItemQuantity : null,
+                        freeItemUnit: product.freeItemActive ? product.freeItemUnit : null,
+                    };
+                })
+                .filter(Boolean);
+            this.setState({ items: refreshed });
+        } catch {
+            // Keep the persisted cart usable when product refresh is unavailable.
+        }
+    };
 
     addToCart(product, quantity) {
         const qty = Math.max(0.1, parseFloat(quantity) || 0.1);
@@ -161,7 +218,7 @@ class CartProvider extends React.Component {
                 updatedItems[existingIndex] = {
                     ...existing,
                     quantity: nextQty,
-                    total: nextQty * existing.price,
+                    ...calculateLinePricing(existing, nextQty),
                     stock: availableStock !== null ? availableStock : (existing.stock || 0),
                 };
                 return { items: updatedItems };
@@ -179,14 +236,18 @@ class CartProvider extends React.Component {
                     {
                         productId: product.id,
                         name: product.name,
-                        price: product.price,
+                        ...calculateLinePricing(product, qty),
+                        freeItemName: product.freeItemActive ? product.freeItemName : null,
+                        freeItemQuantity: product.freeItemActive ? product.freeItemQuantity : null,
+                        freeItemUnit: product.freeItemActive ? product.freeItemUnit : null,
+                        category: product.category,
+                        stock: availableStock !== null ? availableStock : (product.stock || 0),
+                        unit: product.unit || '',
                         quantity: qty,
                         total: product.price * qty,
                         emoji: product.emoji || '📦',
                         delivered: false, // Default: not yet delivered
                         selected: false, // Default: not selected
-                        stock: availableStock !== null ? availableStock : (product.stock || 0), // Product stock quantity
-                        unit: product.unit || 'piece', // Store unit for proper quantity handling
                     },
                 ],
             };
@@ -205,8 +266,8 @@ class CartProvider extends React.Component {
             if (!existing) return prevState;
 
             // Parse quantity based on unit
-            const isWeightBased = existing.unit === 'kg';
-            const qty = isWeightBased ? parseFloat(quantity) : parseInt(quantity);
+            const isWeightBased = supportsDecimal(existing.unit);
+            const qty = isWeightBased ? parseFloat(quantity) : parseInt(quantity, 10);
             
             // Validate based on unit
             const minQty = isWeightBased ? 0.1 : 1;
@@ -225,7 +286,7 @@ class CartProvider extends React.Component {
             return {
                 items: prevState.items.map((item) =>
                     item.productId === productId
-                        ? { ...item, quantity: qty, total: item.price * qty }
+                        ? { ...item, ...calculateLinePricing(item, qty) }
                         : item
                 ),
             };
@@ -263,6 +324,14 @@ class CartProvider extends React.Component {
             .reduce((sum, item) => sum + item.total, 0);
     }
 
+    getTotalSavings() {
+        return this.state.items.reduce((sum, item) => sum + (Number(item.savings || 0) || 0), 0);
+    }
+
+    getDeliveredSavings() {
+        return this.state.items.filter((item) => item.delivered).reduce((sum, item) => sum + (Number(item.savings || 0) || 0), 0);
+    }
+
     toggleItemSelected(productId) {
         this.setState((prevState) => ({
             items: prevState.items.map((item) =>
@@ -290,6 +359,8 @@ class CartProvider extends React.Component {
             getItemCount: this.getItemCount,
             toggleItemDelivered: this.toggleItemDelivered,
             getDeliveredTotal: this.getDeliveredTotal,
+            getTotalSavings: this.getTotalSavings,
+            getDeliveredSavings: this.getDeliveredSavings,
             toggleItemSelected: this.toggleItemSelected,
             getSelectedTotal: this.getSelectedTotal,
         };

@@ -33,7 +33,7 @@ export const getMinQuantity = (unit) => {
  * @returns {string} Step value ("0.1" for kg, "1" for units)
  */
 export const getInputStep = (unit) => {
-  return supportsDecimal(unit) ? '0.1' : '1';
+  return supportsDecimal(unit) ? '0.001' : '1';
 };
 
 /**
@@ -57,8 +57,8 @@ export const formatQuantity = (quantity, unit) => {
   if (!supportsDecimal(unit)) {
     qty = Math.round(qty);
   } else {
-    // For kg items, round to 1 decimal place
-    qty = Math.round(qty * 10) / 10;
+    // For kg items, round to 3 decimal places
+    qty = Math.round(qty * 1000) / 1000;
   }
   
   return qty;
@@ -73,7 +73,7 @@ export const formatQuantity = (quantity, unit) => {
  * @returns {Object} Validation result { isValid, message, correctedValue }
  */
 export const validateQuantity = (quantity, options = {}) => {
-  const { unit = 'piece', stock = 9999 } = options;
+  const { unit = '', stock = 9999 } = options;
   const min = getMinQuantity(unit);
   const allowsDecimal = supportsDecimal(unit);
   const numericStock = Number(stock);
@@ -108,13 +108,17 @@ export const validateQuantity = (quantity, options = {}) => {
       correctedValue: min
     };
   }
+
+  const normalizedQty = allowsDecimal
+    ? Math.round(qty * 1000) / 1000
+    : Math.round(qty);
   
   // Check if decimal when not allowed
   if (!allowsDecimal && qty !== Math.round(qty)) {
     return {
       isValid: false,
       message: `Only integers allowed for ${unit}`,
-      correctedValue: Math.round(qty)
+      correctedValue: normalizedQty
     };
   }
   
@@ -140,7 +144,7 @@ export const validateQuantity = (quantity, options = {}) => {
   return {
     isValid: true,
     message: '',
-    correctedValue: qty
+    correctedValue: normalizedQty
   };
 };
 
@@ -153,14 +157,14 @@ export const validateQuantity = (quantity, options = {}) => {
  * @returns {number} Next quantity
  */
 export const getNextQuantity = (current, options = {}) => {
-  const { unit = 'piece', stock = 9999 } = options;
-  const step = supportsDecimal(unit) ? 0.1 : 1;
+  const { unit = '', stock = 9999 } = options;
+  const step = supportsDecimal(unit) ? 0.001 : 1;
   
   let next = current + step;
   
   // Round to avoid floating point issues
   if (supportsDecimal(unit)) {
-    next = Math.round(next * 10) / 10;
+    next = Math.round(next * 1000) / 1000;
   }
   
   // Respect stock limit
@@ -175,15 +179,15 @@ export const getNextQuantity = (current, options = {}) => {
  * @returns {number} Previous quantity (never goes below minimum)
  */
 export const getPreviousQuantity = (current, options = {}) => {
-  const { unit = 'piece' } = options;
+  const { unit = '' } = options;
   const min = getMinQuantity(unit);
-  const step = supportsDecimal(unit) ? 0.1 : 1;
+  const step = supportsDecimal(unit) ? 0.001 : 1;
   
   let prev = current - step;
   
   // Round to avoid floating point issues
   if (supportsDecimal(unit)) {
-    prev = Math.round(prev * 10) / 10;
+    prev = Math.round(prev * 1000) / 1000;
   }
   
   // Never go below minimum
@@ -197,12 +201,15 @@ export const getPreviousQuantity = (current, options = {}) => {
  * @returns {string} Formatted display string (e.g., "0.5 kg")
  */
 export const formatForDisplay = (quantity, unit) => {
-  if (!quantity) return '0';
-  
-  const formatted = supportsDecimal(unit) 
-    ? Number(quantity).toFixed(1)
-    : Math.round(quantity);
-  
+  if (!quantity && quantity !== 0) return '0';
+
+  const numericValue = Number(quantity);
+  if (!Number.isFinite(numericValue)) return '0';
+
+  const formatted = supportsDecimal(unit)
+    ? numericValue.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1')
+    : Math.round(numericValue);
+
   return unit ? `${formatted} ${unit}` : formatted;
 };
 

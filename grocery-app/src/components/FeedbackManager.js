@@ -1,186 +1,158 @@
 import React from 'react';
-import { toast } from 'react-toastify';
 import styled from 'styled-components';
+import { toast } from 'react-toastify';
 
 import AuthContext from '../context/AuthContext';
+import LanguageContext from '../context/LanguageContext';
 import feedbackService from '../services/feedbackService';
+import { ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
+import { PrimaryButton, SecondaryButton } from '../styledComponents/ButtonStyles';
 
-const Overlay = styled.div`
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: rgba(0, 0, 0, 0.55);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
+const Wrap = styled.div`
+    .modal-header {
+        background: #1e3a8a;
+        color: #ffffff;
+    }
+
+    .modal-header h3 {
+        color: #ffffff;
+    }
+
+    .close-btn {
+        color: rgba(255, 255, 255, 0.9);
+    }
 `;
 
-const ModalCard = styled.div`
-    width: 100%;
-    max-width: 460px;
-    background: #ffffff;
-    border-radius: 14px;
+const Hint = styled.div`
+    color: #4b5563;
+    font-size: 0.9rem;
+    margin-bottom: 0.8rem;
+`;
+
+const OrderBlock = styled.div`
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    margin-bottom: 0.9rem;
     overflow: hidden;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
 `;
 
-const Header = styled.div`
-    background: #1e3a8a;
-    color: #ffffff;
-    padding: 0.95rem 1.1rem;
-    display: flex;
+const OrderHead = styled.div`
+    background: #f8fafc;
+    color: #334155;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+`;
+
+const ProductRow = styled.div`
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.7rem;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
+    padding: 0.7rem 0.75rem;
+    border-top: 1px solid #f1f5f9;
+
+    @media (max-width: 768px) {
+        grid-template-columns: 1fr;
+        gap: 0.55rem;
+    }
 `;
 
-const Title = styled.div`
-    font-weight: 800;
-    font-size: 1.05rem;
-    letter-spacing: 0.2px;
-`;
-
-const CloseButton = styled.button`
-    border: none;
-    background: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
+const ProductIcon = styled.div`
     width: 34px;
     height: 34px;
     border-radius: 10px;
-    cursor: pointer;
+    background: #f1f5f9;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: transform 120ms ease, background 120ms ease, opacity 120ms ease;
+    font-size: 1.1rem;
+`;
 
-    &:hover {
-        background: rgba(255, 255, 255, 0.22);
-        transform: translateY(-1px);
+const ProductMeta = styled.div`
+    min-width: 0;
+
+    .name {
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.2;
     }
 
-    &:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-        transform: none;
+    .sub {
+        color: #64748b;
+        font-size: 0.82rem;
+        margin-top: 0.1rem;
     }
-`;
-
-const Body = styled.div`
-    padding: 1.15rem 1.1rem;
-`;
-
-const Muted = styled.div`
-    color: #6b7280;
-    font-size: 0.9rem;
-    margin-bottom: 0.9rem;
-`;
-
-const SectionLabel = styled.div`
-    font-weight: 700;
-    margin-bottom: 0.5rem;
-    color: #111827;
 `;
 
 const StarsRow = styled.div`
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    margin-bottom: 1rem;
+    gap: 0.15rem;
 `;
 
 const StarButton = styled.button`
     border: none;
     background: transparent;
-    padding: 0;
+    color: ${(p) => (p.$active ? '#fbbf24' : '#cbd5e1')};
+    font-size: 1.35rem;
     line-height: 1;
-    cursor: ${(p) => (p.disabled ? 'not-allowed' : 'pointer')};
-    color: ${(p) => (p.$active ? '#fbbf24' : '#d1d5db')};
+    padding: 0 0.05rem;
+    cursor: pointer;
     transition: color 120ms ease, transform 120ms ease;
 
     &:hover {
-        transform: translateY(-1px) scale(1.02);
+        transform: translateY(-1px);
     }
-
-    &:disabled {
-        transform: none;
-    }
-`;
-
-const Star = styled.span`
-    font-size: 2.05rem;
-    user-select: none;
 `;
 
 const TextArea = styled.textarea`
     width: 100%;
-    min-height: 92px;
+    min-height: 90px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
     resize: vertical;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 0.75rem 0.85rem;
-    font-size: 0.95rem;
     outline: none;
-    transition: border-color 120ms ease, box-shadow 120ms ease;
+    font-size: 0.94rem;
 
     &:focus {
         border-color: #2563eb;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
-    }
-
-    &:disabled {
-        background: #f9fafb;
-        color: #6b7280;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
     }
 `;
 
-const SpacerSm = styled.div`
-    height: 0.25rem;
-`;
-
-const Footer = styled.div`
-    padding: 0 1.1rem 1.1rem;
+const FooterActions = styled.div`
     display: flex;
-    justify-content: center;
-`;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    margin-top: 1rem;
 
-const SubmitButton = styled.button`
-    border: none;
-    background: #2563eb;
-    color: #ffffff;
-    padding: 0.7rem 1.2rem;
-    border-radius: 12px;
-    font-weight: 800;
-    cursor: pointer;
-    transition: transform 120ms ease, background 120ms ease, opacity 120ms ease;
-    min-width: 180px;
+    @media (max-width: 576px) {
+        flex-direction: column-reverse;
 
-    &:hover {
-        background: #1d4ed8;
-        transform: translateY(-1px);
-    }
-
-    &:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
-        transform: none;
+        button {
+            width: 100%;
+        }
     }
 `;
 
-const SuccessWrap = styled.div`
-    border: 1px solid #bbf7d0;
-    background: #f0fdf4;
-    border-radius: 12px;
-    padding: 1.15rem 1rem;
-    text-align: center;
-`;
-
-const SuccessText = styled.div`
-    color: #16a34a;
-    font-weight: 900;
-    font-size: 1.02rem;
-`;
+const getSignature = (orders) => {
+    const rows = Array.isArray(orders) ? orders : [];
+    const keys = [];
+    rows.forEach((order) => {
+        const orderId = Number(order?.orderId || 0);
+        const products = Array.isArray(order?.products) ? order.products : [];
+        products.forEach((p) => {
+            const productId = Number(p?.productId || 0);
+            if (orderId > 0 && productId > 0) {
+                keys.push(`${orderId}:${productId}`);
+            }
+        });
+    });
+    keys.sort();
+    return keys.join('|');
+};
 
 class FeedbackManager extends React.Component {
     static contextType = AuthContext;
@@ -188,27 +160,35 @@ class FeedbackManager extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            pending: [],
             loading: false,
             submitting: false,
-            rating: 0,
+            pendingOrders: [],
+            ratings: {},
             comment: '',
-            showThankYou: false,
-            hoverRating: 0,
+            open: false,
         };
 
-        this._lastAuthKey = null;
-        this._dismissedAuthKey = null;
         this._isMounted = false;
+        this._lastFetchKey = '';
+        this.languageContext = null;
     }
 
     componentDidMount() {
         this._isMounted = true;
-        this.maybeFetchPending();
+        this.maybeLoad();
     }
 
-    componentDidUpdate() {
-        this.maybeFetchPending();
+    componentDidUpdate(prevProps) {
+        if (prevProps.active !== this.props.active) {
+            this.maybeLoad();
+            return;
+        }
+
+        const prevAuth = `${prevProps.active}:${this.getAuthKey()}`;
+        const nextAuth = `${this.props.active}:${this.getAuthKey()}`;
+        if (prevAuth !== nextAuth) {
+            this.maybeLoad();
+        }
     }
 
     componentWillUnmount() {
@@ -216,203 +196,218 @@ class FeedbackManager extends React.Component {
     }
 
     getAuthKey = () => {
-        const { isAuthenticated, user, role } = this.context || {};
-        const uid = user && user.id ? user.id : null;
-        return `${Boolean(isAuthenticated)}:${role || ''}:${uid || ''}`;
+        const { isAuthenticated, role, user } = this.context || {};
+        const uid = Number(user?.id || 0) || 0;
+        return `${Boolean(isAuthenticated)}:${String(role || '')}:${uid}`;
     };
 
-    maybeFetchPending = async () => {
-        const { isAuthenticated, role } = this.context || {};
-        const authKey = this.getAuthKey();
+    isDismissed = (userId, signature) => {
+        if (!userId || !signature) return false;
+        return localStorage.getItem(`ratings_popup_dismissed:${userId}:${signature}`) === '1';
+    };
 
-        if (authKey === this._lastAuthKey) return;
-        this._lastAuthKey = authKey;
+    dismiss = (userId, signature) => {
+        if (!userId || !signature) return;
+        localStorage.setItem(`ratings_popup_dismissed:${userId}:${signature}`, '1');
+    };
 
-        // If user dismissed the popup after submitting feedback, don't re-open it
-        // again for the same login session.
-        if (authKey === this._dismissedAuthKey) return;
+    maybeLoad = async () => {
+        const { active } = this.props;
+        const { isAuthenticated, role, user } = this.context || {};
 
-        // New auth session (login/logout) should clear any prior dismissal.
-        this._dismissedAuthKey = null;
-
-        if (!isAuthenticated || String(role || '').toLowerCase() !== 'customer') {
+        if (!active || !isAuthenticated || String(role || '').toLowerCase() !== 'customer') {
             if (this._isMounted) {
-                this.setState({ pending: [], rating: 0, comment: '', loading: false, submitting: false });
+                this.setState({ open: false, pendingOrders: [], ratings: {}, comment: '' });
             }
             return;
         }
 
-        await this.fetchPending();
+        const key = `${this.getAuthKey()}:${active}`;
+        if (key === this._lastFetchKey) return;
+        this._lastFetchKey = key;
+
+        await this.fetchPendingProducts(Number(user?.id || 0));
     };
 
-    fetchPending = async () => {
+    fetchPendingProducts = async (userId) => {
         this.setState({ loading: true });
         try {
-            const pending = await feedbackService.getPending();
+            const pendingOrders = await feedbackService.getPendingProducts();
             if (!this._isMounted) return;
+
+            const signature = getSignature(pendingOrders);
+            const hasAny = Array.isArray(pendingOrders) && pendingOrders.some((o) => Array.isArray(o?.products) && o.products.length > 0);
+            const shouldOpen = hasAny && !this.isDismissed(userId, signature);
+
             this.setState({
-                pending: Array.isArray(pending) ? pending : [],
                 loading: false,
-                rating: 0,
+                pendingOrders: Array.isArray(pendingOrders) ? pendingOrders : [],
+                ratings: {},
                 comment: '',
-                showThankYou: false,
-                hoverRating: 0,
+                open: shouldOpen,
             });
         } catch (err) {
             if (!this._isMounted) return;
-            this.setState({ loading: false });
-            // Keep silent-ish; this runs on login.
-            const msg = err?.message || 'Failed to load feedback';
+            this.setState({ loading: false, open: false });
+            const msg = err?.message || 'Failed to load pending product ratings';
             if (!String(msg).toLowerCase().includes('session expired')) {
                 toast.error(msg);
             }
         }
     };
 
-    setRating = (rating) => {
+    setRating = (orderId, productId, rating) => {
+        const key = `${orderId}:${productId}`;
         const r = Number(rating);
-        if (!Number.isFinite(r)) return;
-        this.setState({ rating: Math.max(1, Math.min(5, Math.floor(r))) });
+        if (!Number.isInteger(r) || r < 1 || r > 5) return;
+        this.setState((prev) => ({
+            ratings: {
+                ...prev.ratings,
+                [key]: r,
+            },
+        }));
+    };
+
+    handleClose = () => {
+        const userId = Number(this.context?.user?.id || 0) || 0;
+        const signature = getSignature(this.state.pendingOrders);
+        this.dismiss(userId, signature);
+        this.setState({ open: false });
     };
 
     handleSubmit = async () => {
-        const current = (Array.isArray(this.state.pending) ? this.state.pending : [])[0];
-        if (!current) return;
+        const items = [];
+        const orders = Array.isArray(this.state.pendingOrders) ? this.state.pendingOrders : [];
 
-        const orderId = current.id;
-        const rating = Number(this.state.rating);
-        if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-            toast.error('Please select a rating');
-            return;
-        }
+        orders.forEach((order) => {
+            const orderId = Number(order?.orderId || 0);
+            const products = Array.isArray(order?.products) ? order.products : [];
+            products.forEach((product) => {
+                const productId = Number(product?.productId || 0);
+                const key = `${orderId}:${productId}`;
+                const rating = Number(this.state.ratings[key] || 0);
+                if (orderId > 0 && productId > 0 && Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+                    items.push({ orderId, productId, rating });
+                }
+            });
+        });
 
         this.setState({ submitting: true });
         try {
-            await feedbackService.submit({
-                orderId,
-                rating,
+            const response = await feedbackService.submitProductRatings({
+                items,
                 comment: this.state.comment,
             });
-            // Refresh pending list to ensure correctness, but keep popup open
-            // to show a thank-you confirmation (no page reload).
-            await this.fetchPending();
-            if (this._isMounted) this.setState({ showThankYou: true });
+
+            const inserted = Number(response?.data?.insertedCount || 0);
+            if (inserted > 0) {
+                toast.success(this.languageContext?.getText('productRatingsSaved') || 'Product ratings saved successfully');
+            } else {
+                toast.info(this.languageContext?.getText('noRatingsSelectedInfo') || 'No ratings selected. You can continue shopping.');
+            }
+
+            this.handleClose();
+            await this.fetchPendingProducts(Number(this.context?.user?.id || 0));
         } catch (err) {
-            const msg = err?.message || 'Failed to submit feedback';
-            toast.error(msg);
+            toast.error(err?.message || 'Failed to submit product ratings');
         } finally {
-            if (this._isMounted) this.setState({ submitting: false });
+            if (this._isMounted) {
+                this.setState({ submitting: false });
+            }
         }
     };
 
-    handleCloseThankYou = () => {
-        // Close the popup immediately.
-        this._dismissedAuthKey = this.getAuthKey();
-        this.setState({ showThankYou: false, pending: [], rating: 0, hoverRating: 0, comment: '' });
-    };
+    renderStars = (orderId, productId) => {
+        const selected = Number(this.state.ratings[`${orderId}:${productId}`] || 0);
 
-    formatDate = (dateStr) => {
-        if (!dateStr) return '-';
-        const d = new Date(dateStr);
-        if (Number.isNaN(d.getTime())) return '-';
-        return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    };
-
-    renderStars = () => {
-        const selected = Number(this.state.rating) || 0;
-        const hover = Number(this.state.hoverRating) || 0;
-        const active = hover > 0 ? hover : selected;
         return (
             <StarsRow>
-                {[1, 2, 3, 4, 5].map((n) => {
-                    const isOn = active >= n;
-                    return (
-                        <StarButton
-                            key={n}
-                            type="button"
-                            onClick={() => this.setRating(n)}
-                            disabled={this.state.submitting}
-                            aria-label={`${n} star`}
-                            $active={isOn}
-                            onMouseEnter={() => this.setState({ hoverRating: n })}
-                            onMouseLeave={() => this.setState({ hoverRating: 0 })}
-                        >
-                            <Star>★</Star>
-                        </StarButton>
-                    );
-                })}
+                {[1, 2, 3, 4, 5].map((n) => (
+                    <StarButton
+                        key={n}
+                        type="button"
+                        $active={selected >= n}
+                        onClick={() => this.setRating(orderId, productId, n)}
+                        aria-label={`${n} star`}
+                    >
+                        ★
+                    </StarButton>
+                ))}
             </StarsRow>
         );
     };
 
     render() {
-        const pending = Array.isArray(this.state.pending) ? this.state.pending : [];
-        const current = pending[0];
+        if (!this.props.active) return null;
+        if (!this.state.open) return null;
 
-        // Keep popup visible after submission to show thank-you message.
-        if (!current && !this.state.showThankYou) return null;
-
-        const canClose = Boolean(this.state.showThankYou);
+        const pendingOrders = Array.isArray(this.state.pendingOrders) ? this.state.pendingOrders : [];
 
         return (
-            <React.Fragment>
-                <Overlay role="dialog" aria-modal="true">
-                    <ModalCard>
-                        <Header>
-                            <Title>Rate your order</Title>
-                            <CloseButton
-                                type="button"
-                                aria-label="Close"
-                                onClick={canClose ? this.handleCloseThankYou : undefined}
-                                disabled={!canClose}
-                                title={canClose ? 'Close' : 'Submit feedback to close'}
-                            >
-                                ✕
-                            </CloseButton>
-                        </Header>
+            <LanguageContext.Consumer>
+                {(langCtx) => {
+                    this.languageContext = langCtx;
+                    return (
+                        <Wrap>
+                            <ModalOverlay onClick={this.handleClose}>
+                                <ModalContent style={{ maxWidth: '760px', width: '100%' }} onClick={(e) => e.stopPropagation()}>
+                                    <div className="modal-header">
+                                        <h3>{langCtx.getText('ratePurchasedProductsTitle')}</h3>
+                                        <button className="close-btn" onClick={this.handleClose} aria-label="Close" type="button">
+                                            ×
+                                        </button>
+                                    </div>
 
-                        <Body>
-                            {!this.state.showThankYou && current && (
-                                <Muted>
-                                    Order #{current.id} • {current.orderType || '-'} • {this.formatDate(current.createdAt)}
-                                </Muted>
-                            )}
+                                    <div className="modal-body">
+                                        <Hint>{langCtx.getText('ratingAndCommentOptional')}</Hint>
 
-                            {this.state.showThankYou ? (
-                                <SuccessWrap>
-                                    <SuccessText>Thank you for your valuable feedback</SuccessText>
-                                </SuccessWrap>
-                            ) : (
-                                <div>
-                                    <SectionLabel>Rating (required)</SectionLabel>
-                                    {this.renderStars()}
+                            {pendingOrders.map((order) => (
+                                <OrderBlock key={order.orderId}>
+                                    <OrderHead>
+                                        Order #{order.orderId} • {order.orderType || '-'}
+                                    </OrderHead>
 
-                                    <SpacerSm />
-                                    <SectionLabel>Comment (optional)</SectionLabel>
-                                    <TextArea
-                                        placeholder="Give your valuable feedback"
-                                        value={this.state.comment}
-                                        onChange={(e) => this.setState({ comment: e.target.value })}
-                                        disabled={this.state.submitting}
-                                    />
-                                </div>
-                            )}
-                        </Body>
+                                    {(Array.isArray(order.products) ? order.products : []).map((product) => (
+                                        <ProductRow key={`${order.orderId}:${product.productId}`}>
+                                            <ProductIcon>{product.productEmoji || '📦'}</ProductIcon>
 
-                        {!this.state.showThankYou && (
-                            <Footer>
-                                <SubmitButton
-                                    type="button"
-                                    onClick={this.handleSubmit}
-                                    disabled={this.state.submitting || this.state.loading}
-                                >
-                                    {this.state.submitting ? 'Submitting...' : 'Submit Feedback'}
-                                </SubmitButton>
-                            </Footer>
-                        )}
-                    </ModalCard>
-                </Overlay>
-            </React.Fragment>
+                                            <ProductMeta>
+                                                <div className="name">{product.productName || `Product #${product.productId}`}</div>
+                                                <div className="sub">
+                                                    {product.productCategory || '-'} • Qty {Number(product.quantityPurchased || 0)}
+                                                </div>
+                                            </ProductMeta>
+
+                                            {this.renderStars(order.orderId, product.productId)}
+                                        </ProductRow>
+                                    ))}
+                                </OrderBlock>
+                            ))}
+
+                                        <div style={{ marginTop: '0.5rem' }}>
+                                            <label className="form-label fw-semibold">Comment ({langCtx.getText('optional')})</label>
+                                            <TextArea
+                                                value={this.state.comment}
+                                                onChange={(e) => this.setState({ comment: e.target.value })}
+                                                placeholder="Share your experience (optional)"
+                                            />
+                                        </div>
+
+                                        <FooterActions>
+                                            <SecondaryButton type="button" onClick={this.handleClose} disabled={this.state.submitting || this.state.loading}>
+                                                {langCtx.getText('close')}
+                                            </SecondaryButton>
+                                            <PrimaryButton type="button" onClick={this.handleSubmit} disabled={this.state.submitting || this.state.loading}>
+                                                {this.state.submitting ? `${langCtx.getText('save')}...` : langCtx.getText('saveFeedback')}
+                                            </PrimaryButton>
+                                        </FooterActions>
+                                    </div>
+                                </ModalContent>
+                            </ModalOverlay>
+                        </Wrap>
+                    );
+                }}
+            </LanguageContext.Consumer>
         );
     }
 }

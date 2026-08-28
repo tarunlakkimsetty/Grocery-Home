@@ -155,7 +155,10 @@ const orderService = {
         } catch {
             const source = String(orderType || '').toLowerCase() === 'offline' ? mockOfflineOrders : mockOrders;
             return [...source]
-                .filter((o) => o.status === 'Completed' || o.status === 'Rejected')
+                .filter((o) => {
+                    const status = String(o?.status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+                    return status === 'completed' || status === 'rejected';
+                })
                 .sort((a, b) => new Date(b.orderDate || b.date) - new Date(a.orderDate || a.date));
         }
     },
@@ -186,12 +189,12 @@ const orderService = {
             return mockOrders
                 .filter((o) => o.userId === customerId)
                 .filter((o) => {
+                    const normalizedStatus = String(o?.status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
                     if (String(view || '').trim().toLowerCase() === 'bills') {
-                        const status = String(o.status || '').trim().toLowerCase();
-                        return status === 'completed' || status === 'rejected';
+                        return normalizedStatus === 'completed' || normalizedStatus === 'rejected';
                     }
-                    const status = String(o.status || '').trim().toLowerCase();
-                    return status !== 'completed' && status !== 'rejected';
+                    const activeStatuses = ['pending', 'pending_acceptance', 'in_progress', 'accepted', 'processing', 'verified', 'converted'];
+                    return activeStatuses.includes(normalizedStatus);
                 })
                 .sort((a, b) => new Date(b.date) - new Date(a.date));
         }
@@ -209,7 +212,7 @@ const orderService = {
             // No mock fallback to avoid leaking/mixing offline data.
             if (String(view || '').trim().toLowerCase() === 'bills') {
                 return { success: true, orders: mockOfflineOrders.filter((o) => {
-                    const status = String(o.status || '').trim().toLowerCase();
+                    const status = String(o?.status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
                     return status === 'completed' || status === 'rejected';
                 }) };
             }
@@ -318,6 +321,7 @@ const orderService = {
                         productId: item?.productId,
                         productName: item?.name || item?.productName || '',
                         quantity,
+                        unit: String(item?.unit || '').trim(),
                         price,
                         subtotal,
                     };
@@ -409,6 +413,7 @@ const orderService = {
                         productId: item?.productId,
                         productName: item?.name || item?.productName || '',
                         quantity,
+                        unit: String(item?.unit || '').trim(),
                         price,
                         subtotal,
                     };
@@ -595,6 +600,26 @@ const orderService = {
             const order = findMockOrderById(orderId);
             if (order) order.status = status;
             return order;
+        }
+    },
+
+    cancelCustomerOrder: async (orderId) => {
+        try {
+            const response = await axiosInstance.put(`/orders/customer/${orderId}/cancel`);
+            return response.data;
+        } catch (error) {
+            throw error;
+        }
+    },
+
+    searchCustomerOrders: async (customerId, query = '') => {
+        try {
+            const response = await axiosInstance.get(`/orders/customer/${customerId}`, {
+                params: { view: 'all', search: query || undefined }
+            });
+            return response.data;
+        } catch {
+            return { success: true, orders: [] };
         }
     },
 

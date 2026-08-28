@@ -2,6 +2,8 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
 import LanguageContext from '../context/LanguageContext';
+import { toast } from 'react-toastify';
+import chatService from '../services/chatService';
 import {
     SidebarWrapper,
     SidebarOverlay,
@@ -22,6 +24,37 @@ import {
 
 class Sidebar extends React.Component {
     static contextType = AuthContext;
+
+    state = { unreadChatCount: null, latestUnread: null };
+
+    componentDidMount() {
+        if (this.context.role === 'admin') this.loadUnreadChats();
+        this.chatInterval = window.setInterval(this.loadUnreadChats, 15000);
+    }
+
+    componentDidUpdate(prevProps, prevState) {
+    }
+
+    componentWillUnmount() {
+        window.clearInterval(this.chatInterval);
+    }
+
+    loadUnreadChats = async () => {
+        if (this.context.role !== 'admin') return;
+        try {
+            const response = await chatService.getAdminChats();
+            const conversations = response.conversations || [];
+            const unreadChatCount = conversations.reduce((sum, item) => sum + Number(item.unread_for_admin || 0), 0);
+            const latestUnread = conversations.find((item) => Number(item.unread_for_admin || 0) > 0);
+            if (this.state.unreadChatCount !== null && this.state.unreadChatCount < unreadChatCount && latestUnread) {
+                toast.info(`💬 ${latestUnread.customer_name}: ${latestUnread.last_message || 'New message'}`, {
+                    autoClose: 5000,
+                    onClick: () => { window.location.href = `/admin/chats?customerId=${latestUnread.customer_id}`; },
+                });
+            }
+            this.setState({ unreadChatCount, latestUnread });
+        } catch { /* chat status is non-critical to navigation */ }
+    };
 
     render() {
         const { isOpen, activeCategory, onSelectCategory, onClose, pathname } = this.props;
@@ -86,6 +119,46 @@ class Sidebar extends React.Component {
                                 </NavLink>
                                 {role === 'customer' && (
                                     <>
+                                        <NavLink to="/suggested-products" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🌟</span>
+                                                    <span className="item-label">Suggested Products</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/starred" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">⭐</span>
+                                                    <span className="item-label">Starred Products</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/offers" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🔥</span>
+                                                    <span className="item-label">Offers & Deals</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/recently-viewed" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">👀</span>
+                                                    <span className="item-label">Recently Viewed</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/top-rated" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">⭐</span>
+                                                    <span className="item-label">Top Rated</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
                                         <NavLink to="/cart" style={{ textDecoration: 'none' }}>
                                             {({ isActive }) => (
                                                 <SidebarItem $active={isActive}>
@@ -99,6 +172,22 @@ class Sidebar extends React.Component {
                                                 <SidebarItem $active={isActive}>
                                                     <span className="item-icon">📋</span>
                                                     <span className="item-label">{langCtx.getText('history')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/compare" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🔄</span>
+                                                    <span className="item-label">Compare Products</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/profile" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">👤</span>
+                                                    <span className="item-label">My Profile</span>
                                                 </SidebarItem>
                                             )}
                                         </NavLink>
@@ -119,6 +208,30 @@ class Sidebar extends React.Component {
                                                 <SidebarItem $active={isActive}>
                                                     <span className="item-icon">➕</span>
                                                     <span className="item-label">{langCtx.getText('addProduct')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/suggested-products" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">🌟</span>
+                                                    <span className="item-label">Suggested Products</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/product-ratings" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">⭐</span>
+                                                    <span className="item-label">Product Ratings</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/low-stock" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">⚠️</span>
+                                                    <span className="item-label">Low Stock</span>
                                                 </SidebarItem>
                                             )}
                                         </NavLink>
@@ -191,6 +304,30 @@ class Sidebar extends React.Component {
                                                 <SidebarItem $active={isActive}>
                                                     <span className="item-icon">👤</span>
                                                     <span className="item-label">{langCtx.getText('customerDetails')}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/chats" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">💬</span>
+                                                    <span className="item-label">Customer Chats{this.state.unreadChatCount > 0 ? ` ${this.state.unreadChatCount}` : ''}</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/announcements" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">📢</span>
+                                                    <span className="item-label">Announcements</span>
+                                                </SidebarItem>
+                                            )}
+                                        </NavLink>
+                                        <NavLink to="/admin/order-availability" style={{ textDecoration: 'none' }}>
+                                            {({ isActive }) => (
+                                                <SidebarItem $active={isActive}>
+                                                    <span className="item-icon">⚙️</span>
+                                                    <span className="item-label">Order Availability</span>
                                                 </SidebarItem>
                                             )}
                                         </NavLink>

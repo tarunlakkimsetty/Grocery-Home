@@ -6,10 +6,18 @@ import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
 import ForgotPasswordPage from '../pages/ForgotPasswordPage';
 import ProductsPage from '../pages/ProductsPage';
+import StarredProductsPage from '../pages/StarredProductsPage';
+import SuggestedProductsPage from '../pages/SuggestedProductsPage';
+import OffersDealsPage from '../pages/OffersDealsPage';
+import RecentlyViewedPage from '../pages/RecentlyViewedPage';
+import TopRatedProductsPage from '../pages/TopRatedProductsPage';
+import CompareProductsPage from '../pages/CompareProductsPage';
+import CustomerProfilePage from '../pages/CustomerProfilePage';
 import CartPage from '../pages/CartPage';
 import BillHistoryPage from '../pages/BillHistoryPage';
 import BillDetailsPage from '../pages/BillDetailsPage';
 import AddProductPage from '../pages/AddProductPage';
+import AdminLowStockPage from '../pages/AdminLowStockPage';
 import AdminOnlineBillsPage from '../pages/AdminOnlineBillsPage';
 import AdminOfflineBillsPage from '../pages/AdminOfflineBillsPage';
 import AnalyticsPage from '../pages/AnalyticsPage';
@@ -17,6 +25,8 @@ import AdminOnlineOrdersPage from '../pages/AdminOnlineOrdersPage';
 import AdminOfflineOrdersPage from '../pages/AdminOfflineOrdersPage';
 import AdminCustomerDetailsPage from '../pages/AdminCustomerDetailsPage';
 import AdminCustomerViewPage from '../pages/AdminCustomerViewPage';
+import AdminSuggestedProductsPage from '../pages/AdminSuggestedProductsPage';
+import AdminProductRatingsPage from '../pages/AdminProductRatingsPage';
 import ListOrdersUploadPage from '../pages/ListOrdersUploadPage';
 import AdminListOrdersPage from '../pages/AdminListOrdersPage';
 import AdminListOrdersConvertedPage from '../pages/AdminListOrdersConvertedPage';
@@ -24,6 +34,9 @@ import AdminListOrderBillsPage from '../pages/AdminListOrderBillsPage';
 import PrivacyPolicyPage from '../pages/PrivacyPolicyPage';
 import TermsConditionsPage from '../pages/TermsConditionsPage';
 import ContactPage from '../pages/ContactPage';
+import AdminChatsPage from '../pages/AdminChatsPage';
+import AdminAnnouncementsPage from '../pages/AdminAnnouncementsPage';
+import AdminOrderAvailabilityPage from '../pages/AdminOrderAvailabilityPage';
 
 // Wrapper to extract route params for class components
 class BillDetailsWrapper extends React.Component {
@@ -73,6 +86,62 @@ class AppRoutes extends React.Component {
 
                 {/* Customer Routes */}
                 <Route
+                    path="/suggested-products"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <SuggestedProductsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/starred"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <StarredProductsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/offers"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <OffersDealsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/recently-viewed"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <RecentlyViewedPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/top-rated"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <TopRatedProductsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/compare"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <CompareProductsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/profile"
+                    element={
+                        <RoleBasedRoute allowedRoles={['customer']}>
+                            <CustomerProfilePage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
                     path="/cart"
                     element={
                         <RoleBasedRoute allowedRoles={['customer']}>
@@ -111,6 +180,54 @@ class AppRoutes extends React.Component {
                     element={
                         <RoleBasedRoute allowedRoles={['admin']}>
                             <AddProductPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/suggested-products"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminSuggestedProductsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/low-stock"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminLowStockPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/product-ratings"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminProductRatingsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/chats"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminChatsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/announcements"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminAnnouncementsPage />
+                        </RoleBasedRoute>
+                    }
+                />
+                <Route
+                    path="/admin/order-availability"
+                    element={
+                        <RoleBasedRoute allowedRoles={['admin']}>
+                            <AdminOrderAvailabilityPage />
                         </RoleBasedRoute>
                     }
                 />

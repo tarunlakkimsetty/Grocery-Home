@@ -3,8 +3,10 @@
 
 CREATE TABLE IF NOT EXISTS list_orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    global_order_id INT UNIQUE NULL,
     customerName VARCHAR(100) NOT NULL,
     phone VARCHAR(15) NOT NULL,
+    place VARCHAR(100) DEFAULT NULL,
     imagePath TEXT NOT NULL,
     imageFileName VARCHAR(255) NOT NULL,
     status ENUM('pending', 'converted') DEFAULT 'pending',
@@ -14,5 +16,6 @@ CREATE TABLE IF NOT EXISTS list_orders (
     updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_phone (phone),
     INDEX idx_status (status),
-    INDEX idx_createdAt (createdAt)
+    INDEX idx_createdAt (createdAt),
+    INDEX idx_place (place)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

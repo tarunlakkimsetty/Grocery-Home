@@ -18,6 +18,12 @@ const userRoutes = require('./routes/userRoutes');
 const feedbackRoutes = require('./routes/feedbackRoutes');
 const listOrderRoutes = require('./routes/listOrderRoutes');
 const orderImageRoutes = require('./routes/orderImageRoutes');
+const favoriteRoutes = require('./routes/favoriteRoutes');
+const createSuggestedProductRouter = require('./routes/suggestedProductRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+const adminChatRoutes = require('./routes/adminChatRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
+const orderAvailabilitySettingsRoutes = require('./routes/orderAvailabilitySettingsRoutes');
 
 const app = express();
 
@@ -146,6 +152,13 @@ app.use('/api/bills', billRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/list-orders', listOrderRoutes);
 app.use('/api/order-images', orderImageRoutes);
+app.use('/api/favorites', favoriteRoutes);
+app.use('/api/suggested-products', createSuggestedProductRouter());
+app.use('/api/admin/suggested-products', createSuggestedProductRouter({ requireAdmin: true }));
+app.use('/api/chat', chatRoutes);
+app.use('/api/admin/chats', adminChatRoutes);
+app.use('/api', announcementRoutes);
+app.use('/api', orderAvailabilitySettingsRoutes);
 
 // Error handling middleware (must be last)
 app.use(notFound);

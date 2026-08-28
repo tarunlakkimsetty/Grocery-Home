@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     productId INT NOT NULL,
     productName VARCHAR(150),
     price DECIMAL(10,2),
-    quantity INT,
+    quantity DECIMAL(10,3),
     isSelected BOOLEAN DEFAULT TRUE,
     total DECIMAL(12,2),
     CONSTRAINT fk_order_items_orderId_orders
@@ -81,6 +81,27 @@ CREATE TABLE IF NOT EXISTS feedback (
     CONSTRAINT chk_feedback_rating CHECK (rating >= 1 AND rating <= 5)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS product_reviews (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    order_item_id INT NULL,
+    product_id INT NOT NULL,
+    customer_id INT NOT NULL,
+    rating TINYINT NOT NULL,
+    comment TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_product_reviews_order_id_orders
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE ON UPDATE RESTRICT,
+    CONSTRAINT fk_product_reviews_order_item_id_order_items
+        FOREIGN KEY (order_item_id) REFERENCES order_items(id) ON DELETE SET NULL ON UPDATE RESTRICT,
+    CONSTRAINT fk_product_reviews_product_id_products
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE ON UPDATE RESTRICT,
+    CONSTRAINT fk_product_reviews_customer_id_users
+        FOREIGN KEY (customer_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE RESTRICT,
+    CONSTRAINT uq_product_reviews_order_product_customer UNIQUE (order_id, product_id, customer_id),
+    CONSTRAINT chk_product_reviews_rating CHECK (rating >= 1 AND rating <= 5)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS bills (
     id INT AUTO_INCREMENT PRIMARY KEY,
     userId INT NOT NULL,
@@ -97,7 +118,7 @@ CREATE TABLE IF NOT EXISTS bill_items (
     productId INT NOT NULL,
     productName VARCHAR(150),
     price DECIMAL(10,2),
-    quantity INT,
+    quantity DECIMAL(10,3),
     total DECIMAL(12,2),
     CONSTRAINT fk_bill_items_billId_bills
         FOREIGN KEY (billId) REFERENCES bills(id) ON DELETE CASCADE ON UPDATE RESTRICT,
@@ -123,6 +144,26 @@ CREATE TABLE IF NOT EXISTS order_images (
         FOREIGN KEY (uploadedBy) REFERENCES users(id) ON DELETE SET NULL ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS favorites (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    product_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Foreign key constraints
+    CONSTRAINT fk_favorites_customer FOREIGN KEY (customer_id) 
+        REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_favorites_product FOREIGN KEY (product_id) 
+        REFERENCES products(id) ON DELETE CASCADE,
+    
+    -- Unique constraint to prevent duplicate favorites
+    UNIQUE KEY unique_customer_product (customer_id, product_id),
+    
+    -- Index for faster queries
+    INDEX idx_customer_id (customer_id),
+    INDEX idx_product_id (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 ALTER TABLE products ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT 'pack';
 ALTER TABLE products ADD COLUMN IF NOT EXISTS emoji VARCHAR(10) DEFAULT '📦';
 
@@ -138,8 +179,10 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS advanceAmount DECIMAL(12,2) NOT NULL
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS verifiedAt TIMESTAMP NULL;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS deliveredAt TIMESTAMP NULL;
 
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT NULL;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS isSelected BOOLEAN DEFAULT TRUE;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS total DECIMAL(12,2);
+ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS unit VARCHAR(50) DEFAULT NULL;
 ALTER TABLE bill_items ADD COLUMN IF NOT EXISTS total DECIMAL(12,2);
 ALTER TABLE order_images ADD COLUMN IF NOT EXISTS orderType VARCHAR(50) NULL;
 ALTER TABLE order_images ADD COLUMN IF NOT EXISTS uploadedByRole VARCHAR(20) NULL;
@@ -158,6 +201,11 @@ CREATE INDEX IF NOT EXISTS idx_order_items_orderId ON order_items(orderId);
 CREATE INDEX IF NOT EXISTS idx_order_items_productId ON order_items(productId);
 CREATE INDEX IF NOT EXISTS idx_feedback_order_id ON feedback(order_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_customer_id ON feedback(customer_id);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_order_id ON product_reviews(order_id);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_order_item_id ON product_reviews(order_item_id);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_product_id ON product_reviews(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_customer_id ON product_reviews(customer_id);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_created_at ON product_reviews(created_at);
 CREATE INDEX IF NOT EXISTS idx_bills_userId ON bills(userId);
 CREATE INDEX IF NOT EXISTS idx_bills_createdAt ON bills(createdAt);
 CREATE INDEX IF NOT EXISTS idx_bill_items_billId ON bill_items(billId);

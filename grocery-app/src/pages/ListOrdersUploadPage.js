@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import LanguageContext from '../context/LanguageContext';
 import LegalModalContext from '../context/LegalModalContext';
 import listOrderService from '../services/listOrderService';
+import orderAvailabilityService from '../services/orderAvailabilityService';
 import { ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
 import { PrimaryButton } from '../styledComponents/ButtonStyles';
 
@@ -638,6 +639,7 @@ class ListOrdersUploadPage extends React.Component {
       modalOpen: false,
       modalImages: [],
       modalImageIndex: 0,
+      listOrdersEnabled: true,
     };
     this.fileInputRef = React.createRef();
     this.cameraInputRef = React.createRef();
@@ -647,9 +649,22 @@ class ListOrdersUploadPage extends React.Component {
   }
 
   componentDidMount() {
+    this.loadAvailability();
     // Load once on mount so history count stays synchronized even before tab interaction.
     this.fetchPreviousUploads();
   }
+
+  loadAvailability = async () => {
+    try {
+      const response = await orderAvailabilityService.getSettings();
+      const settings = response?.data || {};
+      this.setState({
+        listOrdersEnabled: settings.listOrdersEnabled !== undefined ? Boolean(settings.listOrdersEnabled) : true,
+      });
+    } catch (error) {
+      console.warn('Unable to load list orders availability:', error);
+    }
+  };
 
   handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -725,6 +740,11 @@ class ListOrdersUploadPage extends React.Component {
   handleSubmit = async (e) => {
     e.preventDefault();
     const { customerName, phone, place, selectedFiles, notes, agreedToTerms } = this.state;
+
+    if (!this.state.listOrdersEnabled) {
+      toast.error('List order uploads are currently unavailable. Please try again later.');
+      return;
+    }
 
     if (!agreedToTerms) {
       toast.warning('Please agree to the Terms & Conditions before uploading your grocery list.');
@@ -872,13 +892,19 @@ class ListOrdersUploadPage extends React.Component {
       dragOver,
       activeTab,
       previousUploads,
-      historyLoading
+      historyLoading,
+      listOrdersEnabled,
     } = this.state;
 
     const langCtx = this.context;
 
     return (
       <Container>
+        {!listOrdersEnabled && (
+          <div style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem', background: '#fff3cd', border: '1px solid #ffcc70', borderRadius: '10px', color: '#7a4b00', fontWeight: 600 }}>
+            List order uploads are currently unavailable. Please try again later.
+          </div>
+        )}
         <Card>
           <Title>🛒 Upload Grocery List</Title>
           <Subtitle>
@@ -1086,7 +1112,7 @@ class ListOrdersUploadPage extends React.Component {
                   <Button
                     type="submit"
                     className="primary"
-                    disabled={loading || selectedFiles.length === 0 || !agreedToTerms}
+                    disabled={loading || selectedFiles.length === 0 || !agreedToTerms || !listOrdersEnabled}
                   >
                     {loading ? 'Uploading...' : `📤 Upload ${selectedFiles.length} Image(s)`}
                   </Button>

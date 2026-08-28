@@ -3,16 +3,75 @@ const { promisePool } = require('../config/db');
 const ListOrderModel = {
   // Create a new list order
   async create(customerName, phone, place, imagePath, imageFileName, notes = '') {
+    const connection = await promisePool.getConnection();
     try {
-      const [result] = await promisePool.query(
-        `INSERT INTO list_orders (customerName, phone, place, imagePath, imageFileName, status, notes)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-        [customerName, phone, place, imagePath, imageFileName, notes]
-      );
-      return { id: result.insertId, ...{ customerName, phone, place, imagePath, imageFileName, status: 'pending', notes } };
+      await connection.beginTransaction();
+
+      const getNextGlobalOrderId = async () => {
+        const [rows] = await connection.query(
+          `SELECT GREATEST(
+              COALESCE((SELECT MAX(id) FROM orders), 0),
+              COALESCE((SELECT MAX(global_order_id) FROM list_orders), 0)
+            ) AS maxId`
+        );
+        const maxId = Number(rows?.[0]?.maxId || 0);
+        return maxId + 1;
+      };
+
+      let nextGlobalOrderId = await getNextGlobalOrderId();
+      let insertResult;
+      let retries = 0;
+      const MAX_RETRIES = 3;
+
+      while (retries < MAX_RETRIES) {
+        try {
+          console.log('Generated list_orders.global_order_id:', nextGlobalOrderId);
+          [insertResult] = await connection.query(
+            `INSERT INTO list_orders (customerName, phone, place, imagePath, imageFileName, status, notes, global_order_id)
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+            [customerName, phone, place, imagePath, imageFileName, notes, nextGlobalOrderId]
+          );
+          break;
+        } catch (error) {
+          if (error && error.errno === 1062) {
+            retries += 1;
+            nextGlobalOrderId = await getNextGlobalOrderId();
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      if (!insertResult) {
+        throw new Error('Failed to insert list order after retrying for a global order id');
+      }
+
+      await connection.commit();
+
+      try {
+        await connection.query('ALTER TABLE orders AUTO_INCREMENT = ?', [nextGlobalOrderId + 1]);
+        console.log('Adjusted orders AUTO_INCREMENT to', nextGlobalOrderId + 1);
+      } catch (autoIncError) {
+        console.warn('Could not adjust orders AUTO_INCREMENT:', autoIncError.message || autoIncError);
+      }
+
+      return {
+        id: insertResult.insertId,
+        global_order_id: nextGlobalOrderId,
+        customerName,
+        phone,
+        place,
+        imagePath,
+        imageFileName,
+        status: 'pending',
+        notes
+      };
     } catch (error) {
+      await connection.rollback();
       console.error('ListOrderModel.create error:', error);
       throw error;
+    } finally {
+      connection.release();
     }
   },
 

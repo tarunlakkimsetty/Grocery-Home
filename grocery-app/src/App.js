@@ -10,13 +10,16 @@ import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { LegalModalProvider } from './context/LegalModalContext';
+import { FavoritesProvider } from './context/FavoritesContext';
+import { SuggestedProductsProvider } from './context/SuggestedProductsContext';
 import AuthContext from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
-import FeedbackManager from './components/FeedbackManager';
 import CustomerFooter from './components/CustomerFooter';
+import AnnouncementBanner from './components/AnnouncementBanner';
 import AppRoutes from './routes/AppRoutes';
 import { AppContainer, MainContent } from './styledComponents/LayoutStyles';
+import CustomerChatWidget from './components/CustomerChatWidget';
 
 // React Router future flags to silence warnings
 const routerFutureFlags = {
@@ -96,14 +99,17 @@ class AppContent extends React.Component {
         )}
         {isAuthenticated ? (
           <MainContent>
+            <AnnouncementBanner />
             <AppRoutes activeCategory={activeCategory} />
           </MainContent>
         ) : (
-          <AppRoutes activeCategory={activeCategory} />
+          <>
+            <AnnouncementBanner />
+            <AppRoutes activeCategory={activeCategory} />
+          </>
         )}
-
-        {isAuthenticated && isCustomer && <FeedbackManager />}
         {shouldShowCustomerFooter && <CustomerFooter withSidebar={isAuthenticated} />}
+        {isAuthenticated && isCustomer && <CustomerChatWidget />}
         <ToastContainer
           position="top-right"
           autoClose={3000}
@@ -129,9 +135,13 @@ class App extends React.Component {
           <LanguageProvider>
             <AuthProvider>
               <CartProvider>
-                <LegalModalProvider>
-                  <AppContentWithRouter />
-                </LegalModalProvider>
+                <FavoritesProvider>
+                  <SuggestedProductsProvider>
+                    <LegalModalProvider>
+                      <AppContentWithRouter />
+                    </LegalModalProvider>
+                  </SuggestedProductsProvider>
+                </FavoritesProvider>
               </CartProvider>
             </AuthProvider>
           </LanguageProvider>

@@ -89,28 +89,16 @@ const productService = {
 
     addProduct: async (product) => {
         try {
-            console.log('productService.addProduct sending:', product);
             const response = await axiosInstance.post('/products', product);
-            console.log('productService.addProduct response:', response.data);
             return response.data;
         } catch (err) {
-            console.error('productService.addProduct error:', err.response?.data || err.message);
             throw err;
         }
     },
 
     updateProduct: async (id, data) => {
-        try {
-            const response = await axiosInstance.put(`/products/${id}`, data);
-            return response.data;
-        } catch {
-            const idx = mockProductStore.findIndex((p) => p.id === parseInt(id));
-            if (idx !== -1) {
-                mockProductStore[idx] = { ...mockProductStore[idx], ...data };
-                return mockProductStore[idx];
-            }
-            throw new Error('Product not found');
-        }
+        const response = await axiosInstance.put(`/products/${id}`, data);
+        return response.data;
     },
 
     updateStock: async (id, stock) => {

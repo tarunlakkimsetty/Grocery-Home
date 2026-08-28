@@ -36,7 +36,7 @@ const Customer = {
             FROM users u
                         LEFT JOIN (
                                 SELECT customer_id, AVG(rating) AS avg_rating, COUNT(*) AS rating_count
-                                FROM feedback
+                            FROM product_reviews
                                 GROUP BY customer_id
                         ) fr
                             ON fr.customer_id = u.id
@@ -98,7 +98,7 @@ const Customer = {
             FROM users u
                         LEFT JOIN (
                                 SELECT customer_id, AVG(rating) AS avg_rating, COUNT(*) AS rating_count
-                                FROM feedback
+                            FROM product_reviews
                                 GROUP BY customer_id
                         ) fr
                             ON fr.customer_id = u.id
@@ -119,7 +119,7 @@ const Customer = {
 
         const [feedbackRows] = await promisePool.query(
             `SELECT order_id, rating, comment, created_at
-             FROM feedback
+             FROM product_reviews
              WHERE customer_id = ?
              ORDER BY created_at DESC, id DESC
              LIMIT 5`,

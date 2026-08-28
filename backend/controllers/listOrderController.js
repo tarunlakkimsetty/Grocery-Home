@@ -3,6 +3,7 @@ const path = require('path');
 const ListOrderModel = require('../models/listOrderModel');
 const Order = require('../models/orderModel');
 const User = require('../models/userModel');
+const { getOrderAvailabilitySettings } = require('../models/orderAvailabilitySettingsModel');
 const asyncHandler = require('../utils/asyncHandler');
 const { promisePool } = require('../config/db');
 
@@ -21,6 +22,14 @@ const ListOrderController = {
     console.log('File details:', req.files?.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
     
     const { customerName, phone, place, notes } = req.body;
+
+    const availability = await getOrderAvailabilitySettings();
+    if (!availability.listOrdersEnabled) {
+      return res.status(403).json({
+        success: false,
+        message: 'List order uploads are currently unavailable. Please try again later.'
+      });
+    }
 
     if (!customerName || !phone) {
       console.log('Error: Missing customerName or phone');
@@ -90,9 +99,6 @@ const ListOrderController = {
       // Parse back for response (primary image is first one for backward compatibility)
       const response = {
         ...listOrder,
-        id: listOrder.id,
-        orderId: listOrder.id,
-        serialNumber: listOrder.id,
         imagePath: imagePaths[0], // For backward compatibility
         imagePaths: imagePaths,   // New field for multiple images
         imageFileNames: imageFileNames
@@ -147,11 +153,8 @@ const ListOrderController = {
                 if (statusLower === 'completed' || statusLower === 'rejected') {
                   return {
                     ...order,
-                    id: order.id,
-                    orderId: order.id,
-                    serialNumber: order.id,
                     listOrderId: order.id,
-                    linkedOrderId: convertedOrder.id,
+                    orderId: convertedOrder.id,
                     status: convertedOrder.status,
                     isConverted: true,
                     items: convertedOrder.items || []
@@ -175,18 +178,12 @@ const ListOrderController = {
           const imagePaths = JSON.parse(order.imagePath);
           return {
             ...order,
-            id: order.id,
-            orderId: order.id,
-            serialNumber: order.id,
             imagePaths: Array.isArray(imagePaths) ? imagePaths : [order.imagePath],
             imagePath: Array.isArray(imagePaths) ? imagePaths[0] : order.imagePath
           };
         } catch {
           return {
             ...order,
-            id: order.id,
-            orderId: order.id,
-            serialNumber: order.id,
             imagePaths: [order.imagePath],
             imagePath: order.imagePath
           };
@@ -217,9 +214,7 @@ const ListOrderController = {
   getListOrderById: asyncHandler(async (req, res) => {
     try {
       const { id } = req.params;
-      console.log('[list-orders:getById] requested id:', id);
       const listOrder = await ListOrderModel.getById(id);
-      console.log('[list-orders:getById] matched rows:', listOrder ? 1 : 0);
 
       if (!listOrder) {
         return res.status(404).json({ 
@@ -229,12 +224,7 @@ const ListOrderController = {
 
       res.json({
         success: true,
-        data: {
-          ...listOrder,
-          id: listOrder.id,
-          orderId: listOrder.id,
-          serialNumber: listOrder.id
-        }
+        data: listOrder
       });
     } catch (error) {
       console.error('ListOrderController.getListOrderById error:', error);
@@ -389,9 +379,6 @@ const ListOrderController = {
 
           const baseOrder = {
             ...order,
-            id: order.id,
-            orderId: order.id,
-            serialNumber: order.id,
             imagePaths: imagePaths,
             imagePath: imagePaths[0] || order.imagePath,
             place: order.place || '',
@@ -400,7 +387,7 @@ const ListOrderController = {
             orderType: 'list',
             type: 'list_orders',
             isConverted: false,
-            linkedOrderId: order.offlineOrderId || null,
+            orderId: order.offlineOrderId || null,
           };
 
           // ✅ If this list order was converted to an offline order, fetch its current status, payment history, and items
@@ -416,10 +403,8 @@ const ListOrderController = {
                 return {
                   // Preserve list order identity (do NOT override `id` with converted order id)
                   id: order.id,
-                  orderId: order.id,
-                  serialNumber: order.id,
                   listOrderId: order.id,
-                  linkedOrderId: convertedOrder.id,
+                  orderId: convertedOrder.id,
                   convertedFrom: 'list_order',
                   customerName: baseOrder.customerName,
                   phone: baseOrder.phone,

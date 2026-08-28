@@ -1,5 +1,10 @@
 const { body, param, query, validationResult } = require('express-validator');
 
+const isPositiveFiniteNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0;
+};
+
 /**
  * Validation Result Handler
  * Checks for validation errors and returns 400 if any exist
@@ -67,18 +72,9 @@ const productValidators = {
             .optional()
             .trim()
             .isLength({ max: 500 }).withMessage('Description cannot exceed 500 characters'),
-        body('price')
-            .notEmpty().withMessage('Price is required')
-            .custom((value) => {
-                const num = Number(value);
-                if (isNaN(num)) {
-                    throw new Error('Price must be a valid number');
-                }
-                if (num < 1) {
-                    throw new Error('Price must be greater than or equal to 1');
-                }
-                return true;
-            }),
+        body('price').optional().isFloat({ min: 0 }).withMessage('Price must be a non-negative number'),
+        body('originalPrice').optional().isFloat({ min: 0 }).withMessage('Original price must be a non-negative number'),
+        body('discountedPrice').optional().isFloat({ min: 0 }).withMessage('Discounted price must be a non-negative number'),
         body('stock')
             .notEmpty().withMessage('Stock is required')
             .custom((value) => {
@@ -115,7 +111,9 @@ const productValidators = {
             .isLength({ max: 500 }).withMessage('Description cannot exceed 500 characters'),
         body('price')
             .optional()
-            .isFloat({ min: 1 }).withMessage('Price must be greater than or equal to 1'),
+            .isFloat({ min: 0 }).withMessage('Price must be a non-negative number'),
+        body('originalPrice').optional().isFloat({ min: 0 }).withMessage('Original price must be a non-negative number'),
+        body('discountedPrice').optional().isFloat({ min: 0 }).withMessage('Discounted price must be a non-negative number'),
         body('stock')
             .optional()
             .isInt({ min: 0 }).withMessage('Stock must be a non-negative integer'),
@@ -150,7 +148,12 @@ const orderValidators = {
         body('items.*.productId')
             .isInt({ min: 1 }).withMessage('Invalid product ID'),
         body('items.*.quantity')
-            .isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
+            .custom((value) => {
+                if (!isPositiveFiniteNumber(value)) {
+                    throw new Error('Quantity must be a positive number');
+                }
+                return true;
+            }),
         validate
     ],
     createOffline: [
@@ -167,7 +170,12 @@ const orderValidators = {
         body('items.*.productId')
             .isInt({ min: 1 }).withMessage('Invalid product ID'),
         body('items.*.quantity')
-            .isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
+            .custom((value) => {
+                if (!isPositiveFiniteNumber(value)) {
+                    throw new Error('Quantity must be a positive number');
+                }
+                return true;
+            }),
         validate
     ],
     updateItems: [
@@ -178,7 +186,12 @@ const orderValidators = {
         body('items.*.productId')
             .isInt({ min: 1 }).withMessage('Invalid product ID'),
         body('items.*.quantity')
-            .isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
+            .custom((value) => {
+                if (!isPositiveFiniteNumber(value)) {
+                    throw new Error('Quantity must be a positive number');
+                }
+                return true;
+            }),
         validate
     ],
     addItem: [
@@ -187,7 +200,12 @@ const orderValidators = {
         body('productId')
             .isInt({ min: 1 }).withMessage('Invalid product ID'),
         body('quantity')
-            .isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
+            .custom((value) => {
+                if (!isPositiveFiniteNumber(value)) {
+                    throw new Error('Quantity must be a positive number');
+                }
+                return true;
+            }),
         validate
     ],
     getById: [

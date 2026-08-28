@@ -2,6 +2,8 @@ import React from 'react';
 import { DangerButton } from '../styledComponents/ButtonStyles';
 import LanguageContext from '../context/LanguageContext';
 import QuantityControl from './QuantityControl';
+import formatQuantity from '../utils/quantityFormatter';
+import { hasDiscount, getSavingsText } from '../utils/pricingFormatter';
 import { getNextQuantity, getPreviousQuantity } from '../utils/quantityValidator';
 import { toast } from 'react-toastify';
 
@@ -26,9 +28,6 @@ class CartItem extends React.Component {
         
         // NOTE: For cart items, stock represents total available in inventory
         // Available for adjustment = stock (item can be increased or decreased as needed)
-        // Debug logging
-        console.log({ stock, newQty, currentQty: item.quantity, productId });
-        
         // Block quantities that exceed stock
         if (newQty > stock) {
             toast.error(`Only ${stock} available`);
@@ -52,13 +51,14 @@ class CartItem extends React.Component {
         // Safety: item.price / item.total might be strings (or missing)
         const rawPrice = Number(item?.price ?? 0);
         const price = Number.isFinite(rawPrice) ? rawPrice : 0;
+        const originalPrice = Number(item?.originalPrice ?? price) || price;
         const rawQuantity = Number(item?.quantity ?? 0);
         const quantity = Number.isFinite(rawQuantity) ? rawQuantity : 0;
         const rawTotal = Number(item?.total);
         const total = Number.isFinite(rawTotal) ? rawTotal : price * quantity;
 
         // Get unit and stock
-        const unit = item?.unit || 'piece';
+        const unit = item?.unit || '';
         const stock = Number(item?.stock || 0);
 
         const handleIncrease = () => {
@@ -85,7 +85,11 @@ class CartItem extends React.Component {
                         <span className="fw-semibold" style={{ whiteSpace: 'normal', wordWrap: 'break-word', overflowWrap: 'break-word', minWidth: '0', flex: 1 }}>{item.name}</span>
                     </div>
                 </td>
-                <td className="text-center" style={{ width: '120px', verticalAlign: 'middle' }}>₹{price.toFixed(2)}</td>
+                <td className="text-center" style={{ width: '120px', verticalAlign: 'middle' }}>
+                    {hasDiscount(originalPrice, price) && <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '0.78rem' }}>₹{originalPrice.toFixed(2)}</div>}
+                    <div>₹{price.toFixed(2)}</div>
+                    {hasDiscount(originalPrice, price) && Number(item?.savings || 0) > 0 && <small className="text-success fw-semibold">💰 {getSavingsText(originalPrice, price)}</small>}
+                </td>
                 <td className="text-center" style={{ width: '170px', verticalAlign: 'middle' }}>
                     <QuantityControl
                         value={item.quantity}
@@ -98,6 +102,7 @@ class CartItem extends React.Component {
                         title={unit === 'kg' ? 'Adjust weight (kg)' : 'Adjust quantity'}
                         showStockWarning={true}
                     />
+                    <div style={{ fontSize: '0.9rem', color: '#444', marginTop: '6px' }}>{formatQuantity(item.quantity, unit)}</div>
                 </td>
                 <td className="fw-bold text-center text-success" style={{ width: '130px', verticalAlign: 'middle' }}>₹{total.toFixed(2)}</td>
                 <td className="text-center" style={{ width: '90px', verticalAlign: 'middle' }}>

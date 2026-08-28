@@ -3,6 +3,7 @@ const path = require('path');
 const config = require('./config/config');
 const app = require('./app');
 const { testConnection, promisePool } = require('./config/db');
+const { ensureOrderAvailabilityTable } = require('./models/orderAvailabilitySettingsModel');
 
 const tableExists = async (tableName) => {
         const [rows] = await promisePool.query(
@@ -171,6 +172,52 @@ const ensureProductsTable = async () => {
     `);
 };
 
+const ensureSuggestedProductsTable = async () => {
+    if (!(await tableExists('suggested_products'))) {
+        console.log('Creating suggested_products table...');
+        await promisePool.query(`
+            CREATE TABLE IF NOT EXISTS suggested_products (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                product_id INT NOT NULL,
+                created_by INT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_suggested_products_product (product_id),
+                CONSTRAINT fk_suggested_products_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+                CONSTRAINT fk_suggested_products_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        return;
+    }
+
+    console.log('Ensuring suggested_products table schema...');
+    const [columns] = await promisePool.query('SHOW COLUMNS FROM suggested_products');
+    const columnNames = new Set(columns.map((column) => column.Field));
+
+    if (!columnNames.has('product_id')) {
+        await promisePool.query('ALTER TABLE suggested_products ADD COLUMN product_id INT NOT NULL');
+    }
+    if (!columnNames.has('created_by')) {
+        await promisePool.query('ALTER TABLE suggested_products ADD COLUMN created_by INT NOT NULL');
+    }
+    if (!columnNames.has('created_at')) {
+        await promisePool.query('ALTER TABLE suggested_products ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    }
+
+    const [indexes] = await promisePool.query('SHOW INDEX FROM suggested_products');
+    const hasUniqueProductIndex = indexes.some((index) => index.Key_name === 'uq_suggested_products_product' && index.Non_unique === 0);
+
+    if (!hasUniqueProductIndex) {
+        try {
+            await promisePool.query('ALTER TABLE suggested_products ADD UNIQUE KEY uq_suggested_products_product (product_id)');
+        } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            if (!msg.includes('Duplicate entry')) {
+                throw err;
+            }
+        }
+    }
+};
+
 const ensureOrdersTable = async () => {
     if (await tableExists('orders')) {
         return;
@@ -209,30 +256,43 @@ const ensureOrdersTable = async () => {
 };
 
 const ensureListOrdersTable = async () => {
-    if (await tableExists('list_orders')) {
+    if (!(await tableExists('list_orders'))) {
+        console.log('Creating list_orders table...');
+        await promisePool.query(`
+            CREATE TABLE IF NOT EXISTS list_orders (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                global_order_id INT UNIQUE NULL,
+                customerName VARCHAR(100) NOT NULL,
+                phone VARCHAR(15) NOT NULL,
+                place VARCHAR(100) DEFAULT NULL,
+                imagePath TEXT NOT NULL,
+                imageFileName VARCHAR(255) NOT NULL,
+                status ENUM('pending', 'converted') DEFAULT 'pending',
+                offlineOrderId INT NULL,
+                notes TEXT,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_phone (phone),
+                INDEX idx_status (status),
+                INDEX idx_createdAt (createdAt),
+                INDEX idx_place (place)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+    }
+
+    if (!(await tableExists('list_orders'))) {
         return;
     }
 
-    console.log('Creating list_orders table...');
-    await promisePool.query(`
-        CREATE TABLE IF NOT EXISTS list_orders (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            customerName VARCHAR(100) NOT NULL,
-            phone VARCHAR(15) NOT NULL,
-            place VARCHAR(100) DEFAULT NULL,
-            imagePath TEXT NOT NULL,
-            imageFileName VARCHAR(255) NOT NULL,
-            status ENUM('pending', 'converted') DEFAULT 'pending',
-            offlineOrderId INT NULL,
-            notes TEXT,
-            createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_phone (phone),
-            INDEX idx_status (status),
-            INDEX idx_createdAt (createdAt),
-            INDEX idx_place (place)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
+    try {
+        await promisePool.query('ALTER TABLE list_orders MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT');
+        console.log('✓ list_orders.id ensured as AUTO_INCREMENT');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (!msg.toLowerCase().includes('duplicate') && !msg.toLowerCase().includes('auto_increment')) {
+            console.log('! Could not enforce list_orders.id AUTO_INCREMENT:', msg);
+        }
+    }
 };
 
 const ensureListOrdersPlaceColumn = async () => {
@@ -248,6 +308,51 @@ const ensureListOrdersPlaceColumn = async () => {
         if (!msg.includes('Duplicate column')) {
             console.log('! Could not ensure list_orders.place column:', msg);
         }
+    }
+};
+
+const ensureListOrdersGlobalOrderIdColumn = async () => {
+    if (!(await tableExists('list_orders'))) {
+        return;
+    }
+
+    try {
+        await promisePool.query('ALTER TABLE list_orders ADD COLUMN global_order_id INT UNIQUE NULL AFTER id');
+        console.log('✓ list_orders.global_order_id column ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (!msg.includes('Duplicate column')) {
+            console.log('! Could not ensure list_orders.global_order_id column:', msg);
+        }
+    }
+
+    try {
+        await promisePool.query('UPDATE list_orders SET global_order_id = id WHERE global_order_id IS NULL');
+        console.log('✓ list_orders.global_order_id backfilled from id');
+    } catch (err) {
+        console.warn('Could not backfill list_orders.global_order_id:', err.message || err);
+    }
+};
+
+const ensureGlobalOrderAutoIncrement = async () => {
+    if (!(await tableExists('orders')) || !(await tableExists('list_orders'))) {
+        return;
+    }
+
+    try {
+        const [rows] = await promisePool.query(
+            `SELECT GREATEST(
+                COALESCE((SELECT MAX(id) FROM orders), 0),
+                COALESCE((SELECT MAX(global_order_id) FROM list_orders), 0)
+            ) AS maxId`
+        );
+        const maxId = Number(rows?.[0]?.maxId || 0);
+        if (maxId > 0) {
+            await promisePool.query('ALTER TABLE orders AUTO_INCREMENT = ?', [maxId + 1]);
+            console.log('✓ orders.auto_increment advanced to', maxId + 1);
+        }
+    } catch (err) {
+        console.warn('Could not ensure global orders AUTO_INCREMENT:', err.message || err);
     }
 };
 
@@ -269,7 +374,7 @@ const ensureOrderItemsTable = async () => {
             productId INT NOT NULL,
             productName VARCHAR(150),
             price DECIMAL(10,2),
-            quantity INT,
+            quantity DECIMAL(10,3),
             isSelected BOOLEAN DEFAULT TRUE,
             total DECIMAL(12,2),
             INDEX idx_order_items_orderId (orderId),
@@ -280,6 +385,134 @@ const ensureOrderItemsTable = async () => {
                 FOREIGN KEY (productId) REFERENCES products(id) ON DELETE CASCADE ON UPDATE RESTRICT
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+};
+
+const ensureOrderItemsUnitColumn = async () => {
+    if (!(await tableExists('order_items'))) {
+        console.log('! Skipping order_items unit migration because order_items table is missing');
+        return;
+    }
+
+    try {
+        await promisePool.query(`
+            ALTER TABLE order_items
+            ADD COLUMN unit VARCHAR(50) NULL
+        `);
+        console.log('✓ order_items.unit ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (!msg.includes('Duplicate column')) {
+            console.log('! Could not ensure order_items.unit column:', msg);
+        }
+    }
+};
+
+const ensureOrderItemsQuantityDecimal = async () => {
+    if (!(await tableExists('order_items'))) {
+        console.log('! Skipping order_items quantity migration because order_items table is missing');
+        return;
+    }
+
+    try {
+        // Convert INT quantity column to DECIMAL(10,3) to support decimal quantities (0.1, 0.5, 1.5, etc.)
+        await promisePool.query(`
+            ALTER TABLE order_items 
+            MODIFY COLUMN quantity DECIMAL(10,3)
+        `);
+        console.log('✓ order_items.quantity ensured as DECIMAL(10,3) for decimal quantity support');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+            return;
+        }
+        console.log('! Could not ensure order_items.quantity is DECIMAL:', msg);
+    }
+};
+
+const ensureBillItemsUnitColumn = async () => {
+    if (!(await tableExists('bill_items'))) {
+        console.log('! Skipping bill_items unit migration because bill_items table is missing');
+        return;
+    }
+
+    try {
+        await promisePool.query(`
+            ALTER TABLE bill_items
+            ADD COLUMN unit VARCHAR(50) NULL
+        `);
+        console.log('✓ bill_items.unit ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (!msg.includes('Duplicate column')) {
+            console.log('! Could not ensure bill_items.unit column:', msg);
+        }
+    }
+};
+
+const ensureBillItemsQuantityDecimal = async () => {
+    if (!(await tableExists('bill_items'))) {
+        console.log('! Skipping bill_items quantity migration because bill_items table is missing');
+        return;
+    }
+
+    try {
+        // Convert INT quantity column to DECIMAL(10,3) to support decimal quantities
+        await promisePool.query(`
+            ALTER TABLE bill_items 
+            MODIFY COLUMN quantity DECIMAL(10,3)
+        `);
+        console.log('✓ bill_items.quantity ensured as DECIMAL(10,3) for decimal quantity support');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (msg.includes("doesn't exist") || msg.includes('Unknown column')) {
+            return;
+        }
+        console.log('! Could not ensure bill_items.quantity is DECIMAL:', msg);
+    }
+};
+
+const addColumnIfMissing = async (tableName, columnSql) => {
+    try {
+        await promisePool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnSql}`);
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (!msg.includes('Duplicate column')) throw err;
+    }
+};
+
+const ensureOfferColumns = async () => {
+    if (await tableExists('products')) {
+        await addColumnIfMissing('products', 'originalPrice DECIMAL(10,2) NULL');
+        await addColumnIfMissing('products', 'discountedPrice DECIMAL(10,2) NULL');
+        await addColumnIfMissing('products', 'freeItemName VARCHAR(150) NULL');
+        await addColumnIfMissing('products', 'freeItemQuantity DECIMAL(10,3) NULL');
+        await addColumnIfMissing('products', 'freeItemUnit VARCHAR(50) NULL');
+        await addColumnIfMissing('products', 'freeItemDescription VARCHAR(255) NULL');
+        await addColumnIfMissing('products', 'freeItemActive BOOLEAN NOT NULL DEFAULT FALSE');
+        await promisePool.query('UPDATE products SET originalPrice = price, discountedPrice = price WHERE originalPrice IS NULL OR discountedPrice IS NULL');
+    }
+
+    if (await tableExists('order_items')) {
+        for (const column of [
+            'originalPrice DECIMAL(10,2) NULL',
+            'discountAmount DECIMAL(10,2) NULL',
+            'discountPercentage DECIMAL(6,2) NULL',
+            'freeItemName VARCHAR(150) NULL',
+            'freeItemQuantity DECIMAL(10,3) NULL',
+            'freeItemUnit VARCHAR(50) NULL',
+        ]) await addColumnIfMissing('order_items', column);
+    }
+
+    if (await tableExists('bill_items')) {
+        for (const column of [
+            'originalPrice DECIMAL(10,2) NULL',
+            'discountAmount DECIMAL(10,2) NULL',
+            'discountPercentage DECIMAL(6,2) NULL',
+            'freeItemName VARCHAR(150) NULL',
+            'freeItemQuantity DECIMAL(10,3) NULL',
+            'freeItemUnit VARCHAR(50) NULL',
+        ]) await addColumnIfMissing('bill_items', column);
+    }
 };
 
 const ensureTableExistsIfPossible = async (tableName, createFn) => {
@@ -417,6 +650,32 @@ const ensureOrderImagesTable = async () => {
     }
 };
 
+const ensureAnnouncementsTable = async () => {
+    try {
+        await promisePool.query(`
+            CREATE TABLE IF NOT EXISTS announcements (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(160) NOT NULL,
+                message TEXT NOT NULL,
+                image VARCHAR(255) NULL,
+                startDate DATETIME NOT NULL,
+                expiryDate DATETIME NOT NULL,
+                status ENUM('Active', 'Inactive') NOT NULL DEFAULT 'Inactive',
+                actionText VARCHAR(80) NULL,
+                actionLink VARCHAR(255) NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_announcements_status (status),
+                INDEX idx_announcements_dates (startDate, expiryDate)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+        console.log('✓ announcements table ensured');
+    } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        console.log('! Could not ensure announcements table:', msg);
+    }
+};
+
 const ensureTypeOriginColumns = async () => {
     if (!(await tableExists('orders'))) {
         console.log('! Skipping orders.type/origin migrations because orders table is missing');
@@ -482,10 +741,13 @@ const startServer = async () => {
         console.log('Executing SQL migrations from /migrations folder...');
         await runMigrationStep('ensureUsersTable', ensureUsersTable);
         await runMigrationStep('ensureProductsTable', ensureProductsTable);
+        await runMigrationStep('ensureSuggestedProductsTable', ensureSuggestedProductsTable);
         await runMigrationStep('ensureOrdersTable', ensureOrdersTable);
         await runMigrationStep('ensureOrderItemsTable', ensureOrderItemsTable);
         await runMigrationStep('ensureListOrdersTable', ensureListOrdersTable);
         await runMigrationStep('ensureListOrdersPlaceColumn', ensureListOrdersPlaceColumn);
+        await runMigrationStep('ensureListOrdersGlobalOrderIdColumn', ensureListOrdersGlobalOrderIdColumn);
+        await runMigrationStep('ensureGlobalOrderAutoIncrement', ensureGlobalOrderAutoIncrement);
         await executeSqlMigrations();
 
         // SECOND: Run inline migrations for specific columns and features
@@ -497,10 +759,17 @@ const startServer = async () => {
         await runMigrationStep('ensureAdvanceAmountColumn', ensureAdvanceAmountColumn);
         await runMigrationStep('ensurePaymentMethodColumn', ensurePaymentMethodColumn);
         await runMigrationStep('ensureTypeOriginColumns', ensureTypeOriginColumns);
+        await runMigrationStep('ensureOrderItemsUnitColumn', ensureOrderItemsUnitColumn);
+        await runMigrationStep('ensureOrderItemsQuantityDecimal', ensureOrderItemsQuantityDecimal);
+        await runMigrationStep('ensureBillItemsUnitColumn', ensureBillItemsUnitColumn);
+        await runMigrationStep('ensureBillItemsQuantityDecimal', ensureBillItemsQuantityDecimal);
+        await runMigrationStep('ensureOfferColumns', ensureOfferColumns);
 
         console.log('Creating dependent tables...');
         await runMigrationStep('ensureOrderPaymentHistoryTable', ensureOrderPaymentHistoryTable);
         await runMigrationStep('ensureOrderImagesTable', ensureOrderImagesTable);
+        await runMigrationStep('ensureAnnouncementsTable', ensureAnnouncementsTable);
+        await runMigrationStep('ensureOrderAvailabilityTable', ensureOrderAvailabilityTable);
 
         await runMigrationStep('backfillConvertedOrigins', async () => {
             const [columns] = await promisePool.query(
@@ -532,3 +801,7 @@ const startServer = async () => {
 };
 
 module.exports = { startServer };
+
+if (require.main === module) {
+    startServer();
+}

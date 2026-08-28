@@ -19,6 +19,7 @@ const {
     getOfflineOrders,
     getOrderPrintData,
     getCustomerOrderPrintData,
+    cancelCustomerOrder,
 } = require('../controllers/orderController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { isAdmin } = require('../middleware/roleMiddleware');
@@ -28,6 +29,7 @@ const { orderValidators } = require('../middleware/validationMiddleware');
 // Customer routes
 router.post('/online', authMiddleware, orderValidators.createOnline, createOnlineOrder);
 router.get('/customer/:id', authMiddleware, getCustomerOrders);
+router.put('/customer/:id/cancel', authMiddleware, cancelCustomerOrder);
 
 // Admin routes
 router.get('/admin', authMiddleware, isAdmin, getAdminOrders);

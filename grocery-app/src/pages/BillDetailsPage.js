@@ -5,6 +5,8 @@ import Spinner from '../components/Spinner';
 import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { TableWrapper, Badge } from '../styledComponents/FormStyles';
+import formatQuantity from '../utils/quantityFormatter';
+import { hasDiscount } from '../utils/pricingFormatter';
 import { SecondaryButton } from '../styledComponents/ButtonStyles';
 
 const CATEGORY_ICONS = {
@@ -102,15 +104,23 @@ class BillDetailsPage extends React.Component {
                                                             </span>
                                                             {item.name}
                                                         </td>
-                                                        <td className="text-center">₹{item.price.toFixed(2)}</td>
-                                                        <td className="text-center">{item.quantity}</td>
+                                                        <td className="text-center">
+                                                            {Number(item.originalPrice || 0) > Number(item.price || 0) && <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '0.78rem' }}>₹{Number(item.originalPrice).toFixed(2)}</div>}
+                                                            ₹{Number(item.price || 0).toFixed(2)}
+                                                            {hasDiscount(item.originalPrice, item.price) && Number(item.discountAmount || 0) > 0 && <div className="small text-success">💰 Save ₹{(Number(item.discountAmount) * Number(item.quantity || 0)).toFixed(2)}</div>}
+                                                        </td>
+                                                        <td className="text-center">{formatQuantity(item.quantity, item.unit || '')}</td>
                                                         <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
-                                                            ₹{item.total.toFixed(2)}
+                                                            ₹{Number(item.total || 0).toFixed(2)}
+                                                            {item.freeItemName && <div className="small text-info">🎁 FREE: {item.freeItemQuantity ? `${formatQuantity(item.freeItemQuantity, item.freeItemUnit || '')} ` : ''}{item.freeItemName}</div>}
                                                         </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
                                             <tfoot>
+                                                {bill.items.reduce((sum, item) => sum + (Number(item.discountAmount || 0) * Number(item.quantity || 0)), 0) > 0 && (
+                                                    <tr><td colSpan="3" className="text-end text-success">💰 Total Savings</td><td className="text-end text-success fw-semibold">₹{bill.items.reduce((sum, item) => sum + (Number(item.discountAmount || 0) * Number(item.quantity || 0)), 0).toFixed(2)}</td></tr>
+                                                )}
                                                 <tr>
                                                     <td colSpan="3" className="text-end fw-bold fs-5">
                                                         {langCtx.getText('billAmount')}

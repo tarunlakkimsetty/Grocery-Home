@@ -866,7 +866,7 @@ class AdminOnlineOrdersPage extends React.Component {
                     price,
                     quantity: qty,
                     stock: Number(item?.stock ?? matchedProduct?.stock ?? 0) || 0,
-                    unit: String(item?.unit ?? matchedProduct?.unit ?? 'piece').trim(),
+                    unit: String(item?.unit ?? matchedProduct?.unit ?? '').trim(),
                     total:
                         Number(item?.total || 0) ||
                         price * qty,
@@ -933,7 +933,7 @@ class AdminOnlineOrdersPage extends React.Component {
     };
 
     getModalQuantityValidation = (item, qty) => validateQuantity(qty, {
-        unit: item?.unit || 'piece',
+        unit: item?.unit || '',
         stock: this.getModalItemAvailableStock(item),
     });
 
@@ -1007,7 +1007,7 @@ class AdminOnlineOrdersPage extends React.Component {
 
             // Keep unchecked items in DB, but item removal should fully delete the row.
             const updatedItemsForSave = nextModalItems.map((i) => {
-                const qty = parseInt(i.quantity, 10);
+                const qty = Number(i.quantity);
                 const quantity = Number.isFinite(qty) ? qty : 0;
                 const price = Number(i.price || 0) || 0;
                 const isSelected = nextSelectedProducts.includes(Number(i.productId)) && (Number(quantity || 0) || 0) > 0;
@@ -1086,8 +1086,7 @@ class AdminOnlineOrdersPage extends React.Component {
             return;
         }
 
-        // Allow only digits (prevents -, e, ., and other non-numeric chars)
-        if (!/^\d+$/.test(raw)) return;
+        if (!/^(\d+(\.\d*)?|\.\d+)$/.test(raw)) return;
 
         this.setState({ addProductQty: raw, addProductQtyError: '' });
     };
@@ -1102,9 +1101,9 @@ class AdminOnlineOrdersPage extends React.Component {
             return;
         }
 
-        const qtyNum = parseInt(String(addProductQty || ''), 10);
-        if (!Number.isFinite(qtyNum) || qtyNum < 1) {
-            const msg = 'Quantity must be greater than or equal to 1';
+        const qtyNum = Number(String(addProductQty || '').trim());
+        if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
+            const msg = 'Quantity must be greater than 0';
             this.setState({ addProductQtyError: msg });
             toast.error(msg);
             return;
@@ -1122,7 +1121,7 @@ class AdminOnlineOrdersPage extends React.Component {
         const existingQty = existingIdx !== -1 ? (Number(modalItems[existingIdx]?.quantity || 0) || 0) : 0;
         const remainingStock = Math.max(0, availableStock - existingQty);
         const quantityValidation = validateQuantity(quantity, {
-            unit: String(product?.unit || 'piece').trim(),
+            unit: String(product?.unit || '').trim(),
             stock: remainingStock,
         });
         if (!quantityValidation.isValid) {
@@ -1161,7 +1160,7 @@ class AdminOnlineOrdersPage extends React.Component {
                         quantity: quantity,
                         total: product.price * quantity,
                         stock: Number(product.stock || 0) || 0,
-                        unit: String(product.unit || 'piece').trim(),
+                        unit: String(product.unit || '').trim(),
                     },
                 ];
             }
@@ -1258,7 +1257,7 @@ class AdminOnlineOrdersPage extends React.Component {
             // Build a full item list with `isSelected` flags.
             // Keep unchecked items in the UI and DB, but mark them unselected.
             const updatedItems = (Array.isArray(modalItems) ? modalItems : []).map((i) => {
-                const qty = parseInt(i.quantity, 10);
+                const qty = Number(i.quantity);
                 const quantity = Number.isFinite(qty) ? qty : 0;
                 const price = Number(i.price || 0) || 0;
 
@@ -2306,7 +2305,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                         <QuantityControl
                                                                             value={item.quantity || 0}
                                                                             onIncrease={() => {
-                                                                                const unit = item.unit || 'piece';
+                                                                                const unit = item.unit || '';
                                                                                                                                                                 const stock = Number(item.stock || 0);
                                                                                                                                                                 const next = getNextQuantity(item.quantity, { unit, stock });
                                                                                 const updatedItems = modalItems.map(i => 
@@ -2317,7 +2316,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                                 this.setState({ modalItems: updatedItems });
                                                                             }}
                                                                             onDecrease={() => {
-                                                                                const unit = item.unit || 'piece';
+                                                                                const unit = item.unit || '';
                                                                                 const prev = getPreviousQuantity(item.quantity, { unit });
                                                                                 const updatedItems = modalItems.map(i => 
                                                                                   i.productId === item.productId 
@@ -2329,7 +2328,7 @@ class AdminOnlineOrdersPage extends React.Component {
                                                                             onChange={(newQty) => {
                                                                                 this.updateModalItemQuantity(item.productId, newQty);
                                                                             }}
-                                                                            unit={item.unit || 'piece'}
+                                                                            unit={item.unit || ''}
                                                                             stock={Number(item.stock || 0)}
                                                                             disabled={isLocked}
                                                                             title={isLocked ? langCtx.getText('orderLocked') : 'Adjust quantity'}

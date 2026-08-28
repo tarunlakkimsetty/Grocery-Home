@@ -15,10 +15,10 @@ const aggregateRequestedQuantities = (items) => {
 
         const productId = Number(item?.productId);
         const quantityRaw = Number(item?.quantity);
-        const quantity = Number.isFinite(quantityRaw) ? Math.floor(quantityRaw) : NaN;
+        const quantity = Number.isFinite(quantityRaw) ? quantityRaw : NaN;
 
         if (!Number.isInteger(productId) || productId <= 0) continue;
-        if (!Number.isInteger(quantity) || quantity <= 0) continue;
+        if (!Number.isFinite(quantity) || quantity <= 0) continue;
 
         byProductId.set(productId, (byProductId.get(productId) || 0) + quantity);
     }
@@ -66,14 +66,15 @@ const calculateTotalFromItems = (items) => {
 };
 
 const normalize = (value) => String(value || '').trim().toLowerCase();
+const normalizeStatusValue = (value) => String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 
 const getOrderStatusFilterClause = (view) => {
     const normalizedView = String(view || '').trim().toLowerCase();
     if (normalizedView === 'active') {
-        return "AND LOWER(COALESCE(status, '')) IN ('pending','verified','processing','in_progress')";
+        return "AND REPLACE(REPLACE(LOWER(COALESCE(status, '')), ' ', '_'), '-', '_') IN ('pending','pending_acceptance','in_progress','accepted','processing','verified','converted')";
     }
     if (normalizedView === 'bills') {
-        return "AND LOWER(COALESCE(status, '')) IN ('completed','rejected')";
+        return "AND REPLACE(REPLACE(LOWER(COALESCE(status, '')), ' ', '_'), '-', '_') IN ('completed','rejected')";
     }
     return '';
 };
@@ -91,6 +92,35 @@ const canModifyBeforeVerification = (order) => {
     return status === 'pending' || status === 'accepted' || status === 'converted' || type === 'list_converted';
 };
 
+const resolveProductUnitById = async (productId) => {
+    if (!Number.isInteger(productId) || productId <= 0) return null;
+
+    try {
+        const [rows] = await promisePool.query('SELECT unit FROM products WHERE id = ?', [productId]);
+        if (!Array.isArray(rows) || rows.length === 0) return null;
+        const value = String(rows[0]?.unit || '').trim();
+        return value || null;
+    } catch (e) {
+        return null;
+    }
+};
+
+const normalizeItemUnit = (item) => {
+    const candidates = [
+        item?.unit,
+        item?.productUnit,
+        item?.product?.unit,
+        item?.product?.productUnit,
+    ];
+
+    for (const value of candidates) {
+        const normalized = String(value ?? '').trim();
+        if (normalized) return normalized;
+    }
+
+    return null;
+};
+
 const hydrateOrderItems = async (items) => {
     const safeItems = Array.isArray(items) ? items : [];
     const productIds = Array.from(new Set(
@@ -98,30 +128,35 @@ const hydrateOrderItems = async (items) => {
             .map((item) => Number(item?.productId ?? item?.product_id ?? item?.id ?? 0))
             .filter((id) => Number.isInteger(id) && id > 0)
     ));
-
-    const productNameMap = new Map();
-    await Promise.all(
-        productIds.map(async (productId) => {
-            try {
-                const product = await Product.findById(productId);
-                if (product?.name) {
-                    productNameMap.set(productId, product.name);
-                }
-            } catch {
-                // Best-effort name hydration only.
+    // Fetch product metadata (name + unit) in a single query for best-effort hydration.
+    const productMeta = new Map();
+    if (productIds.length > 0) {
+        try {
+            const placeholders = productIds.map(() => '?').join(',');
+            const [rows] = await promisePool.query(
+                `SELECT id, name, unit FROM products WHERE id IN (${placeholders})`,
+                productIds
+            );
+            for (const r of rows) {
+                productMeta.set(Number(r.id), { name: r.name || '', unit: r.unit || null });
             }
-        })
-    );
+        } catch (e) {
+            // Best-effort: ignore product meta errors and continue with available item data.
+        }
+    }
 
     return safeItems.map((item) => {
         const productId = Number(item?.productId ?? item?.product_id ?? item?.id ?? 0) || null;
-        const productName = item?.productName || item?.name || (productId ? productNameMap.get(productId) : null) || '';
+        const meta = productId ? productMeta.get(productId) || {} : {};
+        const productName = item?.productName || item?.name || meta.name || '';
+        const unit = item?.unit || meta.unit || null;
 
         return {
             ...item,
             productId,
             productName,
             name: item?.name || item?.productName || productName,
+            unit,
         };
     });
 };
@@ -164,6 +199,19 @@ const hydrateOrderPaymentHistory = async (orderId, advanceAmount, order = null) 
 };
 
 const Order = {
+    resolveItemUnit: async (item, productFallback = null) => {
+        const explicit = String(item?.unit || '').trim();
+        if (explicit) return explicit;
+
+        const fallbackUnit = String(productFallback?.unit || '').trim();
+        if (fallbackUnit) return fallbackUnit;
+
+        const productId = Number(item?.productId ?? item?.product_id ?? item?.id ?? 0) || null;
+        if (!productId) return null;
+
+        return resolveProductUnitById(productId);
+    },
+
     /**
      * Create online order with items (using transaction)
      */
@@ -171,6 +219,11 @@ const Order = {
         const connection = await promisePool.getConnection();
         
         try {
+            console.log('[OrderModel.createOnlineOrder] payload', {
+                orderData,
+                itemCount: Array.isArray(items) ? items.length : 0,
+            });
+
             await connection.beginTransaction();
 
             // Backend enforcement: validate stock before creating order/items.
@@ -194,6 +247,12 @@ const Order = {
                 [customerId, customerName, phone, place, address, totalAmount, paymentMethod || null]
             );
 
+            console.log('[OrderModel.createOnlineOrder] insertedOrder', {
+                orderId: orderResult.insertId,
+                totalAmount,
+                itemCount: Array.isArray(items) ? items.length : 0,
+            });
+
             const orderId = orderResult.insertId;
 
             // Insert order items
@@ -201,12 +260,22 @@ const Order = {
             for (const item of items) {
                 const quantity = Number(item?.quantity || 0) || 0;
                 const price = Number(item?.price || 0) || 0;
-                computedTotalAmount += (quantity * price);
+                const lineTotal = Number((quantity * price).toFixed(2));
+                const itemUnit = normalizeItemUnit(item);
+                computedTotalAmount = Number((computedTotalAmount + lineTotal).toFixed(2));
+                console.log('[OrderModel.createOnlineOrder] insertingItem', {
+                    orderId,
+                    productId: item.productId,
+                    quantity,
+                    price,
+                    lineTotal,
+                    unit: itemUnit,
+                });
                 await connection.query(
-                    `INSERT INTO order_items 
-                    (orderId, productId, productName, price, quantity, isSelected, total) 
-                    VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
-                    [orderId, item.productId, item.productName, price, quantity, price * quantity]
+                    `INSERT INTO order_items
+                    (orderId, productId, productName, price, originalPrice, discountAmount, discountPercentage, freeItemName, freeItemQuantity, freeItemUnit, quantity, unit, isSelected, total)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)`,
+                    [orderId, item.productId, item.productName, price, item.originalPrice || price, item.discountAmount || 0, item.discountPercentage || 0, item.freeItemName || null, item.freeItemQuantity || null, item.freeItemUnit || null, quantity, itemUnit, lineTotal]
                 );
             }
 
@@ -215,6 +284,11 @@ const Order = {
                 'UPDATE orders SET totalAmount = ? WHERE id = ?',
                 [computedTotalAmount, orderId]
             );
+
+            console.log('[OrderModel.createOnlineOrder] committedOrder', {
+                orderId,
+                computedTotalAmount,
+            });
 
             await connection.commit();
 
@@ -266,6 +340,23 @@ const Order = {
         const advanceAmount = Number.isFinite(advanceAmountSafe) ? advanceAmountSafe : 0;
         const remainingBalance = (Number(totalAmountSafe || 0) || 0) - (Number(advanceAmount || 0) || 0);
 
+        const productIds = Array.from(new Set((itemRows || []).map((it) => Number(it.productId)).filter((id) => Number.isInteger(id) && id > 0)));
+        const productMeta = new Map();
+        if (productIds.length > 0) {
+            try {
+                const placeholders = productIds.map(() => '?').join(',');
+                const [rows] = await promisePool.query(
+                    `SELECT id, name, unit FROM products WHERE id IN (${placeholders})`,
+                    productIds
+                );
+                for (const row of rows || []) {
+                    productMeta.set(Number(row.id), { name: row.name || '', unit: row.unit || null });
+                }
+            } catch (e) {
+                // Best-effort hydration only.
+            }
+        }
+
         // Payment update history (delta-based)
         let paymentHistory = [];
         try {
@@ -304,10 +395,16 @@ const Order = {
             totalAmount: totalAmountSafe,
             advanceAmount,
             remainingBalance,
-            items: itemRows.map((it) => ({
-                ...it,
-                name: it.productName
-            })),
+            items: itemRows.map((it) => {
+                const productId = Number(it?.productId ?? 0) || null;
+                const meta = productId ? productMeta.get(productId) || {} : {};
+                return {
+                    ...it,
+                    name: it.productName || meta.name || '',
+                    productName: it.productName || meta.name || '',
+                    unit: it.unit || meta.unit || null,
+                };
+            }),
             paymentHistory,
         };
     },
@@ -734,8 +831,13 @@ const Order = {
 
         if (view === 'active') {
             conditions.push('o.isArchived = FALSE');
+            if (!status && !statusIn && !statusNotIn) {
+                conditions.push("REPLACE(REPLACE(LOWER(COALESCE(o.status, '')), ' ', '_'), '-', '_') IN ('pending','pending_acceptance','in_progress','accepted','processing','verified','converted')");
+            }
         } else if (view === 'bills') {
-            conditions.push('o.isArchived = TRUE');
+            // Bills should include finalized orders that are archived,
+            // and also handle any completed/rejected rows where archiving may be stale.
+            conditions.push("(o.isArchived = TRUE OR REPLACE(REPLACE(LOWER(COALESCE(o.status, '')), ' ', '_'), '-', '_') IN ('completed','rejected'))");
         }
 
         if (search) {
@@ -765,7 +867,7 @@ const Order = {
                 'SELECT * FROM order_items WHERE orderId = ?',
                 [order.id]
             );
-            order.items = items;
+            order.items = await hydrateOrderItems(items);
 
             const existingTotal = Number(order?.totalAmount || 0) || 0;
             if (existingTotal <= 0 && Array.isArray(items) && items.length > 0) {
@@ -847,10 +949,11 @@ const Order = {
                 const quantity = Number(item?.quantity || 0) || 0;
                 const price = Number(item?.price || 0) || 0;
                 const rowTotal = quantity * price;
+                const itemUnit = normalizeItemUnit(item);
                 computedTotalAmount += rowTotal;
                 await connection.query(
-                    `INSERT INTO order_items (orderId, productId, productName, price, quantity, isSelected, total) VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
-                    [orderId, item.productId, item.productName, price, quantity, rowTotal]
+                    `INSERT INTO order_items (orderId, productId, productName, price, quantity, unit, isSelected, total) VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)`,
+                    [orderId, item.productId, item.productName, price, quantity, itemUnit, rowTotal]
                 );
             }
 
@@ -937,11 +1040,12 @@ const Order = {
 
             // Insert updated items
             for (const item of items) {
+                const itemUnit = normalizeItemUnit(item);
                 await connection.query(
                     `INSERT INTO order_items 
-                    (orderId, productId, productName, price, quantity, isSelected, total) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [orderId, item.productId, item.productName, item.price, item.quantity, item.isSelected, item.total]
+                    (orderId, productId, productName, price, quantity, unit, isSelected, total) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [orderId, item.productId, item.productName, item.price, item.quantity, itemUnit, item.isSelected, item.total]
                 );
             }
 
@@ -1217,11 +1321,12 @@ const Order = {
 
             // Insert new item
             const itemTotal = item.price * item.quantity;
+            const itemUnit = normalizeItemUnit(item);
             await connection.query(
                 `INSERT INTO order_items 
-                (orderId, productId, productName, price, quantity, isSelected, total) 
-                VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
-                [orderId, item.productId, item.productName, item.price, item.quantity, itemTotal]
+                (orderId, productId, productName, price, quantity, unit, isSelected, total) 
+                VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)`,
+                [orderId, item.productId, item.productName, item.price, item.quantity, itemUnit, itemTotal]
             );
 
             // Update order total
@@ -1287,12 +1392,13 @@ const Order = {
             for (const item of items) {
                 const quantity = Number(item?.quantity || 0) || 0;
                 const price = Number(item?.price || 0) || 0;
+                const itemUnit = normalizeItemUnit(item);
                 computedTotalAmount += (quantity * price);
                 await connection.query(
-                    `INSERT INTO order_items 
-                    (orderId, productId, productName, price, quantity, isSelected, total) 
-                    VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
-                    [orderId, item.productId, item.productName, price, quantity, price * quantity]
+                    `INSERT INTO order_items
+                    (orderId, productId, productName, price, originalPrice, discountAmount, discountPercentage, freeItemName, freeItemQuantity, freeItemUnit, quantity, unit, isSelected, total)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?)`,
+                    [orderId, item.productId, item.productName, price, item.originalPrice || price, item.discountAmount || 0, item.discountPercentage || 0, item.freeItemName || null, item.freeItemQuantity || null, item.freeItemUnit || null, quantity, itemUnit, price * quantity]
                 );
             }
 

@@ -4,18 +4,24 @@ import LanguageContext from '../context/LanguageContext';
 
 const SearchWrapper = styled.div`
     width: 100%;
-    max-width: 500px;
+    max-width: ${({ $hasActions }) => ($hasActions ? '760px' : '500px')};
     margin: 1rem auto;
     padding: 0 1rem;
+    display: ${({ $hasActions }) => ($hasActions ? 'flex' : 'block')};
+    align-items: center;
+    gap: 0.6rem;
 
     @media (max-width: 768px) {
         max-width: 100%;
         padding: 0 0.5rem;
+        flex-direction: column;
+        align-items: stretch;
     }
 `;
 
 const SearchInput = styled.input`
     width: 100%;
+    flex: 1;
     padding: 0.75rem 1rem;
     border: 2px solid #e9ecef;
     border-radius: 8px;
@@ -68,17 +74,19 @@ class SearchBar extends React.Component {
 
     render() {
         const { getText } = this.context;
-        const placeholder = this.props.placeholder || getText('search');
+        const { actions, placeholder } = this.props;
+        const searchPlaceholder = placeholder || getText('search');
 
         return (
-            <SearchWrapper>
+            <SearchWrapper $hasActions={Boolean(actions)}>
                 <SearchInput
                     type="text"
-                    placeholder={placeholder}
+                    placeholder={searchPlaceholder}
                     value={this.state.searchQuery}
                     onChange={this.handleSearchChange}
                     aria-label="Search products"
                 />
+                {actions}
             </SearchWrapper>
         );
     }

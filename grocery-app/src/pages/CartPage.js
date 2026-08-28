@@ -6,6 +6,7 @@ import SearchBar from '../components/SearchBar';
 import CartItem from '../components/CartItem';
 import billService from '../services/billService';
 import orderService from '../services/orderService';
+import orderAvailabilityService from '../services/orderAvailabilityService';
 import { toast } from 'react-toastify';
 import { Navigate } from 'react-router-dom';
 import styled from 'styled-components';
@@ -29,7 +30,11 @@ import {
 } from '../styledComponents/FormStyles';
 import { PrimaryButton, DangerButton, GhostButton } from '../styledComponents/ButtonStyles';
 import { searchProducts } from '../utils/searchUtils';
+import { supportsDecimal } from '../utils/quantityValidator';
+import formatQuantity from '../utils/quantityFormatter';
+import { hasDiscount, getSavingsText } from '../utils/pricingFormatter';
 import LegalModalContext from '../context/LegalModalContext';
+import FeedbackManager from '../components/FeedbackManager';
 
 const CATEGORY_ICONS = {
     grains: '🌾',
@@ -108,12 +113,29 @@ class CartPage extends React.Component {
             showOrderPlacedPopup: false,
             orderPlacedAdminPhone: process.env.REACT_APP_ADMIN_PHONE || '9441754505',
             manualQuantityInputs: {}, // productId -> { value, error }
+            onlineOrdersEnabled: true,
         };
         this.languageContext = null;
     }
 
+    componentDidMount() {
+        this.loadAvailability();
+    }
+
+    loadAvailability = async () => {
+        try {
+            const response = await orderAvailabilityService.getSettings();
+            const settings = response?.data || {};
+            this.setState({
+                onlineOrdersEnabled: settings.onlineOrdersEnabled !== undefined ? Boolean(settings.onlineOrdersEnabled) : true,
+            });
+        } catch (error) {
+            console.warn('Unable to load order availability settings:', error);
+        }
+    };
+
     handleManualQuantityChange = (productId, item, newValue) => {
-        const isWeightBased = item?.unit === 'kg';
+        const isWeightBased = supportsDecimal(item?.unit);
         const minQty = isWeightBased ? 0.1 : 1;
         const maxQty = item.stock;
         let error = '';
@@ -149,7 +171,7 @@ class CartPage extends React.Component {
 
     handleManualQuantityBlur = (productId, item, cartCtx) => {
         const inputValue = this.state.manualQuantityInputs[productId]?.value || '';
-        const isWeightBased = item?.unit === 'kg';
+        const isWeightBased = supportsDecimal(item?.unit);
         const minQty = isWeightBased ? 0.1 : 1;
         const maxQty = item.stock;
 
@@ -169,7 +191,7 @@ class CartPage extends React.Component {
         // Validate and update
         if (!isNaN(numValue) && numValue >= minQty && numValue <= maxQty) {
             const finalValue = isWeightBased 
-                ? Math.round(numValue * 10) / 10 
+                ? Math.round(numValue * 1000) / 1000
                 : Math.floor(numValue);
             
             cartCtx.updateQuantity(productId, finalValue);
@@ -188,6 +210,11 @@ class CartPage extends React.Component {
     };
 
     handlePlaceOrderWithAgreement = async (authCtx) => {
+        if (!this.state.onlineOrdersEnabled) {
+            toast.error('Online orders are currently unavailable. Please try again later.');
+            return;
+        }
+
         if (!this.state.agreedToTerms) {
             toast.warning('Please agree to the Terms & Conditions before placing the order.');
             return;
@@ -220,6 +247,8 @@ class CartPage extends React.Component {
                     price: item.price,
                     quantity: item.quantity,
                     total: item.total,
+                        originalPrice: item.originalPrice,
+                        discountedPrice: item.discountedPrice,
                 })),
                 grandTotal: cartCtx.getDeliveredTotal(),
                 paymentMethod: this.state.paymentMethod,
@@ -245,6 +274,11 @@ class CartPage extends React.Component {
     handlePlaceOrder = async (authCtx) => {
         const cartCtx = this.context;
 
+        if (!this.state.onlineOrdersEnabled) {
+            toast.error('Online orders are currently unavailable. Please try again later.');
+            return;
+        }
+
         if (cartCtx.items.length === 0) {
             toast.warning('Cart is empty');
             return;
@@ -269,10 +303,9 @@ class CartPage extends React.Component {
                     name: item.name,
                     price: Number(item.price),
                     quantity: Number(item.quantity),
+                    unit: String(item?.unit || '').trim(),
                 })),
             };
-
-            console.log('FINAL ORDER PAYLOAD:', orderData);
 
             await orderService.placeOrder(orderData);
 
@@ -301,6 +334,7 @@ class CartPage extends React.Component {
         const dropdownValue = ['Cash', 'Card', 'UPI'].includes(this.state.paymentMethod)
             ? this.state.paymentMethod
             : 'Cash';
+        const onlineOrdersEnabled = this.state.onlineOrdersEnabled;
 
         return (
             <LanguageContext.Consumer>
@@ -316,10 +350,17 @@ class CartPage extends React.Component {
                                             : cartCtx.items;
                                         return (
                                         <div>
+                                            <FeedbackManager active={true} />
                                             <PageHeader>
                                                 <h1>🛒 {langCtx.getText('shoppingCart')}</h1>
                                                 <p>{cartCtx.items.length} {langCtx.getText('itemsInCart')}</p>
                                             </PageHeader>
+
+                                            {!onlineOrdersEnabled && (
+                                                <div style={{ marginBottom: '1rem', padding: '1rem 1.25rem', background: '#fff3cd', border: '1px solid #ffcc70', borderRadius: '10px', color: '#7a4b00', fontWeight: 600 }}>
+                                                    Online orders are currently unavailable. Please try again later.
+                                                </div>
+                                            )}
 
                                             {cartCtx.items.length === 0 ? (
                                                 <EmptyState>
@@ -396,8 +437,8 @@ class CartPage extends React.Component {
                                                                         const quantity = Number.isFinite(rawQuantity) ? rawQuantity : 0;
                                                                         const rawTotal = Number(item?.total);
                                                                         const total = Number.isFinite(rawTotal) ? rawTotal : price * quantity;
-                                                                        const isWeightBased = item?.unit === 'kg';
-                                                                        const increment = isWeightBased ? 0.1 : 1;
+                                                                        const isWeightBased = supportsDecimal(item?.unit);
+                                                                        const increment = isWeightBased ? 0.001 : 1;
                                                                         const minQty = isWeightBased ? 0.1 : 1;
 
                                                                         const handleIncrease = () => {
@@ -406,7 +447,7 @@ class CartPage extends React.Component {
                                                                                 return;
                                                                             }
                                                                             const newQty = isWeightBased
-                                                                                ? Math.round((item.quantity + increment) * 10) / 10
+                                                                                ? Math.round((item.quantity + increment) * 1000) / 1000
                                                                                 : item.quantity + increment;
                                                                             cartCtx.updateQuantity(item.productId, newQty);
                                                                         };
@@ -416,7 +457,7 @@ class CartPage extends React.Component {
                                                                                 return;
                                                                             }
                                                                             const newQty = isWeightBased
-                                                                                ? Math.round((item.quantity - increment) * 10) / 10
+                                                                                ? Math.round((item.quantity - increment) * 1000) / 1000
                                                                                 : item.quantity - increment;
                                                                             cartCtx.updateQuantity(item.productId, newQty);
                                                                         };
@@ -436,7 +477,7 @@ class CartPage extends React.Component {
                                                                                                 <span className="cart-category-icon">{CATEGORY_ICONS[item.category] || '📦'}</span>
                                                                                                 {item.name}
                                                                                             </div>
-                                                                                            <span className="unit">{item.unit || 'piece'}</span>
+                                                                                            <span className="unit">{item.unit || ''}</span>
                                                                                         </CartCardProductName>
                                                                                     </CartCardHeader>
                                                                                 )}
@@ -447,7 +488,7 @@ class CartPage extends React.Component {
                                                                                                 <span className="cart-category-icon">{CATEGORY_ICONS[item.category] || '📦'}</span>
                                                                                                 {item.name}
                                                                                             </div>
-                                                                                            <span className="unit">{item.unit || 'piece'}</span>
+                                                                                            <span className="unit">{item.unit || ''}</span>
                                                                                         </CartCardProductName>
                                                                                     </CartCardHeader>
                                                                                 )}
@@ -456,6 +497,8 @@ class CartPage extends React.Component {
                                                                                     <CartCardLabel>{langCtx.getText('price')}:</CartCardLabel>
                                                                                     <CartCardValue className="price">₹{price.toFixed(2)}</CartCardValue>
                                                                                 </CartCardRow>
+                                                                                {Number(item?.savings || 0) > 0 && hasDiscount(item.originalPrice, item.price) && <div className="text-success small fw-semibold mb-2">💰 {getSavingsText(item.originalPrice, item.price)}</div>}
+                                                                                {item.freeItemName && <div className="text-info small fw-semibold mb-2">🎁 FREE: {item.freeItemQuantity ? `${formatQuantity(item.freeItemQuantity, item.freeItemUnit)} ` : ''}{item.freeItemName}</div>}
 
                                                                                 <div style={{ marginBottom: '0.75rem' }}>
                                                                                     <CartCardLabel style={{ display: 'block', marginBottom: '0.5rem' }}>
@@ -471,7 +514,7 @@ class CartPage extends React.Component {
                                                                                             −
                                                                                         </GhostButton>
                                                                                         <span className="quantity-display">
-                                                                                            {isWeightBased ? item.quantity.toFixed(1) : Math.floor(item.quantity)}
+                                                                                            {formatQuantity(item.quantity, item.unit)}
                                                                                         </span>
                                                                                         <GhostButton
                                                                                             onClick={handleIncrease}
@@ -542,12 +585,12 @@ class CartPage extends React.Component {
 
                                                                 <div style={{ background: '#f8f9fa', padding: '0.75rem', borderRadius: '6px', marginBottom: '1rem', fontSize: '0.85rem' }}>
                                                                     <div className="d-flex justify-content-between mb-2">
-                                                                        <span>{langCtx.getText('totalItems')}:</span>
+                                                                        <span>🛒 {langCtx.getText('totalItems')}:</span>
                                                                         <span className="fw-bold">{cartCtx.items.length}</span>
                                                                     </div>
                                                                     {!isCOD && (
                                                                         <div className="d-flex justify-content-between mb-2">
-                                                                            <span>{langCtx.getText('deliveredItems')}:</span>
+                                                                            <span>✓ {langCtx.getText('deliveredItems')}:</span>
                                                                             <span className="fw-bold" style={{ color: '#2E7D32' }}>
                                                                                 {cartCtx.items.filter((i) => i.delivered).length}
                                                                             </span>
@@ -555,9 +598,22 @@ class CartPage extends React.Component {
                                                                     )}
                                                                 </div>
 
-                                                                <div className="d-flex justify-content-between mb-2">
-                                                                    <span className="text-muted">{langCtx.getText('cartTotal')}</span>
-                                                                    <span>₹{cartCtx.getTotal().toFixed(2)}</span>
+                                                                <div style={{ borderTop: '1px solid #dee2e6', paddingTop: '0.75rem', marginBottom: '1rem' }}>
+                                                                    <div className="d-flex justify-content-between mb-2" style={{ fontSize: '0.9rem' }}>
+                                                                        <span>Original Total</span>
+                                                                        <span>₹{(cartCtx.getTotal() + cartCtx.getTotalSavings()).toFixed(2)}</span>
+                                                                    </div>
+                                                                    {cartCtx.getTotalSavings() > 0 && (
+                                                                        <div className="d-flex justify-content-between mb-2" style={{ fontSize: '0.9rem', color: '#15803d', fontWeight: 600 }}>
+                                                                            <span>💰 You Save</span>
+                                                                            <span>−₹{cartCtx.getTotalSavings().toFixed(2)}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    <div style={{ borderTop: '1px solid #dee2e6', marginTop: '0.5rem', paddingTop: '0.5rem' }} />
+                                                                    <div className="d-flex justify-content-between mb-2">
+                                                                        <span className="text-muted">{langCtx.getText('cartTotal')}</span>
+                                                                        <span className="fw-bold">₹{cartCtx.getTotal().toFixed(2)}</span>
+                                                                    </div>
                                                                 </div>
                                                                 {!isCOD && (
                                                                     <div className="d-flex justify-content-between mb-3">
@@ -644,7 +700,7 @@ class CartPage extends React.Component {
 
                                                                         <PrimaryButton
                                                                             onClick={() => this.handlePlaceOrderWithAgreement(authCtx)}
-                                                                            disabled={this.state.loading || cartCtx.items.length === 0 || !this.state.agreedToTerms}
+                                                                            disabled={this.state.loading || cartCtx.items.length === 0 || !this.state.agreedToTerms || !onlineOrdersEnabled}
                                                                             style={{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg, #ff9800, #f57c00)' }}
                                                                         >
                                                                             {this.state.loading ? (

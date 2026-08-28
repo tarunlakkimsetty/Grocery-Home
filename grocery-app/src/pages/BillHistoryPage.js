@@ -5,6 +5,7 @@ import LanguageContext from '../context/LanguageContext';
 import orderService from '../services/orderService';
 import listOrderService from '../services/listOrderService';
 import Spinner from '../components/Spinner';
+import CartContext from '../context/CartContext';
 import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import OrderImagesModal from '../components/OrderImagesModal';
@@ -29,6 +30,7 @@ import {
     HistoryCardButton,
     HistoryStatusBadge,
 } from '../styledComponents/FormStyles';
+import formatQuantity from '../utils/quantityFormatter';
 import { t, statusKey } from '../utils/i18n';
 
 const CATEGORY_ICONS = {
@@ -71,6 +73,7 @@ class BillHistoryPage extends React.Component {
             listOrdersSubTab: 'uploadedLists',
             offlineOrdersLoaded: false,
             listOrdersLoaded: false,
+            searchQuery: '',
             // Customer Order Details Modal
             orderModalOpen: false,
             selectedOrder: null,
@@ -327,10 +330,6 @@ class BillHistoryPage extends React.Component {
         });
     };
 
-    getDisplayOrderId = (order) => {
-        return order?.orderId ?? order?.serialNumber ?? order?.id ?? order?.listOrderId ?? '';
-    };
-
     canPrintBill = (order) => {
         const status = this.normalizePurchaseHistoryStatus(order?.status);
         return status === 'completed' || status === 'rejected' || status === 'delivered' || status === 'finalized';
@@ -509,6 +508,46 @@ class BillHistoryPage extends React.Component {
         };
     };
 
+    handleBuyAgain = (cartCtx, order) => {
+        const items = Array.isArray(order?.items) ? order.items : [];
+        if (!items.length) {
+            toast.info('There are no items to add back to the cart.');
+            return;
+        }
+
+        let addedCount = 0;
+        items.forEach((item) => {
+            const productId = Number(item?.productId ?? item?.id ?? item?.product_id);
+            const productQuantity = Number(item?.quantity || 0);
+            const product = {
+                id: productId,
+                name: item?.name || item?.productName || 'Product',
+                stock: Number(item?.stock ?? 9999),
+                unit: item?.unit || '',
+                category: item?.category || '',
+                emoji: item?.emoji || '📦',
+                originalPrice: Number(item?.originalPrice ?? item?.price ?? 0),
+                discountedPrice: Number(item?.discountedPrice ?? item?.price ?? 0),
+                price: Number(item?.price ?? item?.discountedPrice ?? item?.originalPrice ?? 0),
+                freeItemActive: Boolean(item?.freeItemActive),
+                freeItemName: item?.freeItemName || '',
+                freeItemQuantity: item?.freeItemQuantity || 0,
+                freeItemUnit: item?.freeItemUnit || '',
+            };
+
+            if (!Number.isFinite(productId) || productId <= 0 || !Number.isFinite(productQuantity) || productQuantity <= 0) {
+                return;
+            }
+
+            cartCtx.addToCart(product, productQuantity);
+            addedCount += 1;
+        });
+
+        if (addedCount > 0) {
+            toast.success(`Added ${addedCount} product${addedCount > 1 ? 's' : ''} back to cart`);
+        }
+    };
+
     getStatusBadge = (status) => {
         const normalized = String(status || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
         const map = {
@@ -522,8 +561,49 @@ class BillHistoryPage extends React.Component {
             'delivered': 'badge-success',
             'completed': 'badge-success',
             'rejected': 'badge-danger',
+            'cancelled': 'badge-secondary',
         };
         return map[normalized] || 'badge-warning';
+    };
+
+    canCancelOrder = (order) => {
+        const normalized = String(order?.status || '').trim().toLowerCase().replace(/[\s-]+/g, '');
+        return ['pending', 'pendingacceptance', 'accepted', 'verified', 'paid'].includes(normalized);
+    };
+
+    handleCancelOrder = async (order) => {
+        if (!order || !this.canCancelOrder(order)) {
+            toast.info('This order cannot be cancelled right now.');
+            return;
+        }
+
+        const confirmed = window.confirm('Are you sure you want to cancel this order?');
+        if (!confirmed) return;
+
+        try {
+            const result = await orderService.cancelCustomerOrder(order.id);
+            if (result?.success) {
+                toast.success('Order cancelled successfully.');
+                this.fetchData();
+            } else {
+                toast.error(result?.message || 'Unable to cancel order.');
+            }
+        } catch (error) {
+            toast.error(error?.response?.data?.message || 'Unable to cancel order.');
+        }
+    };
+
+    getFilteredOrders = (orders = []) => {
+        const query = String(this.state.searchQuery || '').trim().toLowerCase();
+        if (!query) return orders;
+
+        return orders.filter((order) => {
+            const customerName = String(order?.customerName || '').toLowerCase();
+            const phone = String(order?.phone || order?.customerPhone || '').toLowerCase();
+            const id = String(order?.id || '');
+            const itemsText = (Array.isArray(order?.items) ? order.items : []).map((item) => String(item?.name || item?.productName || '')).join(' ').toLowerCase();
+            return customerName.includes(query) || phone.includes(query) || id.includes(query) || itemsText.includes(query);
+        });
     };
 
     getOrderTotal = (order) => {
@@ -572,13 +652,14 @@ class BillHistoryPage extends React.Component {
             orderModalOpen,
             selectedOrder,
             orderModalLoading,
+            searchQuery,
         } = this.state;
 
         const safeBills = Array.isArray(billsOrders) ? billsOrders : [];
-        const strictOnlineOrders = Array.isArray(activeOnlineOrders) ? activeOnlineOrders : [];
-        const strictOfflineOrders = Array.isArray(activeOfflineOrders) ? activeOfflineOrders : [];
-        const safeUploadedLists = Array.isArray(activeUploadedListOrders) ? activeUploadedListOrders : [];
-        const safeInProgressOrders = Array.isArray(activeInProgressListOrders) ? activeInProgressListOrders : [];
+        const strictOnlineOrders = this.getFilteredOrders(Array.isArray(activeOnlineOrders) ? activeOnlineOrders : []);
+        const strictOfflineOrders = this.getFilteredOrders(Array.isArray(activeOfflineOrders) ? activeOfflineOrders : []);
+        const safeUploadedLists = this.getFilteredOrders(Array.isArray(activeUploadedListOrders) ? activeUploadedListOrders : []);
+        const safeInProgressOrders = this.getFilteredOrders(Array.isArray(activeInProgressListOrders) ? activeInProgressListOrders : []);
         const mergedFinalizedBills = safeBills;
         const uploadedCounts = {
             uploadedLists: safeUploadedLists.length,
@@ -764,6 +845,20 @@ class BillHistoryPage extends React.Component {
                                                                         >
                                                                             View
                                                                         </button>
+                                                                        <CartContext.Consumer>
+                                                                            {(cartCtx) => (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-success btn-sm"
+                                                                                    onClick={(event) => {
+                                                                                        event.stopPropagation();
+                                                                                        this.handleBuyAgain(cartCtx, order);
+                                                                                    }}
+                                                                                >
+                                                                                    Buy Again
+                                                                                </button>
+                                                                            )}
+                                                                        </CartContext.Consumer>
                                                                         <button
                                                                             type="button"
                                                                             className="btn btn-outline-secondary btn-sm"
@@ -877,6 +972,19 @@ class BillHistoryPage extends React.Component {
                                                                 >
                                                                     👁️ {langCtx.getText('viewDetails')}
                                                                 </HistoryCardButton>
+                                                                <CartContext.Consumer>
+                                                                    {(cartCtx) => (
+                                                                        <HistoryCardButton
+                                                                            onClick={(event) => {
+                                                                                event.stopPropagation();
+                                                                                this.handleBuyAgain(cartCtx, order);
+                                                                            }}
+                                                                            style={{ background: '#2E7D32', color: '#fff', border: '1px solid rgba(46,125,50,0.25)' }}
+                                                                        >
+                                                                            🛒 Buy Again
+                                                                        </HistoryCardButton>
+                                                                    )}
+                                                                </CartContext.Consumer>
                                                                 {this.canPrintBill(order) && (
                                                                     <BillActionButton
                                                                         type="button"
@@ -923,6 +1031,17 @@ class BillHistoryPage extends React.Component {
                                 )}
 
                                 {/* Desktop Online Orders Table */}
+                                <div className="mb-3 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                                    <div className="text-muted">Search by order ID, product, or customer name</div>
+                                    <input
+                                        className="form-control"
+                                        style={{ maxWidth: '280px' }}
+                                        value={searchQuery}
+                                        onChange={(event) => this.setState({ searchQuery: event.target.value, currentPage: 1 })}
+                                        placeholder="Search orders..."
+                                    />
+                                </div>
+
                                 {activeTab === 'orders' && strictOnlineOrders.length > 0 && (
                                     <DesktopHistoryWrapper>
                                         <TableWrapper className="customer-history-table">
@@ -1320,7 +1439,8 @@ class BillHistoryPage extends React.Component {
                                                     {visibleItems.map((list) => {
                                                         if (!list || !list.id) return null;
                                                         const imageCount = (Array.isArray(list.imagePaths) ? list.imagePaths.length : (list.imagePath ? 1 : 0)) || 1;
-                                                        const displayId = this.getDisplayOrderId(list);
+                                                        // ✅ Use converted order ID if available, otherwise list order ID
+                                                        const displayId = list.isConverted ? list.id : list.id;
                                                         const displayStatus = this.getUnifiedOrderStatus(list);
                                                         const normalizedDisplayStatus = displayStatus.toLowerCase();
                                                         const statusLabel = langCtx.getText(statusKey(displayStatus)) || displayStatus;
@@ -1382,7 +1502,7 @@ class BillHistoryPage extends React.Component {
                                                                         this.openImagesModal({
                                                                             entityType: 'order',
                                                                             entityId: list.id,
-                                                                            title: `Order Images - #${this.getDisplayOrderId(list)}`,
+                                                                            title: `Order Images - #${list.id}`,
                                                                         });
                                                                     }}
                                                                 >
@@ -1406,7 +1526,8 @@ class BillHistoryPage extends React.Component {
                                             {visibleItems.map((list) => {
                                                 if (!list || !list.id) return null;
                                                 const imageCount = (Array.isArray(list.imagePaths) ? list.imagePaths.length : (list.imagePath ? 1 : 0)) || 1;
-                                                const displayId = this.getDisplayOrderId(list);
+                                                // ✅ Use converted order ID if available
+                                                const displayId = list.isConverted ? list.id : list.id;
                                                 // ✅ Show actual order status if converted
                                                 const displayStatus = list.isConverted 
                                                     ? (list.status || 'Pending').toLowerCase() 
@@ -1509,7 +1630,7 @@ class BillHistoryPage extends React.Component {
                                             <div className="modal-header" style={{ alignItems: 'flex-start' }}>
                                                 <div style={{ flex: '1 1 auto' }}>
                                                     <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                                        {this.getOrderDetailsIcon(selectedOrder)} {langCtx.getText('orderDetails')} — #{this.getDisplayOrderId(selectedOrder)}
+                                                        {this.getOrderDetailsIcon(selectedOrder)} {langCtx.getText('orderDetails')} — #{selectedOrder.id}
                                                         <Badge className={this.getStatusBadge(selectedOrder.status)}>
                                                             {this.getUnifiedOrderStatus(selectedOrder).toLowerCase() === 'pending acceptance' && '🕒 '}
                                                             {this.getUnifiedOrderStatus(selectedOrder).toLowerCase() === 'accepted' && '👍 '}
@@ -1604,10 +1725,15 @@ class BillHistoryPage extends React.Component {
                                                                                 </span>
                                                                                 {item.name || item.productName}
                                                                             </td>
-                                                                            <td className="text-center">{item.quantity}</td>
-                                                                            <td className="text-center">₹{Number(item.price || 0).toFixed(2)}</td>
+                                                                            <td className="text-center">{formatQuantity(item.quantity, item.unit || '')}</td>
+                                                                            <td className="text-center">
+                                                                                {Number(item.originalPrice || 0) > Number(item.price || 0) && <div style={{ textDecoration: 'line-through', color: '#888', fontSize: '0.75rem' }}>₹{Number(item.originalPrice).toFixed(2)}</div>}
+                                                                                ₹{Number(item.price || 0).toFixed(2)}
+                                                                                {Number(item.discountAmount || 0) > 0 && <div className="small text-success">Save ₹{(Number(item.discountAmount) * Number(item.quantity || 0)).toFixed(2)}</div>}
+                                                                            </td>
                                                                             <td className="text-end fw-bold" style={{ color: '#2E7D32' }}>
                                                                                 ₹{Number(item.total || (Number(item.price || 0) * Number(item.quantity || 0)) || 0).toFixed(2)}
+                                                                                {item.freeItemName && <div className="small text-info">🎁 FREE: {item.freeItemName}</div>}
                                                                             </td>
                                                                         </tr>
                                                                     ))}
@@ -1751,6 +1877,17 @@ class BillHistoryPage extends React.Component {
                                             </div>
 
                                             <div className="modal-footer" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+                                                <CartContext.Consumer>
+                                                    {(cartCtx) => (
+                                                        <button
+                                                            className="btn btn-success btn-sm"
+                                                            onClick={() => this.handleBuyAgain(cartCtx, selectedOrder)}
+                                                            style={{ fontSize: '0.82rem', fontWeight: '600' }}
+                                                        >
+                                                            🛒 Buy Again
+                                                        </button>
+                                                    )}
+                                                </CartContext.Consumer>
                                                 <button
                                                     className="btn btn-outline-secondary btn-sm"
                                                     onClick={this.closeOrderModal}

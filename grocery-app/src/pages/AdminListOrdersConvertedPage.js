@@ -41,11 +41,8 @@ class AdminListOrdersConvertedPage extends React.Component {
         const isActiveConverted = !['completed', 'rejected'].includes(linkedStatus);
 
         return {
-            id: listOrder.id,
-            orderId: listOrder.id,
-            serialNumber: listOrder.id,
+            id: linkedOrder?.id || listOrder.offlineOrderId || listOrder.id,
             listOrderId: listOrder.id,
-            linkedOrderId: linkedOrder?.id || listOrder.offlineOrderId || null,
             customerName: listOrder.customerName,
             phone: listOrder.phone,
             place: listOrder.place || linkedOrder?.place || '',
@@ -180,83 +177,6 @@ class AdminListOrdersConvertedPage extends React.Component {
                     });
                 } catch (err) {
                     this.setState({ errorKey: 'failedToLoadOrders', loading: false, isLoading: false });
-                }
-            };
-
-            openModal = async (order) => {
-                const resolvedId = order?.orderId ?? order?.serialNumber ?? order?.id ?? order?.listOrderId;
-                console.log('[ConvertedListOrders] view clicked', { order, resolvedId });
-
-                if (!resolvedId) {
-                    this.setState({ modalOpen: false, selectedOrder: null, modalItems: [] });
-                    return;
-                }
-
-                try {
-                    const response = await listOrderService.getListOrderById(resolvedId);
-                    const listOrder = response?.data || response || null;
-                    const nextOrder = {
-                        ...(listOrder || order || {}),
-                        id: listOrder?.id ?? order?.id ?? resolvedId,
-                        orderId: listOrder?.orderId ?? listOrder?.id ?? order?.orderId ?? resolvedId,
-                        serialNumber: listOrder?.serialNumber ?? listOrder?.id ?? order?.serialNumber ?? resolvedId,
-                        listOrderId: listOrder?.listOrderId ?? listOrder?.id ?? order?.listOrderId ?? resolvedId,
-                        items: Array.isArray(listOrder?.items) ? listOrder.items : [],
-                    };
-
-                    this.setState({
-                        selectedOrder: nextOrder,
-                        modalOpen: true,
-                        modalItems: [],
-                        checkedItems: {},
-                        addProductId: '',
-                        addProductQty: 1,
-                        addProductSearch: '',
-                        addCategoryFilter: '',
-                    });
-                } catch (error) {
-                    console.error('[ConvertedListOrders] failed to load list order', error);
-                    this.setState({
-                        selectedOrder: {
-                            ...(order || {}),
-                            id: order?.id ?? resolvedId,
-                            orderId: order?.orderId ?? order?.id ?? resolvedId,
-                            serialNumber: order?.serialNumber ?? order?.id ?? resolvedId,
-                            listOrderId: order?.listOrderId ?? order?.id ?? resolvedId,
-                        },
-                        modalOpen: true,
-                        modalItems: [],
-                    });
-                }
-            };
-
-            handlePrintBill = async (orderId) => {
-                const resolvedId = orderId?.orderId ?? orderId?.serialNumber ?? orderId?.id ?? orderId?.listOrderId ?? orderId;
-                console.log('[ConvertedListOrders] print clicked', { orderId, resolvedId });
-
-                if (!resolvedId) return;
-
-                try {
-                    const response = await listOrderService.getListOrderById(resolvedId);
-                    const listOrder = response?.data || response || null;
-                    const printWindow = window.open('', '_blank', 'width=900,height=900');
-                    if (!printWindow) {
-                        throw new Error('Popup blocked');
-                    }
-
-                    const customerName = String(listOrder?.customerName || 'Customer').replace(/</g, '&lt;');
-                    const phone = String(listOrder?.phone || '').replace(/</g, '&lt;');
-                    const place = String(listOrder?.place || '').replace(/</g, '&lt;');
-                    const status = String(listOrder?.status || 'pending').replace(/</g, '&lt;');
-                    const notes = String(listOrder?.notes || '').replace(/</g, '&lt;');
-                    const orderIdLabel = listOrder?.orderId ?? listOrder?.serialNumber ?? listOrder?.id ?? resolvedId;
-
-                    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>List Order #${orderIdLabel}</title><style>body{font-family:Arial,sans-serif;padding:24px;}h1{margin-bottom:8px;} .box{border:1px solid #ddd;padding:12px;margin-top:12px;border-radius:6px;} .label{font-weight:600;}</style></head><body><h1>List Order #${orderIdLabel}</h1><div class="box"><div><span class="label">Customer:</span> ${customerName}</div><div><span class="label">Phone:</span> ${phone}</div><div><span class="label">Place:</span> ${place}</div><div><span class="label">Status:</span> ${status}</div>${notes ? `<div><span class="label">Notes:</span> ${notes}</div>` : ''}</div></body></html>`);
-                    printWindow.document.close();
-                    setTimeout(() => printWindow.print(), 300);
-                } catch (error) {
-                    console.error('[ConvertedListOrders] print failed', error);
-                    throw error;
                 }
             };
 

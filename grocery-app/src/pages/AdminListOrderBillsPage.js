@@ -2,6 +2,7 @@ import React from 'react';
 import AdminOfflineBillsPage from './AdminOfflineBillsPage';
 import orderService from '../services/orderService';
 import { ModalOverlay, ModalContent } from '../styledComponents/FormStyles';
+import formatQuantity from '../utils/quantityFormatter';
 import OrderImagesModal from '../components/OrderImagesModal';
 
 /**
@@ -112,7 +113,7 @@ class AdminListOrderBillsPage extends React.Component {
                                                     {(Array.isArray(this.state.selectedOrder.items) ? this.state.selectedOrder.items : []).map((item) => (
                                                         <tr key={item.id || item.productId}>
                                                             <td style={{ padding: '0.55rem 0.75rem', fontSize: '0.88rem', fontWeight: 600 }}>{item.productName || item.name || '—'}</td>
-                                                            <td className="text-center" style={{ padding: '0.55rem 0.5rem', fontSize: '0.88rem' }}>{item.quantity}</td>
+                                                            <td className="text-center" style={{ padding: '0.55rem 0.5rem', fontSize: '0.88rem' }}>{formatQuantity(item.quantity, item.unit || '')}</td>
                                                             <td className="text-end" style={{ padding: '0.55rem 0.75rem', fontSize: '0.88rem' }}>₹{Number(item.price || 0).toFixed(2)}</td>
                                                             <td className="text-end fw-bold" style={{ padding: '0.55rem 0.75rem', fontSize: '0.88rem' }}>₹{Number(item.subtotal !== null && item.subtotal !== undefined ? item.subtotal : item.total !== null && item.total !== undefined ? item.total : (Number(item.price || 0) * Number(item.quantity || 0))).toFixed(2)}</td>
                                                         </tr>

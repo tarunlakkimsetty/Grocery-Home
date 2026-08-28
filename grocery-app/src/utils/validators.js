@@ -1,4 +1,9 @@
 // Validation utilities for form inputs
+const supportsDecimal = (unit) => {
+    const u = String(unit || '').toUpperCase();
+    return u === 'KG' || u === 'L' || u === 'G' || u === 'ML' || u === 'GR' || u === 'GMS' || u === 'LITRE' || u === 'LTR';
+};
+
 export const validators = {
     // Name validation - only alphabets and spaces
     validateName: (value, getText) => {
@@ -68,19 +73,19 @@ export const validators = {
     },
 
     // Quantity validation - unit-aware (decimal for kg, integer for others)
-    validateQuantity: (value, getText, unit = 'piece') => {
+    validateQuantity: (value, getText, unit = '') => {
         if (!value && value !== 0) {
             return getText('quantityRequired');
         }
         
-        const isWeightBased = unit === 'kg';
+        const isWeightBased = supportsDecimal(unit);
         if (isWeightBased) {
             const qty = parseFloat(value);
             if (isNaN(qty) || qty < 0.1) {
                 return getText('quantityInvalid');
             }
         } else {
-            const qty = parseInt(value);
+            const qty = parseInt(value, 10);
             if (isNaN(qty) || qty < 1) {
                 return getText('quantityInvalid');
             }

@@ -147,6 +147,7 @@ const StockIndicator = styled.div`
  * @param {boolean} [disabled=false] - Disable all controls
  * @param {string} [title="Adjust quantity"] - Hover tooltip
  * @param {boolean} [showStockWarning=true] - Show stock indicator
+ * @param {boolean} [hideButtons=false] - Hide +/- buttons and show only input field (for product cards)
  * @returns {JSX.Element}
  */
 const QuantityControl = React.forwardRef(({
@@ -154,19 +155,20 @@ const QuantityControl = React.forwardRef(({
   onIncrease,
   onDecrease,
   onChange,
-  unit = 'piece',
+  unit = '',
   stock = 9999,
   disabled = false,
   title = 'Adjust quantity',
-  showStockWarning = true
+  showStockWarning = true,
+  hideButtons = false
 }, ref) => {
   const [error, setError] = useState('');
   const [inputValue, setInputValue] = useState(String(value || ''));
 
   // Update input display when value changes externally
   useEffect(() => {
-    const formatted = supportsDecimal(unit) 
-      ? value?.toFixed(1) ?? ''
+    const formatted = supportsDecimal(unit)
+      ? value?.toFixed(3) ?? ''
       : Math.round(value || 0);
     setInputValue(String(formatted));
     setError('');
@@ -231,18 +233,46 @@ const QuantityControl = React.forwardRef(({
 
   return (
     <Container ref={ref} title={title}>
-      <ControlsRow>
-        <Button
-          className="qty-decrease"
-          onClick={handleDecreaseClick}
-          disabled={disabled || isAtMin}
-          aria-label="Decrease quantity"
-          type="button"
-          title={isAtMin ? `Minimum quantity is ${min}` : 'Decrease quantity'}
-        >
-          −
-        </Button>
+      {!hideButtons ? (
+        <ControlsRow>
+          <Button
+            className="qty-decrease"
+            onClick={handleDecreaseClick}
+            disabled={disabled || isAtMin}
+            aria-label="Decrease quantity"
+            type="button"
+            title={isAtMin ? `Minimum quantity is ${min}` : 'Decrease quantity'}
+          >
+            −
+          </Button>
 
+          <Input
+            type="number"
+            className="qty-input"
+            value={inputValue}
+            onChange={handleInputChange}
+            onBlur={handleInputBlur}
+            min={min}
+            max={numericStock}
+            step={step}
+            disabled={disabled}
+            aria-label={unit ? `Quantity in ${unit}` : 'Quantity'}
+            placeholder={String(min)}
+          />
+
+          <Button
+            className="qty-increase"
+            onClick={handleIncreaseClick}
+            disabled={disabled || isAtMax}
+            aria-label="Increase quantity"
+            type="button"
+            title={isAtMax ? `Only ${stock} available` : `Increase quantity`}
+          >
+            +
+          </Button>
+        </ControlsRow>
+      ) : (
+        /* Clean input-only mode for product cards */
         <Input
           type="number"
           className="qty-input"
@@ -253,21 +283,17 @@ const QuantityControl = React.forwardRef(({
           max={numericStock}
           step={step}
           disabled={disabled}
-          aria-label={`Quantity in ${unit}`}
+          aria-label={unit ? `Quantity in ${unit}` : 'Quantity'}
           placeholder={String(min)}
+          style={{
+            width: '100%',
+            textAlign: 'center',
+            fontSize: '0.95rem',
+            fontWeight: '600',
+            padding: '0.5rem 0.75rem',
+          }}
         />
-
-        <Button
-          className="qty-increase"
-          onClick={handleIncreaseClick}
-          disabled={disabled || isAtMax}
-          aria-label="Increase quantity"
-          type="button"
-          title={isAtMax ? `Only ${stock} available` : `Increase quantity`}
-        >
-          +
-        </Button>
-      </ControlsRow>
+      )}
 
       {/* Error message */}
       {error && (
@@ -276,15 +302,15 @@ const QuantityControl = React.forwardRef(({
         </ErrorMessage>
       )}
 
-      {/* Stock indicator */}
-      {showStockWarning && (
+      {/* Stock indicator - only show in button mode */}
+      {!hideButtons && showStockWarning && (
         <StockIndicator $isLowStock={isLowStock} $isMaxed={isAtMax} $isMin={isAtMin}>
           {isAtMax ? (
             <span>⚠️ Maximum available stock reached</span>
           ) : remainingStock < 5 && remainingStock > 0 ? (
-            <span>📦 Only {remainingStock} {unit} left</span>
+            <span>📦 Only {remainingStock}{unit ? ` ${unit}` : ''} left</span>
           ) : remainingStock > 0 ? (
-            <span>✓ Stock: {remainingStock} {unit}</span>
+            <span>✓ Stock: {remainingStock}{unit ? ` ${unit}` : ''}</span>
           ) : (
             <span>❌ Out of stock</span>
           )}

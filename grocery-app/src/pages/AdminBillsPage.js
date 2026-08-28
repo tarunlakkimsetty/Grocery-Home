@@ -8,6 +8,7 @@ import { TableWrapper, Badge, EmptyState, ModalOverlay, ModalContent } from '../
 import OrderImagesModal from '../components/OrderImagesModal';
 import { printOrderBill } from '../utils/printBill';
 import BillActionButton from '../components/BillActionButton';
+import formatQuantity from '../utils/quantityFormatter';
 
 class AdminBillsPage extends React.Component {
     constructor(props) {
@@ -327,7 +328,7 @@ class AdminBillsPage extends React.Component {
                                                                 {item.productName || item.name || '—'}
                                                             </td>
                                                             <td className="text-center" style={{ padding: '0.55rem 0.5rem', fontSize: '0.88rem' }}>
-                                                                {item.quantity}
+                                                                {formatQuantity(item.quantity, item.unit || '')}
                                                             </td>
                                                             <td className="text-end" style={{ padding: '0.55rem 0.75rem', fontSize: '0.88rem' }}>
                                                                 ₹{Number(item.price || 0).toFixed(2)}

@@ -1195,47 +1195,49 @@ class AdminListOrdersPage extends React.Component {
   onConvertAddQtyChange = (e) => {
     let value = e.target.value;
     let error = '';
-    
+
     // Get stock of selected product
-    const product = this.state.convertAddProductId 
+    const product = this.state.convertAddProductId
       ? this.state.products.find(p => p.id === this.state.convertAddProductId)
       : null;
     const stock = Number(product?.stock || 0);
-    
+
     // CRITICAL: Calculate available = stock - already added
     const { convertItems } = this.state;
     const alreadyAdded = convertItems.find(item => item.productId === this.state.convertAddProductId)?.quantity || 0;
     const available = Math.max(0, stock - alreadyAdded);
-    
-    // Debug logging
-    console.log({ stock, alreadyAdded, available, productId: this.state.convertAddProductId });
-    
+
     // Block non-numeric input
-    if (value && !/^\d+$/.test(value)) {
+    if (value && !/^(\d+(\.\d*)?|\.\d+)$/.test(value)) {
       error = 'Only numbers allowed';
       value = '';
     }
-    
-    // Convert to number and validate
-    const numValue = parseInt(value) || 0;
-    
-    // Check for zero
-    if (value && numValue === 0) {
+
+    const numValue = Number(value);
+
+    if (value && !Number.isFinite(numValue)) {
+      error = 'Only numbers allowed';
+      value = '';
+    }
+
+    if (value && numValue <= 0) {
       error = 'Quantity must be greater than 0';
       value = '';
     }
-    
-    // CRITICAL: Check AVAILABLE limit (not stock)
-    if (value && numValue > available) {
-      error = `Only ${available} available`;
-      value = String(available);
+
+    if (value) {
+      const validation = validateQuantity(numValue, { unit: product?.unit || '', stock: available });
+      if (!validation.isValid) {
+        error = validation.message;
+        value = String(validation.correctedValue);
+      }
     }
-    
+
     // Auto-correct empty to 1
     if (value === '') {
       value = '1';
     }
-    
+
     this.setState({
       convertAddQty: value,
       convertAddQtyError: error
@@ -1260,9 +1262,9 @@ class AdminListOrdersPage extends React.Component {
     const product = this.state.products.find(p => p.id === this.state.convertAddProductId);
     if (!product) return;
     
-    const unit = product.unit || 'piece';
+    const unit = product.unit || '';
     const stock = Number(product.stock || 0);
-    const currentQty = parseInt(this.state.convertAddQty) || 1;
+    const currentQty = Number(this.state.convertAddQty) || 1;
     const nextQty = getNextQuantity(currentQty, { unit, stock });
     
     this.setState({ convertAddQty: String(nextQty) });
@@ -1272,8 +1274,8 @@ class AdminListOrdersPage extends React.Component {
     const product = this.state.products.find(p => p.id === this.state.convertAddProductId);
     if (!product) return;
     
-    const unit = product.unit || 'piece';
-    const currentQty = parseInt(this.state.convertAddQty) || 1;
+    const unit = product.unit || '';
+    const currentQty = Number(this.state.convertAddQty) || 1;
     const prevQty = getPreviousQuantity(currentQty, { unit });
     
     this.setState({ convertAddQty: String(prevQty) });
@@ -1287,38 +1289,38 @@ class AdminListOrdersPage extends React.Component {
       return;
     }
     
-    let qty = parseInt(convertAddQty) || 0;
-    
+    let qty = Number(convertAddQty);
+
     // Enforce minimum quantity
-    if (qty <= 0) {
+    if (!Number.isFinite(qty) || qty <= 0) {
       this.setState({ convertAddQty: '1', convertAddQtyError: 'Quantity must be greater than 0' });
       toast.error('Quantity must be greater than 0');
       return;
     }
-    
+
     const product = products.find(p => p.id === convertAddProductId);
     if (!product) {
       toast.error('Product not found');
       return;
     }
-    
+
     // CRITICAL: Use SINGLE SOURCE OF TRUTH - calculate available = stock - alreadyAdded
     const stock = Number(product.stock || 0);
     const alreadyAdded = convertItems.find(item => item.productId === convertAddProductId)?.quantity || 0;
     const available = Math.max(0, stock - alreadyAdded);
-    
-    // Debug logging
-    console.log({ stock, alreadyAdded, available, attemptedQty: qty, productId: convertAddProductId });
-    
-    if (qty > available) {
-      const errorMsg = `Only ${available} available`;
-      this.setState({ 
-        convertAddQty: String(available), 
-        convertAddQtyError: errorMsg 
+
+    const validation = validateQuantity(qty, { unit: product?.unit || '', stock: available });
+    if (!validation.isValid) {
+      const errorMsg = validation.message;
+      this.setState({
+        convertAddQty: String(validation.correctedValue),
+        convertAddQtyError: errorMsg
       });
       toast.error(errorMsg);
       return;
     }
+
+    qty = validation.correctedValue;
     
     const exists = convertItems.find(item => item.productId === convertAddProductId);
     if (exists) {
@@ -1372,7 +1374,7 @@ class AdminListOrdersPage extends React.Component {
     const { convertItems } = this.state;
     const item = convertItems.find((entry) => entry.productId === productId);
     const stock = Number(item?.stock || 0);
-    const validation = validateQuantity(qty, { unit: item?.unit || 'piece', stock });
+    const validation = validateQuantity(qty, { unit: item?.unit || '', stock });
 
     if (!validation.isValid) {
       toast.error(validation.message);
@@ -1442,7 +1444,7 @@ class AdminListOrdersPage extends React.Component {
     for (const item of convertItems) {
       const stock = Number(item?.stock || 0);
       const qty = Number(item?.quantity || 0) || 0;
-      const validation = validateQuantity(qty, { unit: item?.unit || 'piece', stock });
+      const validation = validateQuantity(qty, { unit: item?.unit || '', stock });
       if (!validation.isValid) {
         toast.error(validation.message);
         return;
@@ -1956,13 +1958,13 @@ class AdminListOrdersPage extends React.Component {
                     const available = Math.max(0, stock - alreadyAdded);
                     return (
                       <QuantityControl
-                        value={parseInt(this.state.convertAddQty) || 1}
+                        value={Number(this.state.convertAddQty) || 1}
                         onIncrease={this.handleConvertQtyIncrease}
                         onDecrease={this.handleConvertQtyDecrease}
                         onChange={(value) => {
                           this.setState({ convertAddQty: String(value) });
                         }}
-                        unit={product?.unit || 'piece'}
+                        unit={product?.unit || ''}
                         stock={available}
                         disabled={!this.state.convertAddProductId}
                         title="Adjust quantity"
@@ -1976,30 +1978,30 @@ class AdminListOrdersPage extends React.Component {
                 </div>
                 <button
                   onClick={this.addConvertItem}
-                  disabled={!this.state.convertAddProductId || parseInt(this.state.convertAddQty) <= 0}
+                  disabled={!this.state.convertAddProductId || Number(this.state.convertAddQty) <= 0}
                   style={{
                     height: '32px',
                     padding: '0 0.6rem',
-                    background: (!this.state.convertAddProductId || parseInt(this.state.convertAddQty) <= 0) ? '#ccc' : '#4CAF50',
+                    background: (!this.state.convertAddProductId || Number(this.state.convertAddQty) <= 0) ? '#ccc' : '#4CAF50',
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
                     fontWeight: 600,
-                    cursor: (!this.state.convertAddProductId || parseInt(this.state.convertAddQty) <= 0) ? 'not-allowed' : 'pointer',
-                    opacity: (!this.state.convertAddProductId || parseInt(this.state.convertAddQty) <= 0) ? 0.6 : 1,
+                    cursor: (!this.state.convertAddProductId || Number(this.state.convertAddQty) <= 0) ? 'not-allowed' : 'pointer',
+                    opacity: (!this.state.convertAddProductId || Number(this.state.convertAddQty) <= 0) ? 0.6 : 1,
                     transition: 'all 0.2s',
                     fontSize: '0.85rem',
                     flexShrink: 0
                   }}
                   onMouseEnter={(e) => {
-                    if (!this.state.convertAddProductId || parseInt(this.state.convertAddQty) <= 0) return;
+                    if (!this.state.convertAddProductId || Number(this.state.convertAddQty) <= 0) return;
                     e.target.style.background = '#45a049';
                   }}
                   onMouseLeave={(e) => {
-                    if (!this.state.convertAddProductId || parseInt(this.state.convertAddQty) <= 0) return;
+                    if (!this.state.convertAddProductId || Number(this.state.convertAddQty) <= 0) return;
                     e.target.style.background = '#4CAF50';
                   }}
-                  title={!this.state.convertAddProductId ? 'Select a product' : parseInt(this.state.convertAddQty) <= 0 ? 'Quantity must be greater than 0' : 'Add to cart'}
+                  title={!this.state.convertAddProductId ? 'Select a product' : Number(this.state.convertAddQty) <= 0 ? 'Quantity must be greater than 0' : 'Add to cart'}
                 >
                   Add
                 </button>
@@ -2112,17 +2114,17 @@ class AdminListOrdersPage extends React.Component {
                                   <QuantityControl
                                     value={item.quantity}
                                     onIncrease={() => {
-                                      const unit = item.unit || 'piece';
+                                      const unit = item.unit || '';
                                       const next = getNextQuantity(item.quantity, { unit, stock: available });
                                       this.updateConvertItemQuantity(item.productId, next - item.quantity);
                                     }}
                                     onDecrease={() => {
-                                      const unit = item.unit || 'piece';
+                                      const unit = item.unit || '';
                                       const prev = getPreviousQuantity(item.quantity, { unit });
                                       this.updateConvertItemQuantity(item.productId, prev - item.quantity);
                                     }}
                                     onChange={(newValue) => this.handleConvertItemQuantityInput(item.productId, newValue)}
-                                    unit={item.unit || 'piece'}
+                                    unit={item.unit || ''}
                                     stock={available}
                                     title="Adjust quantity"
                                     showStockWarning={true}

@@ -1,5 +1,16 @@
 const Product = require('../models/productModel');
 const { promisePool } = require('../config/db');
+const { calculatePricing } = require('../utils/pricing');
+
+const parseProductPricing = (body, existing = null) => {
+    const originalPrice = body.originalPrice ?? existing?.originalPrice ?? existing?.price ?? body.price;
+    const discountedPrice = body.discountedPrice ?? existing?.discountedPrice ?? body.price ?? existing?.price;
+    const pricing = calculatePricing({ originalPrice, discountedPrice });
+    if (!Number.isFinite(Number(originalPrice)) || Number(originalPrice) < 0) throw new Error('Original price must be a non-negative number');
+    if (!Number.isFinite(Number(discountedPrice)) || Number(discountedPrice) < 0) throw new Error('Discounted price must be a non-negative number');
+    if (Number(discountedPrice) > Number(originalPrice)) throw new Error('Discounted price cannot be greater than original price');
+    return pricing;
+};
 
 /**
  * @desc    Create new product
@@ -11,7 +22,7 @@ const createProduct = async (req, res, next) => {
         console.log('=== createProduct called ==');
         console.log('req.body:', JSON.stringify(req.body, null, 2));
         
-        const { name, category, price, stock, unit, emoji } = req.body;
+        const { name, category, price, originalPrice, discountedPrice, stock, unit, emoji, freeItemName, freeItemQuantity, freeItemUnit, freeItemDescription, freeItemActive } = req.body;
 
         // Validate name: 2-100 characters
         if (!name || typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 100) {
@@ -30,11 +41,11 @@ const createProduct = async (req, res, next) => {
         }
 
         // Validate price: must be >= 1
-        const priceNum = Number(price);
-        if (price === undefined || isNaN(priceNum) || priceNum < 1) {
+        let pricing;
+        try { pricing = parseProductPricing({ price, originalPrice, discountedPrice }); } catch (error) {
             return res.status(400).json({
                 success: false,
-                message: 'Price must be greater than or equal to 1'
+                message: error.message
             });
         }
 
@@ -51,10 +62,11 @@ const createProduct = async (req, res, next) => {
         const product = await Product.create({
             name: name.trim(),
             category: category.trim(),
-            price: priceNum,
+            ...pricing,
             stock: stockNum,
             unit: unit || 'pack',
-            emoji: emoji || '📦'
+            emoji: emoji || '📦',
+            freeItemName, freeItemQuantity, freeItemUnit, freeItemDescription, freeItemActive
         });
 
         console.log('Product created:', product);
@@ -149,7 +161,7 @@ const getProduct = async (req, res, next) => {
 const updateProduct = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, category, price, stock } = req.body;
+        const { name, category, price, originalPrice, discountedPrice, stock, unit, freeItemName, freeItemQuantity, freeItemUnit, freeItemDescription, freeItemActive } = req.body;
 
         // Check if product exists
         const existingProduct = await Product.findById(id);
@@ -161,11 +173,9 @@ const updateProduct = async (req, res, next) => {
         }
 
         // Validate price if provided
-        if (price !== undefined && (isNaN(price) || parseFloat(price) < 1)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Price must be greater than or equal to 1'
-            });
+        let pricing;
+        try { pricing = parseProductPricing({ price, originalPrice, discountedPrice }, existingProduct); } catch (error) {
+            return res.status(400).json({ success: false, message: error.message });
         }
 
         // Validate stock if provided
@@ -183,8 +193,14 @@ const updateProduct = async (req, res, next) => {
         const updated = await Product.update(id, {
             name: name || existingProduct.name,
             category: category || existingProduct.category,
-            price: price !== undefined ? parseFloat(price) : existingProduct.price,
-            stock: stock !== undefined ? parseInt(stock) : existingProduct.stock
+            ...pricing,
+            stock: stock !== undefined ? parseInt(stock) : existingProduct.stock,
+            unit: unit !== undefined ? String(unit).trim() || existingProduct.unit : existingProduct.unit,
+            freeItemName: freeItemName !== undefined ? freeItemName : existingProduct.freeItemName,
+            freeItemQuantity: freeItemQuantity !== undefined ? freeItemQuantity : existingProduct.freeItemQuantity,
+            freeItemUnit: freeItemUnit !== undefined ? freeItemUnit : existingProduct.freeItemUnit,
+            freeItemDescription: freeItemDescription !== undefined ? freeItemDescription : existingProduct.freeItemDescription,
+            freeItemActive: freeItemActive !== undefined ? freeItemActive : existingProduct.freeItemActive,
         });
 
         if (!updated) {

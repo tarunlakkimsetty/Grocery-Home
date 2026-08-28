@@ -1,5 +1,6 @@
 import { t } from './i18n';
 import orderService from '../services/orderService';
+import formatQuantity from './quantityFormatter';
 
 const escapeHtml = (value) => {
     return String(value ?? '')
@@ -48,10 +49,6 @@ const tr = (key, fallback) => {
     return val && val !== key ? val : (fallback ?? key);
 };
 
-const getDisplayOrderId = (order) => {
-    return order?.orderId ?? order?.serialNumber ?? order?.id ?? order?.listOrderId ?? '';
-};
-
 const formatPaymentMethod = (raw) => {
     const v = String(raw || '').trim();
     if (!v) return '—';
@@ -73,6 +70,7 @@ const normalizeBillItems = (items) => {
             productId: item?.productId,
             productName: item?.productName || item?.name || '',
             quantity,
+            unit: item?.unit || null,
             price,
             subtotal,
         };
@@ -96,7 +94,7 @@ const mergeBillPayload = (billPayload, sourceOrder = null) => {
             ...bill,
             order: {
                 ...(bill?.order || {}),
-                id: getDisplayOrderId(source || bill?.order || {}) || source?.id || bill?.order?.id,
+                id: source?.id ?? bill?.order?.id,
                 orderType: sourceOrderType || bill?.order?.orderType || '—',
                 customerName: source?.customerName || bill?.order?.customerName || '',
                 customerPhone: source?.phone || source?.customerPhone || bill?.order?.customerPhone || '',
@@ -135,11 +133,12 @@ export const openBillPrintWindow = (billPayload) => {
             const quantity = Number(item?.quantity || 0) || 0;
             const price = Number(item?.price || 0) || 0;
             const subtotal = Number(item?.subtotal || quantity * price || 0) || 0;
+            const displayQty = formatQuantity(quantity, item?.unit || '');
             return `
                 <tr>
                     <td>${index + 1}</td>
                     <td>${escapeHtml(item?.productName || item?.name || '')}</td>
-                    <td class="text-right">${quantity}</td>
+                    <td class="text-right">${escapeHtml(displayQty)}</td>
                     <td class="text-right">${formatCurrency(price)}</td>
                     <td class="text-right">${formatCurrency(subtotal)}</td>
                 </tr>
@@ -152,7 +151,7 @@ export const openBillPrintWindow = (billPayload) => {
         <html>
         <head>
             <meta charset="utf-8" />
-            <title>${escapeHtml(tr('bill', 'Bill'))} #${escapeHtml(getDisplayOrderId(order))}</title>
+            <title>${escapeHtml(tr('bill', 'Bill'))} #${escapeHtml(order?.id || '')}</title>
             <style>
                 @page { size: A4; margin: 14mm; }
                 * { box-sizing: border-box; }
@@ -217,7 +216,7 @@ export const openBillPrintWindow = (billPayload) => {
                 <div class="grid">
                     <div class="box">
                         <h4>${escapeHtml(tr('orderDetails', 'Order Details'))}</h4>
-                        <div>${escapeHtml(tr('orderId', 'Order ID'))}: <strong>#${escapeHtml(getDisplayOrderId(order))}</strong></div>
+                        <div>${escapeHtml(tr('orderId', 'Order ID'))}: <strong>#${escapeHtml(order?.id || '')}</strong></div>
                         <div>${escapeHtml(tr('orderDate', 'Order Date'))}: ${escapeHtml(formatDateTime(order?.orderDate))}</div>
                         <div>${escapeHtml(tr('orderType', 'Order Type'))}: ${escapeHtml(order?.orderType || '—')}</div>
                         <div>${escapeHtml(tr('paymentMethod', 'Payment Method'))}: ${escapeHtml(formatPaymentMethod(order?.paymentMethod || 'Cash'))}</div>

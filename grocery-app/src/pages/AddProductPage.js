@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import { PageHeader } from '../styledComponents/LayoutStyles';
 import { FormWrapper } from '../styledComponents/FormStyles';
 import { PrimaryButton, SecondaryButton } from '../styledComponents/ButtonStyles';
+import { calculatePricing } from '../utils/pricing';
 
 const CATEGORIES = [
     { value: 'grains', label: 'Grains, Rice & Pulses' },
@@ -50,7 +51,8 @@ class AddProductPage extends React.Component {
         this.state = {
             name: '',
             category: 'grains',
-            price: '',
+            originalPrice: '',
+            discountedPrice: '',
             stock: '',
             unit: 'Pack',
             customUnit: '',
@@ -58,12 +60,17 @@ class AddProductPage extends React.Component {
             errors: {},
             loading: false,
             success: false,
+            freeItemName: '',
+            freeItemQuantity: '',
+            freeItemUnit: '',
+            freeItemDescription: '',
+            freeItemActive: false,
         };
     }
 
     validate = () => {
         const errors = {};
-        const { name, category, price, stock, unit, customUnit } = this.state;
+        const { name, category, originalPrice, discountedPrice, stock, unit, customUnit } = this.state;
 
         // Name validation: 2-100 characters
         if (!name || !name.trim()) {
@@ -80,11 +87,15 @@ class AddProductPage extends React.Component {
         }
 
         // Price validation: must be >= 1
-        const priceNum = Number(price);
-        if (price === '' || price === undefined || isNaN(priceNum)) {
-            errors.price = 'Enter a valid price';
-        } else if (priceNum < 1) {
-            errors.price = 'Price must be greater than or equal to 1';
+        const originalNum = Number(originalPrice);
+        const discountedNum = Number(discountedPrice);
+        if (originalPrice === '' || !Number.isFinite(originalNum) || originalNum <= 0) {
+            errors.originalPrice = 'Original price must be greater than 0';
+        }
+        if (discountedPrice === '' || !Number.isFinite(discountedNum) || discountedNum <= 0) {
+            errors.discountedPrice = 'Discounted price must be greater than 0';
+        } else if (Number.isFinite(originalNum) && discountedNum > originalNum) {
+            errors.discountedPrice = 'Discounted price cannot exceed original price';
         }
 
         // Stock validation: must be >= 0
@@ -116,7 +127,7 @@ class AddProductPage extends React.Component {
 
         this.setState({ loading: true });
         try {
-            const { name, category, price, stock, unit, customUnit, emoji } = this.state;
+            const { name, category, originalPrice, discountedPrice, stock, unit, customUnit, emoji, freeItemName, freeItemQuantity, freeItemUnit, freeItemDescription, freeItemActive } = this.state;
             
             // Determine final unit: if "Other" is selected, use customUnit; otherwise use selected unit
             const finalUnit = unit === 'Other' ? customUnit.trim() : unit;
@@ -124,25 +135,31 @@ class AddProductPage extends React.Component {
             const productData = {
                 name: name.trim(),
                 category,
-                price: Number(price),
+                originalPrice: Number(originalPrice),
+                discountedPrice: Number(discountedPrice),
                 stock: Number(stock),
                 unit: finalUnit || 'Pack',
                 emoji: emoji || '📦',
+                freeItemName: freeItemName.trim() || null,
+                freeItemQuantity: freeItemQuantity === '' ? null : Number(freeItemQuantity),
+                freeItemUnit: freeItemUnit.trim() || null,
+                freeItemDescription: freeItemDescription.trim() || null,
+                freeItemActive: Boolean(freeItemActive && freeItemName.trim()),
             };
-            console.log('Sending product data:', productData);
-            const result = await productService.addProduct(productData);
-            console.log('Product added:', result);
+            await productService.addProduct(productData);
             toast.success('Product added successfully! 🎉');
             this.setState({
                 name: '',
                 category: 'grains',
-                price: '',
+                originalPrice: '',
+                discountedPrice: '',
                 stock: '',
                 unit: 'Pack',
                 customUnit: '',
                 emoji: CATEGORY_EMOJIS['grains'] || '📦',
                 errors: {},
                 success: true,
+                freeItemName: '', freeItemQuantity: '', freeItemUnit: '', freeItemDescription: '', freeItemActive: false,
             });
             setTimeout(() => this.setState({ success: false }), 3000);
         } catch (err) {
@@ -167,7 +184,8 @@ class AddProductPage extends React.Component {
     };
 
     render() {
-        const { name, category, price, stock, unit, customUnit, emoji, errors, loading, success } = this.state;
+        const { name, category, originalPrice, discountedPrice, stock, unit, customUnit, emoji, errors, loading, success, freeItemName, freeItemQuantity, freeItemUnit, freeItemDescription, freeItemActive } = this.state;
+        const preview = calculatePricing({ originalPrice, discountedPrice });
 
         return (
             <LanguageContext.Consumer>
@@ -234,17 +252,23 @@ class AddProductPage extends React.Component {
 
                                         <div className="row mb-3">
                                             <div className="col-4">
-                                                <label className="form-label fw-semibold">{langCtx.getText('price')} (₹)</label>
+                                                <label className="form-label fw-semibold">Original Price (₹)</label>
                                                 <input
                                                     type="number"
-                                                    className={`form-control ${errors.price ? 'is-invalid' : ''}`}
-                                                    value={price}
-                                                    onChange={this.handleChange('price')}
-                                                    min="1"
+                                                    className={`form-control ${errors.originalPrice ? 'is-invalid' : ''}`}
+                                                    value={originalPrice}
+                                                    onChange={this.handleChange('originalPrice')}
+                                                    min="0"
                                                     step="0.01"
-                                                    placeholder={langCtx.getText('enterPrice')}
+                                                    placeholder="Enter original price"
                                                 />
-                                                {errors.price && <div className="invalid-feedback">{errors.price}</div>}
+                                                {errors.originalPrice && <div className="invalid-feedback">{errors.originalPrice}</div>}
+                                            </div>
+                                            <div className="col-4">
+                                                <label className="form-label fw-semibold">Discounted Price (₹)</label>
+                                                <input type="number" className={`form-control ${errors.discountedPrice ? 'is-invalid' : ''}`} value={discountedPrice} onChange={this.handleChange('discountedPrice')} min="0" step="0.01" placeholder="Enter offer price" />
+                                                {errors.discountedPrice && <div className="invalid-feedback">{errors.discountedPrice}</div>}
+                                                {preview.discountAmount > 0 && <small className="text-success fw-semibold">Save ₹{preview.discountAmount.toFixed(2)} ({preview.discountPercentage}% OFF)</small>}
                                             </div>
                                             <div className="col-4">
                                                 <label className="form-label fw-semibold">{langCtx.getText('stock')}</label>
@@ -272,6 +296,11 @@ class AddProductPage extends React.Component {
                                                     ))}
                                                 </select>
                                             </div>
+                                        </div>
+
+                                        <div className="border rounded p-3 mb-3">
+                                            <div className="form-check mb-2"><input className="form-check-input" type="checkbox" checked={freeItemActive} onChange={(e) => this.setState({ freeItemActive: e.target.checked })} id="freeItemActive" /><label className="form-check-label fw-semibold" htmlFor="freeItemActive">🎁 Free Item / Offer</label></div>
+                                            {freeItemActive && <div className="row g-2"><div className="col-6"><input className="form-control" value={freeItemName} onChange={this.handleChange('freeItemName')} placeholder="Free item name" /></div><div className="col-3"><input className="form-control" type="number" min="0.001" step="0.001" value={freeItemQuantity} onChange={this.handleChange('freeItemQuantity')} placeholder="Qty" /></div><div className="col-3"><input className="form-control" value={freeItemUnit} onChange={this.handleChange('freeItemUnit')} placeholder="Unit" /></div><div className="col-12"><input className="form-control" value={freeItemDescription} onChange={this.handleChange('freeItemDescription')} placeholder="Description (optional)" /></div></div>}
                                         </div>
 
                                         {/* Custom Unit Input - Show only if "Other" is selected */}
@@ -310,12 +339,13 @@ class AddProductPage extends React.Component {
                                                     this.setState({
                                                         name: '',
                                                         category: 'grains',
-                                                        price: '',
+                                                        originalPrice: '', discountedPrice: '',
                                                         stock: '',
                                                         unit: 'Pack',
                                                         customUnit: '',
                                                         emoji: CATEGORY_EMOJIS['grains'] || '📦',
                                                         errors: {},
+                                                        freeItemName: '', freeItemQuantity: '', freeItemUnit: '', freeItemDescription: '', freeItemActive: false,
                                                     })
                                                 }
                                             >

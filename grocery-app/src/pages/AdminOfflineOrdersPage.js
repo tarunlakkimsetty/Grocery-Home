@@ -936,7 +936,7 @@ class AdminOfflineOrdersPage extends React.Component {
             return;
         }
 
-        const validation = validateQuantity(raw, { unit: product?.unit || 'piece', stock: available });
+        const validation = validateQuantity(raw, { unit: product?.unit || '', stock: available });
         this.setState({
             createAddQty: String(validation.correctedValue),
             createAddQtyError: validation.isValid ? '' : validation.message,
@@ -957,12 +957,12 @@ class AdminOfflineOrdersPage extends React.Component {
             return;
         }
 
-        const qtyNum = parseInt(String(createAddQty || ''), 10);
+        const qtyNum = Number(String(createAddQty || '').trim());
         const quantity = Number.isFinite(qtyNum) ? qtyNum : 1;
         const stock = Number.isFinite(Number(product?.stock)) ? Number(product.stock) : 0;
         const existingQty = createItems.find((item) => item.productId === productId)?.quantity || 0;
         const available = Math.max(0, stock - existingQty);
-        const validation = validateQuantity(quantity, { unit: product?.unit || 'piece', stock: available });
+        const validation = validateQuantity(quantity, { unit: product?.unit || '', stock: available });
         if (!validation.isValid) {
             this.setState({ createAddQtyError: validation.message, createAddQty: String(validation.correctedValue) });
             toast.error(validation.message);
@@ -1060,7 +1060,7 @@ class AdminOfflineOrdersPage extends React.Component {
         console.log({ stock, available, attemptedQty: newQty, currentQty: item.quantity, productId });
         
         // Block quantities exceeding available
-        const validation = validateQuantity(newQty, { unit: item.unit || 'piece', stock: available });
+        const validation = validateQuantity(newQty, { unit: item.unit || '', stock: available });
         if (!validation.isValid) {
             toast.error(validation.message);
             const updated = createItems.map(i =>
@@ -1092,7 +1092,7 @@ class AdminOfflineOrdersPage extends React.Component {
         const available = stock;
         
         // Debug logging
-        const validation = validateQuantity(newQty, { unit: item.unit || 'piece', stock: available });
+        const validation = validateQuantity(newQty, { unit: item.unit || '', stock: available });
         if (!validation.isValid) {
             toast.error(validation.message);
             const updated = modalItems.map(i =>
@@ -1175,7 +1175,7 @@ class AdminOfflineOrdersPage extends React.Component {
         const finalItems = createItems
             .filter((i) => selectedProducts.includes(i.productId))
             .map((i) => {
-                const qtyRaw = parseInt(i.quantity, 10);
+                const qtyRaw = Number(i.quantity);
                 const qty = Number.isFinite(qtyRaw) ? Math.max(0, qtyRaw) : 0;
                 const price = parseFloat(i.price) || 0;
                 return {
@@ -1259,7 +1259,7 @@ class AdminOfflineOrdersPage extends React.Component {
         ]));
 
         const normalizedItems = (orderForModal.items || []).map((i) => {
-            const qty = Math.max(0, parseInt(i.quantity, 10) || 0);
+            const qty = Math.max(0, Number(i.quantity) || 0);
             const price = parseFloat(i.price) || 0;
             const matchedProduct = productLookup.get(String(i.productId ?? i.product_id ?? i.id ?? '')) || null;
             const resolvedName = i.name || i.productName || matchedProduct?.name || '';
@@ -1271,7 +1271,7 @@ class AdminOfflineOrdersPage extends React.Component {
                 quantity: qty,
                 price: price,
                 stock: Number(i?.stock ?? matchedProduct?.stock ?? 0) || 0,
-                unit: String(i?.unit ?? matchedProduct?.unit ?? 'piece').trim(),
+                unit: String(i?.unit ?? matchedProduct?.unit ?? '').trim(),
                 total: typeof i.total === 'number' ? i.total : (Number(price || 0) || 0) * (Number(qty || 0) || 0),
             };
         });
@@ -1430,8 +1430,8 @@ class AdminOfflineOrdersPage extends React.Component {
     };
 
     onChangeAddProductQty = (e) => {
-        const qty = Math.max(1, parseInt(e.target.value, 10) || 1);
-        this.setState({ addProductQty: qty });
+        const qty = Number(e.target.value);
+        this.setState({ addProductQty: Number.isFinite(qty) ? qty : '' });
     };
 
     handleAddProductToOrder = async () => {
@@ -1450,11 +1450,17 @@ class AdminOfflineOrdersPage extends React.Component {
             return;
         }
 
-        const quantity = Math.max(1, parseInt(addProductQty, 10) || 1);
         const stock = Number(product?.stock);
+        const quantity = Number.isFinite(Number(addProductQty)) ? Number(addProductQty) : 1;
+        const validatedQuantity = validateQuantity(quantity, { unit: product?.unit || '', stock: Number.isFinite(stock) ? stock : 9999 });
+        if (!validatedQuantity.isValid) {
+            toast.error(validatedQuantity.message);
+            return;
+        }
+        const safeQuantity = validatedQuantity.correctedValue;
         const existingIdx = modalItems.findIndex((i) => i.productId === productId);
         const existingQty = existingIdx !== -1 ? (Number(modalItems[existingIdx]?.quantity || 0) || 0) : 0;
-        const nextQty = existingQty + quantity;
+        const nextQty = existingQty + safeQuantity;
         if (Number.isFinite(stock) && stock >= 0 && nextQty > stock) {
             toast.error('Quantity exceeds stock limit');
             return;
@@ -1462,13 +1468,13 @@ class AdminOfflineOrdersPage extends React.Component {
 
         this.setState({ actionLoading: true });
         try {
-            await orderService.addItemToOrder(selectedOrder.id, productId, quantity);
+            await orderService.addItemToOrder(selectedOrder.id, productId, safeQuantity);
 
             let nextModalItems = [];
             if (existingIdx !== -1) {
                 nextModalItems = modalItems.map((i) => {
                     if (i.productId !== productId) return i;
-                    const nextQty = (i.quantity || 0) + quantity;
+                    const nextQty = (i.quantity || 0) + safeQuantity;
                     return { ...i, quantity: nextQty, total: (i.price || product.price) * nextQty };
                 });
             } else {
@@ -1478,10 +1484,10 @@ class AdminOfflineOrdersPage extends React.Component {
                         productId,
                         name: product.name,
                         price: product.price,
-                        quantity,
-                        total: product.price * quantity,
+                        quantity: safeQuantity,
+                        total: product.price * safeQuantity,
                         stock: Number(product.stock || 0) || 0,
-                        unit: String(product.unit || 'piece').trim(),
+                        unit: String(product.unit || '').trim(),
                     },
                 ];
             }
@@ -1528,7 +1534,7 @@ class AdminOfflineOrdersPage extends React.Component {
             }
 
             const updatedItems = (Array.isArray(modalItems) ? modalItems : []).map((i) => {
-                const qtyRaw = parseInt(i.quantity, 10);
+                const qtyRaw = Number(i.quantity);
                 const quantity = Number.isFinite(qtyRaw) ? Math.max(0, qtyRaw) : 0;
                 const price = parseFloat(i.price) || 0;
 
@@ -2347,19 +2353,19 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                     value={parseInt(createAddQty, 10) || 1}
                                                                     onIncrease={() => {
                                                                         const next = getNextQuantity(parseInt(createAddQty, 10) || 1, {
-                                                                            unit: selectedProduct?.unit || 'piece',
+                                                                            unit: selectedProduct?.unit || '',
                                                                             stock: available,
                                                                         });
                                                                         this.onCreateAddQtyChange(String(next));
                                                                     }}
                                                                     onDecrease={() => {
                                                                         const prev = getPreviousQuantity(parseInt(createAddQty, 10) || 1, {
-                                                                            unit: selectedProduct?.unit || 'piece',
+                                                                            unit: selectedProduct?.unit || '',
                                                                         });
                                                                         this.onCreateAddQtyChange(String(prev));
                                                                     }}
                                                                     onChange={this.onCreateAddQtyChange}
-                                                                    unit={selectedProduct?.unit || 'piece'}
+                                                                    unit={selectedProduct?.unit || ''}
                                                                     stock={available}
                                                                     disabled={!createAddProductId || productsLoading}
                                                                     title="Adjust quantity"
@@ -2424,7 +2430,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             <QuantityControl
                                                                                 value={item.quantity || 0}
                                                                                 onIncrease={() => {
-                                                                                    const unit = item.unit || 'piece';
+                                                                                    const unit = item.unit || '';
                                                                                     const stock = Number(item.stock || 0);
                                                                                     const next = getNextQuantity(item.quantity, { unit, stock });
                                                                                     const updated = createItems.map(i =>
@@ -2435,7 +2441,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                     this.setState({ createItems: updated });
                                                                                 }}
                                                                                 onDecrease={() => {
-                                                                                    const unit = item.unit || 'piece';
+                                                                                    const unit = item.unit || '';
                                                                                     const prev = getPreviousQuantity(item.quantity, { unit });
                                                                                     const updated = createItems.map(i =>
                                                                                       i.productId === item.productId
@@ -2447,7 +2453,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                 onChange={(newQty) => {
                                                                                     this.updateCreateItemQuantityValidated(item.productId, newQty);
                                                                                 }}
-                                                                                unit={item.unit || 'piece'}
+                                                                                unit={item.unit || ''}
                                                                                 stock={Number(item.stock || 0)}
                                                                                 title="Adjust quantity"
                                                                                 showStockWarning={item.stock !== undefined}
@@ -2872,7 +2878,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                         <QuantityControl
                                                                             value={item.quantity || 0}
                                                                             onIncrease={() => {
-                                                                                const unit = item.unit || 'piece';
+                                                                                const unit = item.unit || '';
                                                                                 const stock = Number(item.stock || 0);
                                                                                                                                                                 const next = getNextQuantity(item.quantity, { unit, stock });
                                                                                 const updated = modalItems.map(i =>
@@ -2883,7 +2889,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                                 this.setState({ modalItems: updated });
                                                                             }}
                                                                             onDecrease={() => {
-                                                                                const unit = item.unit || 'piece';
+                                                                                const unit = item.unit || '';
                                                                                 const prev = getPreviousQuantity(item.quantity, { unit });
                                                                                 const updated = modalItems.map(i =>
                                                                                   i.productId === item.productId
@@ -2895,7 +2901,7 @@ class AdminOfflineOrdersPage extends React.Component {
                                                                             onChange={(newQty) => {
                                                                                 this.updateModalItemQuantityValidated(item.productId, newQty);
                                                                             }}
-                                                                            unit={item.unit || 'piece'}
+                                                                            unit={item.unit || ''}
                                                                             stock={Number(item.stock || 0)}
                                                                             disabled={isLocked}
                                                                             title={isLocked ? 'Order locked' : 'Adjust quantity'}

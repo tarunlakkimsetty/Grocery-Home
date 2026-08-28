@@ -2,6 +2,9 @@ const Order = require('../models/orderModel');
 const Product = require('../models/productModel');
 const User = require('../models/userModel');
 const { promisePool } = require('../config/db');
+const { getOrderAvailabilitySettings } = require('../models/orderAvailabilitySettingsModel');
+const { calculateLinePricing } = require('../utils/pricing');
+const { canCustomerCancelOrder } = require('../utils/customerOrderRules');
 
 const STOCK_LIMIT_MESSAGE = 'Quantity exceeds stock limit';
 
@@ -37,7 +40,7 @@ const SHOP_INFO = {
  */
 const createOnlineOrder = async (req, res, next) => {
     try {
-        console.log('Incoming Online Order:', req.body);
+        console.log('[createOnlineOrder] incomingPayload', req.body);
 
         let {
             customerName,
@@ -53,6 +56,14 @@ const createOnlineOrder = async (req, res, next) => {
 
         const safeItems = Array.isArray(items) ? items : [];
         const customerId = req.user.id;
+
+        const availability = await getOrderAvailabilitySettings();
+        if (!availability.onlineOrdersEnabled) {
+            return res.status(403).json({
+                success: false,
+                message: 'Online orders are currently unavailable. Please try again later.'
+            });
+        }
 
         // Trust server-side profile details over client payload (prevents placeholder phone like 0000000000)
         const dbUser = await User.findById(customerId);
@@ -109,11 +120,12 @@ const createOnlineOrder = async (req, res, next) => {
         for (const item of safeItems) {
             const productId = Number(item?.productId ?? item?.id);
             const quantity = Number(item?.quantity);
+            console.log('[createOnlineOrder] validatingItem', { productId, quantity, rawItem: item });
 
-            if (!Number.isInteger(productId) || productId <= 0 || !Number.isInteger(quantity) || quantity <= 0) {
+            if (!Number.isInteger(productId) || productId <= 0 || !Number.isFinite(quantity) || quantity <= 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Invalid order payload (items must include productId and quantity as positive integers)',
+                    message: 'Invalid order payload (items must include productId and quantity as positive numbers)',
                     received: req.body
                 });
             }
@@ -133,13 +145,21 @@ const createOnlineOrder = async (req, res, next) => {
                 });
             }
 
-            const itemTotal = product.price * quantity;
-            totalAmount += itemTotal;
+            const line = calculateLinePricing(product, quantity);
+            const itemTotal = line.total;
+            totalAmount = Number((totalAmount + itemTotal).toFixed(2));
+            console.log('[createOnlineOrder] computedItem', { productId, quantity, price: product.price, itemTotal, totalAmount });
 
             orderItems.push({
                 productId: product.id,
                 productName: product.name,
-                price: product.price,
+                price: line.price,
+                originalPrice: line.originalPrice,
+                discountAmount: line.discountAmount,
+                discountPercentage: line.discountPercentage,
+                freeItemName: product.freeItemActive ? product.freeItemName : null,
+                freeItemQuantity: product.freeItemActive ? product.freeItemQuantity : null,
+                freeItemUnit: product.freeItemActive ? product.freeItemUnit : null,
                 quantity
             });
         }
@@ -194,6 +214,53 @@ const getCustomerOrders = async (req, res, next) => {
             success: true,
             count: orders.length,
             orders
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * @desc    Customer cancels their own order if it is not finalized
+ * @route   PUT /api/orders/customer/:id/cancel
+ * @access  Customer (own orders)
+ */
+const cancelCustomerOrder = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const customerId = Number(req.user?.id);
+        const order = await Order.findById(id);
+
+        if (!order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        if (order.customerId && Number(order.customerId) !== customerId) {
+            return res.status(403).json({ success: false, message: 'You can only cancel your own orders.' });
+        }
+
+        const allowed = canCustomerCancelOrder(order);
+        if (!allowed) {
+            return res.status(400).json({ success: false, message: 'This order cannot be cancelled at this stage.' });
+        }
+
+        const [updatedOrder] = await promisePool.query(
+            `UPDATE orders
+             SET status = 'Cancelled', isArchived = TRUE, updatedAt = NOW()
+             WHERE id = ? AND customerId = ?`,
+            [id, customerId]
+        );
+
+        if (!updatedOrder || updatedOrder.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        const refreshedOrder = await Order.findById(id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Order cancelled successfully',
+            order: refreshedOrder,
         });
     } catch (error) {
         next(error);
@@ -328,6 +395,8 @@ const getAdminOrders = async (req, res, next) => {
             search: typeof search === 'string' && search.trim() ? search.trim() : null
         });
 
+        console.log('[getAdminOrders] view', view, 'statuses', (result?.orders || []).slice(0, 10).map((order) => order?.status));
+
         const normalizedOrders = (result?.orders || []).map((order) => {
             const items = Array.isArray(order?.items) ? order.items : [];
             const normalizedItems = items.map((item) => {
@@ -409,8 +478,15 @@ const getOrder = async (req, res, next) => {
                 oi.id,
                 oi.productId,
                 COALESCE(p.name, oi.productName) AS productName,
+                p.unit AS unit,
                 oi.quantity,
                 oi.price,
+                oi.originalPrice,
+                oi.discountAmount,
+                oi.discountPercentage,
+                oi.freeItemName,
+                oi.freeItemQuantity,
+                oi.freeItemUnit,
                 (oi.quantity * oi.price) AS subtotal,
                 (oi.quantity * oi.price) AS total,
                 oi.isSelected,
@@ -426,6 +502,7 @@ const getOrder = async (req, res, next) => {
             const quantity = Number(it?.quantity || 0) || 0;
             const price = Number(it?.price || 0) || 0;
             const subtotal = Number(it?.subtotal || (quantity * price) || 0) || 0;
+            const normalizedUnit = String(it?.unit ?? '').trim();
             return {
                 ...it,
                 quantity,
@@ -435,6 +512,7 @@ const getOrder = async (req, res, next) => {
                 // Compatibility: existing admin order modals also read `name`
                 name: it?.productName,
                 stock: Number(it?.stock || 0) || 0,
+                unit: normalizedUnit || null,
             };
         });
 
@@ -528,6 +606,7 @@ const getOrderPrintData = async (req, res, next) => {
                 oi.id,
                 oi.productId,
                 COALESCE(p.name, oi.productName) AS productName,
+                p.unit AS unit,
                 oi.quantity,
                 oi.price,
                 (oi.quantity * oi.price) AS subtotal,
@@ -544,10 +623,12 @@ const getOrderPrintData = async (req, res, next) => {
             const quantity = Number(item?.quantity || 0) || 0;
             const price = Number(item?.price || 0) || 0;
             const subtotal = Number(item?.subtotal || quantity * price || 0) || 0;
+            const normalizedUnit = String(item?.unit ?? '').trim();
             return {
                 productId: item?.productId,
                 productName: item?.productName || '',
                 quantity,
+                unit: normalizedUnit || null,
                 price,
                 subtotal,
             };
@@ -648,6 +729,7 @@ const getCustomerOrderPrintData = async (req, res, next) => {
                 oi.id,
                 oi.productId,
                 COALESCE(p.name, oi.productName) AS productName,
+                p.unit AS unit,
                 oi.quantity,
                 oi.price,
                 (oi.quantity * oi.price) AS subtotal,
@@ -664,10 +746,12 @@ const getCustomerOrderPrintData = async (req, res, next) => {
             const quantity = Number(item?.quantity || 0) || 0;
             const price = Number(item?.price || 0) || 0;
             const subtotal = Number(item?.subtotal || quantity * price || 0) || 0;
+            const normalizedUnit = String(item?.unit ?? '').trim();
             return {
                 productId: item?.productId,
                 productName: item?.productName || '',
                 quantity,
+                unit: normalizedUnit || null,
                 price,
                 subtotal,
             };
@@ -974,7 +1058,7 @@ const addItemToOrder = async (req, res, next) => {
         const { id } = req.params;
         const { productId, quantity } = req.body;
 
-        if (!productId || !quantity) {
+        if (productId === undefined || productId === null || quantity === undefined || quantity === null) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide productId and quantity'
@@ -990,8 +1074,8 @@ const addItemToOrder = async (req, res, next) => {
             });
         }
 
-        const qtyInt = parseInt(quantity);
-        if (!Number.isInteger(qtyInt) || qtyInt <= 0) {
+        const qtyValue = Number(quantity);
+        if (!Number.isFinite(qtyValue) || qtyValue <= 0) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide productId and quantity'
@@ -999,7 +1083,7 @@ const addItemToOrder = async (req, res, next) => {
         }
 
         // Quick guard (model also enforces, including cumulative quantity).
-        if (Number(product.stock) < qtyInt) {
+        if (Number(product.stock) < qtyValue) {
             return res.status(400).json({
                 success: false,
                 message: STOCK_LIMIT_MESSAGE,
@@ -1010,7 +1094,7 @@ const addItemToOrder = async (req, res, next) => {
             productId: product.id,
             productName: product.name,
             price: product.price,
-            quantity: qtyInt
+            quantity: qtyValue
         });
 
         const order = await Order.findById(id);
@@ -1093,13 +1177,20 @@ const createOfflineOrder = async (req, res, next) => {
                 });
             }
 
-            const itemTotal = product.price * item.quantity;
+            const line = calculateLinePricing(product, item.quantity);
+            const itemTotal = line.total;
             totalAmount += itemTotal;
 
             orderItems.push({
                 productId: product.id,
                 productName: product.name,
-                price: product.price,
+                price: line.price,
+                originalPrice: line.originalPrice,
+                discountAmount: line.discountAmount,
+                discountPercentage: line.discountPercentage,
+                freeItemName: product.freeItemActive ? product.freeItemName : null,
+                freeItemQuantity: product.freeItemActive ? product.freeItemQuantity : null,
+                freeItemUnit: product.freeItemActive ? product.freeItemUnit : null,
                 quantity: item.quantity
             });
         }
@@ -1197,6 +1288,7 @@ module.exports = {
     getCustomerOrders,
     getAdminOrders,
     getOrder,
+    cancelCustomerOrder,
     updateOrderItems,
     acceptOrder,
     verifyOrder,

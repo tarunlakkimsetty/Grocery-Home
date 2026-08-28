@@ -210,6 +210,25 @@ const createCoreTables = async () => {
     `);
 
     await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS product_reviews (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            order_id INT NOT NULL,
+            order_item_id INT NULL,
+            product_id INT NOT NULL,
+            customer_id INT NOT NULL,
+            rating TINYINT NOT NULL,
+            comment TEXT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_product_reviews_order_product_customer (order_id, product_id, customer_id),
+            INDEX idx_product_reviews_order_id (order_id),
+            INDEX idx_product_reviews_order_item_id (order_item_id),
+            INDEX idx_product_reviews_product_id (product_id),
+            INDEX idx_product_reviews_customer_id (customer_id),
+            INDEX idx_product_reviews_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await promisePool.query(`
         CREATE TABLE IF NOT EXISTS bills (
             id INT AUTO_INCREMENT PRIMARY KEY,
             userId INT NOT NULL,
@@ -444,6 +463,38 @@ const runMigration = async () => {
             deleteRule: 'CASCADE',
             updateRule: 'RESTRICT'
         });
+        await ensureForeignKey({
+            tableName: 'product_reviews',
+            columnName: 'order_id',
+            referencedTable: 'orders',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'product_reviews',
+            columnName: 'order_item_id',
+            referencedTable: 'order_items',
+            referencedColumn: 'id',
+            deleteRule: 'SET NULL',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'product_reviews',
+            columnName: 'product_id',
+            referencedTable: 'products',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
+        await ensureForeignKey({
+            tableName: 'product_reviews',
+            columnName: 'customer_id',
+            referencedTable: 'users',
+            referencedColumn: 'id',
+            deleteRule: 'CASCADE',
+            updateRule: 'RESTRICT'
+        });
 
         await ensureIndex('users', 'idx_users_phone', '`phone`');
         await ensureIndex('users', 'idx_users_role', '`role`');
@@ -457,6 +508,11 @@ const runMigration = async () => {
         await ensureIndex('order_items', 'idx_order_items_productId', '`productId`');
         await ensureIndex('feedback', 'idx_feedback_order_id', '`order_id`');
         await ensureIndex('feedback', 'idx_feedback_customer_id', '`customer_id`');
+        await ensureIndex('product_reviews', 'idx_product_reviews_order_id', '`order_id`');
+        await ensureIndex('product_reviews', 'idx_product_reviews_order_item_id', '`order_item_id`');
+        await ensureIndex('product_reviews', 'idx_product_reviews_product_id', '`product_id`');
+        await ensureIndex('product_reviews', 'idx_product_reviews_customer_id', '`customer_id`');
+        await ensureIndex('product_reviews', 'idx_product_reviews_created_at', '`created_at`');
         await ensureIndex('bills', 'idx_bills_userId', '`userId`');
         await ensureIndex('bills', 'idx_bills_createdAt', '`createdAt`');
         await ensureIndex('bill_items', 'idx_bill_items_billId', '`billId`');
